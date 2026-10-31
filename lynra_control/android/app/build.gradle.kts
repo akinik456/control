@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.lynra_control"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

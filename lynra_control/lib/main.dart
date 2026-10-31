@@ -6,6 +6,7 @@ import 'core/theme/app_preferences.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/program_editor_page.dart';
+import 'screens/ble_connection_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -133,6 +134,19 @@ class HomePage extends StatelessWidget {
                   icon: const Icon(Icons.folder_outlined),
                   label: Text(l10n.myPrograms),
                 ),
+								const SizedBox(height: 12),
+								OutlinedButton.icon(
+									onPressed: () {
+										Navigator.push(
+											context,
+											MaterialPageRoute(
+												builder: (_) => const BleConnectionPage(),
+											),
+										);
+									},
+									icon: const Icon(Icons.bluetooth),
+									label: const Text('Cihaza Bağlan'),
+								),
               ],
             ),
           ),

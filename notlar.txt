@@ -11,3 +11,34 @@ Editör gereksinimleri listemize ikinci maddeyi ekleyelim:
 - G-02: Koşul ortadan kalktığında çıkışın belirlenen süre sonunda kapanması (Off-Delay).
 - G-03: Zamanlayıcıyı ve çıkışı sıfırlayabilen Reset girişi.
 
+*******
+
+[SOF][VER][TYPE][SEQ][LEN][PAYLOAD][CRC32]
+
+SOF: Mesaj başlangıcı
+VER: Protokol sürümü
+TYPE: Komut / cevap / olay
+SEQ: Mesaj sıra numarası
+LEN: Veri uzunluğu
+PAYLOAD: Mesaj içeriği
+CRC32: Mesaj bütünlüğü kontrolü
+
+[SOF][VER][HEADER_LEN][DEVICE_ID][SESSION_ID]
+[TYPE][SEQ][LEN][PAYLOAD][CRC32]
+
+Alan	Boyut
+SOF	2 byte
+VERSION	1 byte
+HEADER_LEN	1 byte
+DEVICE_ID	8 byte
+SESSION_ID	4 byte
+TYPE	1 byte
+SEQ	4 byte
+LEN	2 byte
+PAYLOAD	Değişken
+CRC32	4 byte
+
+Toplam sabit yük: 27 byte + payload.
+
+CRC32, SOF hariç bütün mesajı kapsayacak. Çok byte'lı sayıları little-endian kodlayacağız.
+

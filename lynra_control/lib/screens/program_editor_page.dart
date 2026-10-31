@@ -424,6 +424,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   void _showJson() {
     _program.name = _name.text.trim();
     final json = const JsonEncoder.withIndent('  ').convert(_program.toJson());
+		final compactJson = jsonEncode(_program.toJson());
+		debugPrint('PLC JSON SIZE: ${utf8.encode(compactJson).length} bytes');
     showDialog<void>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('Program JSON'),
       content: SingleChildScrollView(child: SelectableText(json)),
