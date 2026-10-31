@@ -1,0 +1,13 @@
+İlk genel kabullerimiz şöyle olsun:
+1. Kurallar yukarıdan aşağıya değerlendirilir.
+2. Çakışma varsa alttaki kural kazanır.
+3. Bir koşul sağlanmıyorsa o kural çıkışa müdahale etmez.
+4. Hiçbir kural çıkışı değiştirmiyorsa çıkış son durumunu korur.
+5. Cihaz ilk açıldığında bütün çıkışlar OFF başlar.
+
+**********
+Editör gereksinimleri listemize ikinci maddeyi ekleyelim:
+- G-01: Koşulun belirli süre kesintisiz sağlanması (On-Delay).
+- G-02: Koşul ortadan kalktığında çıkışın belirlenen süre sonunda kapanması (Off-Delay).
+- G-03: Zamanlayıcıyı ve çıkışı sıfırlayabilen Reset girişi.
+

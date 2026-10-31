@@ -1,0 +1,31 @@
+{
+
+"@@locale": 														"en",
+"newProgram": 													"New Program",
+"myPrograms": 													"My Programs",
+"programEditor": 												"Program Editor",
+"programName": 													"Program name",
+"defaultProgramName": 									"Motor Control",
+"programJson": 													"Program JSON",
+"close": 																"Close",
+"addStep": 															"Add Step",
+"inputCondition": 											"Input condition",
+"delayStep": 														"Wait",
+"outputControl": 												"Output control",
+"inputLabel": 													"Input",
+"conditionLabel": 											"Condition",
+"outputLabel": 													"Output",
+"risingEdge": 													"When changing from OFF to ON",
+"fallingEdge": 													"When changing from ON to OFF",
+"highLevel": 														"While active",
+"lowLevel": 														"While inactive",
+"delayDuration": 												"Wait duration",
+"secondsUnit": 													"seconds",
+"outputOn": 														"Turn output ON",
+"outputOff": 														"Turn output OFF",
+"moveUp": 															"Move up",
+"moveDown": 														"Move down",
+"deleteStep": 													"Delete",
+"newProgram": 													"New Program"
+
+}

@@ -1,0 +1,14 @@
+No	Kullanıcının istediği
+1	Butona basınca lamba yansın, bırakınca sönsün.
+2	Butona basınca lamba hemen yansın, bırakınca 3 saniye sonra sönsün.
+3	Butona basınca lamba 3 saniye sonra yansın, bırakınca hemen sönsün.
+4	Butona basınca lamba 3 saniye sonra yansın, bırakınca 3 saniye sonra sönsün.
+5	Butona 3 saniye basılı tutarsam lamba yansın, bıraksam da yanmaya devam etsin.
+6	Butona kısa süre basıp bıraksam bile 3 saniye sonra lamba yansın.
+7	Butona basınca lamba yansın, 3 saniye sonra kendiliğinden sönsün.
+8	Butona basınca 3 saniye beklesin, lamba yansın ve 5 saniye sonra kendiliğinden sönsün.
+9	Butona her bastığımda lamba sırayla yansın ve sönsün.
+10	Butona basılı tuttuğum sürece lamba 3 saniyede bir yanıp sönsün.
+
+EĞER I1 ON 
+İSE  Q1 ON
