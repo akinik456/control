@@ -44,7 +44,23 @@ bool hasLastSeq = false;
 
 uint32_t lastProgramPacketMs = 0;
 constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
+class ServerCallbacks : public BLEServerCallbacks
+{
+  void onConnect(BLEServer *server) override
+  {
+    hasLastSeq = false;
+    lastSeq = 0;
 
+    Serial.println("BLE CLIENT CONNECTED");
+  }
+
+  void onDisconnect(BLEServer *server) override
+  {
+    Serial.println("BLE CLIENT DISCONNECTED");
+    BLEDevice::startAdvertising();
+    Serial.println("BLE ADVERTISING RESTARTED");
+  }
+};
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
   void onWrite(BLECharacteristic *characteristic) override
@@ -96,7 +112,38 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                       (unsigned long)seq);
 
         // Komut ileride yalnızca burada işlenecek.
+        if (type == 0x20) // RUN
+        {
+          xSemaphoreTake(programMutex, portMAX_DELAY);
 
+          if (plcState == PlcState::Stop &&
+              !activeProgram.controlBlocks.empty())
+          {
+            controlEngine.reset();
+            plcState = PlcState::Run;
+            Serial.println("PLC STATE: RUN (BLE)");
+          }
+          else
+          {
+            Serial.println("RUN REJECTED");
+          }
+
+          xSemaphoreGive(programMutex);
+        }
+
+        if (type == 0x21) // STOP
+        {
+          xSemaphoreTake(programMutex, portMAX_DELAY);
+
+          plcState = PlcState::Stop;
+          controlEngine.reset();
+
+          xSemaphoreGive(programMutex);
+
+          programTransferActive = false;
+
+          Serial.println("PLC STATE: STOP (BLE)");
+        }
         if (type == 0x10) // PROGRAM_BEGIN
         {
           const uint16_t payloadLength =
@@ -269,29 +316,33 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 }
                 else
                 {
-                  size_t ruleCount = 0;
+                  String validationError;
 
-                  for (const auto &block : receivedProgram.controlBlocks)
+                  if (!receivedProgram.validate(validationError))
                   {
-                    ruleCount += block.groups.size();
+                    xSemaphoreTake(programMutex, portMAX_DELAY);
+                    plcState = PlcState::Stop;
+                    xSemaphoreGive(programMutex);
+
+                    Serial.printf("PROGRAM VALIDATION FAILED: %s\n",
+                                  validationError.c_str());
+                    Serial.println("PLC STATE: STOP");
                   }
+                  else
+                  {
+                    Serial.println("PROGRAM VALIDATION OK");
 
-                  Serial.printf(
-                      "NEW PARSER: OK - Blocks=%u Rules=%u\n",
-                      (unsigned)receivedProgram.controlBlocks.size(),
-                      (unsigned)ruleCount);
+                    xSemaphoreTake(programMutex, portMAX_DELAY);
 
-                  xSemaphoreTake(programMutex, portMAX_DELAY);
+                    activeProgram = std::move(receivedProgram);
+                    controlEngine.reset();
+                    plcState = PlcState::Run;
 
-                  activeProgram = std::move(receivedProgram);
-                  controlEngine.reset();
+                    xSemaphoreGive(programMutex);
 
-                  plcState = PlcState::Run;
-                  Serial.println("PLC STATE: RUN");
-
-                  xSemaphoreGive(programMutex);
-
-                  Serial.println("NEW ENGINE: PROGRAM LOADED");
+                    Serial.println("PLC STATE: RUN");
+                    Serial.println("NEW ENGINE: PROGRAM LOADED");
+                  }
                 }
               }
               // JSON doğrulama ve programı etkinleştirme
@@ -388,6 +439,8 @@ void setup()
   BLEDevice::init("LynraControl");
 
   BLEServer *server = BLEDevice::createServer();
+
+  server->setCallbacks(new ServerCallbacks());
 
   BLEService *service = server->createService(SERVICE_UUID);
 

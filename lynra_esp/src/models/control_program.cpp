@@ -242,6 +242,86 @@ bool ControlProgram::fromJson(JsonVariantConst json)
     return true;
 }
 
+bool ControlProgram::validate(String &error) const
+{
+    error = "";
+
+    std::vector<String> ruleIds;
+
+    for (const auto &block : controlBlocks)
+    {
+        for (const auto &rule : block.groups)
+        {
+            if (rule.id.isEmpty())
+            {
+                error = "Empty rule ID";
+                return false;
+            }
+
+            for (const auto &id : ruleIds)
+            {
+                if (id == rule.id)
+                {
+                    error = "Duplicate rule ID: " + rule.id;
+                    return false;
+                }
+            }
+
+            ruleIds.push_back(rule.id);
+
+            if (rule.conditions.empty() || rule.actions.empty())
+            {
+                error = "Empty conditions/actions: " + rule.id;
+                return false;
+            }
+
+            if (rule.onDelayMs < 0 || rule.offDelayMs < 0)
+            {
+                error = "Negative TON/TOF: " + rule.id;
+                return false;
+            }
+
+            for (const auto &condition : rule.conditions)
+            {
+                if (condition.inputIndex < 1 ||
+                    condition.inputIndex > 4)
+                {
+                    error = "Invalid input: " + rule.id;
+                    return false;
+                }
+            }
+
+            for (const auto &action : rule.actions)
+            {
+                if (action.type != ControlActionType::Delay &&
+                    (action.outputIndex < 1 ||
+                     action.outputIndex > 4))
+                {
+                    error = "Invalid output: " + rule.id;
+                    return false;
+                }
+
+                if (action.type == ControlActionType::Delay &&
+                    action.durationMs < 0)
+                {
+                    error = "Invalid DELAY: " + rule.id;
+                    return false;
+                }
+
+                if (action.type == ControlActionType::BlinkOutput &&
+                    (action.durationMs <= 0 ||
+                     action.offDurationMs <= 0))
+                {
+                    error = "Invalid BLINK: " + rule.id;
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
 void testControlProgramJson()
 {
     const char *testJson = R"json(
@@ -502,4 +582,50 @@ void testControlProgramJson()
     blinkInputs[1] = false;
     blinkEngine.scan(900, blinkInputs);
     Serial.printf("BLINK t=900 Q1=%d\n", blinkEngine.output(1));
+    // PROGRAM VALIDATION NEGATIVE TESTS
+    auto testInvalid = [](const char *name, ControlProgram p)
+    {
+        String error;
+        bool accepted = p.validate(error);
+
+        Serial.printf("VALIDATION TEST %-18s : %s (%s)\n",
+                      name,
+                      accepted ? "FAIL" : "PASS",
+                      error.c_str());
+    };
+
+    ControlProgram invalid = program;
+
+    invalid.controlBlocks[0].groups[0].conditions[0].inputIndex = 5;
+    testInvalid("Input I5", invalid);
+
+    invalid = program;
+    invalid.controlBlocks[0].groups[0].actions[0].outputIndex = 5;
+    testInvalid("Output Q5", invalid);
+
+    invalid = program;
+    invalid.controlBlocks[0].groups[0].onDelayMs = -100;
+    testInvalid("Negative TON", invalid);
+
+    invalid = program;
+    invalid.controlBlocks[0].groups[0].offDelayMs = -100;
+    testInvalid("Negative TOF", invalid);
+
+    invalid = program;
+    invalid.controlBlocks[0].groups[0].actions[0].type =
+        ControlActionType::Delay;
+    invalid.controlBlocks[0].groups[0].actions[0].durationMs = -100;
+    testInvalid("Negative DELAY", invalid);
+
+    invalid = program;
+    invalid.controlBlocks[0].groups[0].actions[0].type =
+        ControlActionType::BlinkOutput;
+    invalid.controlBlocks[0].groups[0].actions[0].durationMs = 0;
+    invalid.controlBlocks[0].groups[0].actions[0].offDurationMs = 200;
+    testInvalid("Invalid BLINK", invalid);
+
+    invalid = program;
+    invalid.controlBlocks[0].groups.push_back(
+        invalid.controlBlocks[0].groups[0]);
+    testInvalid("Duplicate rule ID", invalid);
 }

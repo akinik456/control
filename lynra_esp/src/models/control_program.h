@@ -13,4 +13,5 @@ struct ControlProgram
     String name;
     std::vector<ControlBlock> controlBlocks;
     bool fromJson(JsonVariantConst json);
+    bool validate(String &error) const;
 };
