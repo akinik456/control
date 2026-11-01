@@ -44,6 +44,42 @@ bool hasLastSeq = false;
 
 uint32_t lastProgramPacketMs = 0;
 constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
+constexpr uint8_t BLE_TYPE_STATUS = 0x30;
+constexpr uint8_t BLE_TYPE_STATUS_REQUEST = 0x31;
+
+// STATUS payload: 0=STOP, 1=PROGRAMMING, 2=RUN.
+// STATUS is a notification, not an ACK. Its SEQ echoes the request when available.
+void sendPlcStatus(uint32_t seq)
+{
+  if (tx == nullptr)
+    return;
+
+  xSemaphoreTake(programMutex, portMAX_DELAY);
+  const PlcState state = plcState;
+  xSemaphoreGive(programMutex);
+
+  uint8_t frame[28] = {};
+  frame[0] = 0x4C;
+  frame[1] = 0x43;
+  frame[2] = 1;
+  frame[3] = 23;
+  frame[16] = BLE_TYPE_STATUS;
+  for (int i = 0; i < 4; ++i)
+    frame[17 + i] = (seq >> (8 * i)) & 0xFF;
+  frame[21] = 1; // payload length
+  frame[23] = state == PlcState::Run ? 2 : state == PlcState::Programming ? 1
+                                                                          : 0;
+
+  const uint32_t crc = LynraProtocol::calculateCRC32(frame + 2, 22);
+  for (int i = 0; i < 4; ++i)
+    frame[24 + i] = (crc >> (8 * i)) & 0xFF;
+
+  tx->setValue(frame, sizeof(frame));
+  tx->notify();
+  Serial.printf("BLE TX: STATUS=%u SEQ=%lu\n",
+                (unsigned)frame[23], (unsigned long)seq);
+}
+
 class ServerCallbacks : public BLEServerCallbacks
 {
   void onConnect(BLEServer *server) override
@@ -382,6 +418,12 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
         Serial.printf("BLE TX: ACK SEQ=%lu\n",
                       (unsigned long)seq);
+        // Reply with the actual PLC state after ACK. A command ACK alone
+        // does not imply that RUN or program validation succeeded.
+        if (type == 1 || type == 0x10 || type == 0x12 ||
+            type == 0x20 || type == 0x21 ||
+            type == BLE_TYPE_STATUS_REQUEST)
+          sendPlcStatus(seq);
       }
     }
     else
@@ -487,6 +529,7 @@ void loop()
   }
 
   static bool previousNewOutputs[4] = {false, false, false, false};
+  bool transferTimedOut = false;
   xSemaphoreTake(programMutex, portMAX_DELAY);
   if (plcState == PlcState::Programming &&
       programTransferActive &&
@@ -495,6 +538,7 @@ void loop()
     plcState = PlcState::Stop;
     programTransferActive = false;
 
+    transferTimedOut = true;
     Serial.println("PROGRAM TRANSFER TIMEOUT");
     Serial.println("PLC STATE: STOP");
   }
@@ -538,5 +582,7 @@ void loop()
     }
   }
   xSemaphoreGive(programMutex);
+  if (transferTimedOut)
+    sendPlcStatus(0);
   delay(100);
 }

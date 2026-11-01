@@ -35,6 +35,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
   int? pendingSeq;
   int nextSeq = 1;
   String status = 'Disconnected';
+  String plcStatus = 'Unknown';
 
   int calculateCRC32(List<int> data) {
     int crc = 0xFFFFFFFF;
@@ -101,6 +102,21 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
         (value[18] << 8) |
         (value[19] << 16) |
         (value[20] << 24);
+    if (type == 0x30) {
+      if (payloadLength != 1) {
+        debugPrint('BLE RX: INVALID STATUS LENGTH');
+        return;
+      }
+      final state = switch (value[23]) {
+        0 => 'STOP',
+        1 => 'PROGRAMMING',
+        2 => 'RUN',
+        _ => 'Unknown',
+      };
+      debugPrint('PLC STATUS: $state');
+      if (mounted) setState(() => plcStatus = state);
+      return;
+    }
     if (type == 2) {
       debugPrint('BLE RX: ACK SEQ=$seq CRC=OK');
       if (seq == pendingSeq &&
@@ -195,6 +211,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
     setState(() {
       connecting = true;
       status = 'Connecting...';
+      plcStatus = 'Unknown';
     });
     try {
       await device.connect(
@@ -216,6 +233,11 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
       final seq = nextSeq++;
       final helloOk = await sendWithAck(rx, buildFrame(1, seq, []), seq);
       if (!helloOk) throw StateError('HELLO ACK not received');
+      // Request the current PLC state after subscribing to notifications.
+      final statusSeq = nextSeq++;
+      final statusOk = await sendWithAck(
+        rx, buildFrame(0x31, statusSeq, []), statusSeq);
+      if (!statusOk) debugPrint('PLC STATUS REQUEST FAILED');
 
       await connectionSubscription?.cancel();
       connectionSubscription = device.connectionState.listen((state) {
@@ -227,7 +249,10 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
           isConnected = false;
           pendingAck = null;
           pendingSeq = null;
-          if (mounted) setState(() => status = 'Disconnected');
+          if (mounted) setState(() {
+            status = 'Disconnected';
+            plcStatus = 'Unknown';
+          });
         }
       });
 
@@ -252,6 +277,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
           connectedRx = null;
           isConnected = false;
           status = 'Connection failed';
+          plcStatus = 'Unknown';
         });
       }
     } finally {
@@ -281,6 +307,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
         setState(() {
           connecting = false;
           status = 'Disconnected';
+          plcStatus = 'Unknown';
         });
       }
     }
@@ -358,6 +385,11 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Text('BLE: $status'),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text('PLC: $plcStatus',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
