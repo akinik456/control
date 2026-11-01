@@ -28,10 +28,22 @@ bool programTransferActive = false;
 
 ControlProgram activeProgram;
 ControlEngine controlEngine(activeProgram);
+enum class PlcState
+{
+  Stop,
+  Programming,
+  Run
+};
+
+PlcState plcState = PlcState::Stop;
+SemaphoreHandle_t programMutex = nullptr;
 bool virtualInputs[4] = {false, false, false, false};
 
 uint32_t lastSeq = 0;
 bool hasLastSeq = false;
+
+uint32_t lastProgramPacketMs = 0;
+constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
 
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
@@ -112,6 +124,8 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             if (size == 0 || size > MAX_PROGRAM_SIZE)
             {
               Serial.println("PROGRAM_BEGIN: INVALID SIZE");
+              // Mevcut RUN durumunu değiştirmiyoruz;
+              // geçerli bir programlama oturumu başlamadı.
             }
             else
             {
@@ -119,6 +133,17 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
               expectedProgramCRC = crc;
               receivedProgramSize = 0;
               programTransferActive = true;
+
+              lastProgramPacketMs = millis();
+
+              xSemaphoreTake(programMutex, portMAX_DELAY);
+
+              plcState = PlcState::Programming;
+              controlEngine.reset();
+
+              xSemaphoreGive(programMutex);
+
+              Serial.println("PLC STATE: PROGRAMMING - OUTPUTS OFF");
 
               Serial.printf(
                   "PROGRAM_BEGIN: SIZE=%lu CRC=%08lX\n",
@@ -140,7 +165,10 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
           }
           else if (payloadLength > expectedProgramSize - receivedProgramSize)
           {
+            plcState = PlcState::Stop;
+            programTransferActive = false;
             Serial.println("PROGRAM_DATA: SIZE OVERFLOW");
+            Serial.println("PLC STATE: STOP");
           }
           else
           {
@@ -150,6 +178,8 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 payloadLength);
 
             receivedProgramSize += payloadLength;
+
+            lastProgramPacketMs = millis();
 
             Serial.printf(
                 "PROGRAM_DATA: RECEIVED=%lu/%lu\n",
@@ -166,7 +196,10 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
           if (payloadLength != 0)
           {
+            plcState = PlcState::Stop;
+            programTransferActive = false;
             Serial.println("PROGRAM_END: INVALID LENGTH");
+            Serial.println("PLC STATE: STOP");
           }
           else if (!programTransferActive)
           {
@@ -174,10 +207,15 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
           }
           else if (receivedProgramSize != expectedProgramSize)
           {
+            plcState = PlcState::Stop;
+            programTransferActive = false;
+
             Serial.printf(
                 "PROGRAM_END: SIZE ERROR %lu/%lu\n",
                 (unsigned long)receivedProgramSize,
                 (unsigned long)expectedProgramSize);
+
+            Serial.println("PLC STATE: STOP");
           }
           else
           {
@@ -187,7 +225,11 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
             if (actualCRC != expectedProgramCRC)
             {
+              plcState = PlcState::Stop;
+              programTransferActive = false;
+
               Serial.println("PROGRAM_END: CRC ERROR");
+              Serial.println("PLC STATE: STOP");
             }
             else
             {
@@ -204,7 +246,9 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
               if (error)
               {
+                plcState = PlcState::Stop;
                 Serial.printf("JSON ERROR: %s\n", error.c_str());
+                Serial.println("PLC STATE: STOP");
               }
               else
               {
@@ -219,7 +263,9 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
                 if (!receivedProgram.fromJson(doc.as<JsonVariantConst>()))
                 {
+                  plcState = PlcState::Stop;
                   Serial.println("NEW PARSER: FAILED");
+                  Serial.println("PLC STATE: STOP");
                 }
                 else
                 {
@@ -235,8 +281,15 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                       (unsigned)receivedProgram.controlBlocks.size(),
                       (unsigned)ruleCount);
 
+                  xSemaphoreTake(programMutex, portMAX_DELAY);
+
                   activeProgram = std::move(receivedProgram);
                   controlEngine.reset();
+
+                  plcState = PlcState::Run;
+                  Serial.println("PLC STATE: RUN");
+
+                  xSemaphoreGive(programMutex);
 
                   Serial.println("NEW ENGINE: PROGRAM LOADED");
                 }
@@ -291,6 +344,14 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 void setup()
 {
   Serial.begin(115200);
+  programMutex = xSemaphoreCreateMutex();
+
+  if (programMutex == nullptr)
+  {
+    Serial.println("PROGRAM MUTEX CREATE FAILED");
+    while (true)
+      delay(1000);
+  }
   delay(500);
   testControlProgramJson();
   const uint8_t testData[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
@@ -373,8 +434,20 @@ void loop()
   }
 
   static bool previousNewOutputs[4] = {false, false, false, false};
+  xSemaphoreTake(programMutex, portMAX_DELAY);
+  if (plcState == PlcState::Programming &&
+      programTransferActive &&
+      (uint32_t)(millis() - lastProgramPacketMs) > PROGRAM_TIMEOUT_MS)
+  {
+    plcState = PlcState::Stop;
+    programTransferActive = false;
 
-  if (!activeProgram.controlBlocks.empty())
+    Serial.println("PROGRAM TRANSFER TIMEOUT");
+    Serial.println("PLC STATE: STOP");
+  }
+
+  if (plcState == PlcState::Run &&
+      !activeProgram.controlBlocks.empty())
   {
     std::map<int, bool> inputs;
 
@@ -400,5 +473,17 @@ void loop()
       }
     }
   }
+  if (plcState != PlcState::Run)
+  {
+    for (int i = 0; i < 4; i++)
+    {
+      if (previousNewOutputs[i])
+      {
+        previousNewOutputs[i] = false;
+        Serial.printf("NEW ENGINE: Q%d=0\n", i + 1);
+      }
+    }
+  }
+  xSemaphoreGive(programMutex);
   delay(100);
 }
