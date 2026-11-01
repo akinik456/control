@@ -22,11 +22,25 @@ uint32_t expectedProgramCRC = 0;
 uint32_t receivedProgramSize = 0;
 bool programTransferActive = false;
 bool plcReady = false;
-bool virtualI1 = false;
-bool virtualQ1 = false;
+bool virtualInputs[4] = {false, false, false, false};
+bool virtualOutputs[4] = {false, false, false, false};
 
 uint32_t lastSeq = 0;
 bool hasLastSeq = false;
+
+struct PlcRule
+{
+  uint8_t inputIndex;
+  bool expectedState;
+  uint8_t outputIndex;
+  bool outputState;
+};
+
+constexpr uint8_t MAX_PLC_RULES = 16;
+
+PlcRule activeRules[MAX_PLC_RULES];
+
+uint8_t activeRuleCount = 0;
 
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
@@ -217,47 +231,46 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                   Serial.printf("RULE COUNT: %u\n",
                                 (unsigned)groups.size());
 
-                  if (groups.size() > 0)
+                  activeRuleCount = 0;
+                  plcReady = false;
+
+                  for (JsonObject rule : groups)
                   {
-                    JsonObject rule = groups[0];
+                    if (activeRuleCount >= MAX_PLC_RULES)
+                      break;
 
                     JsonArray conditions = rule["conditions"].as<JsonArray>();
                     JsonArray actions = rule["actions"].as<JsonArray>();
 
-                    Serial.printf("CONDITIONS: %u\n",
-                                  (unsigned)conditions.size());
+                    if (conditions.size() != 1 || actions.size() != 1)
+                      continue;
 
-                    Serial.printf("ACTIONS: %u\n",
-                                  (unsigned)actions.size());
+                    JsonObject condition = conditions[0];
+                    JsonObject action = actions[0];
 
-                    if (conditions.size() > 0)
-                    {
-                      Serial.printf("INPUT INDEX: %d\n",
-                                    conditions[0]["inputIndex"].as<int>());
+                    if (strcmp(condition["trigger"] | "", "highLevel") != 0 ||
+                        strcmp(action["type"] | "", "setOutput") != 0)
+                      continue;
 
-                      serializeJsonPretty(conditions[0], Serial);
-                      Serial.println();
-                    }
+                    int input = condition["inputIndex"] | 0;
+                    int output = action["outputIndex"] | 0;
 
-                    if (actions.size() > 0)
-                    {
-                      Serial.printf("OUTPUT INDEX: %d\n",
-                                    actions[0]["outputIndex"].as<int>());
+                    if (input < 1 || input > 4 || output < 1 || output > 4)
+                      continue;
 
-                      serializeJsonPretty(actions[0], Serial);
-                      Serial.println();
-                    }
-                    if (conditions.size() == 1 && actions.size() == 1 &&
-                        conditions[0]["inputIndex"].as<int>() == 1 &&
-                        strcmp(conditions[0]["trigger"] | "", "highLevel") == 0 &&
-                        actions[0]["outputIndex"].as<int>() == 1 &&
-                        strcmp(actions[0]["type"] | "", "setOutput") == 0 &&
-                        (actions[0]["outputState"] | false))
-                    {
-                      plcReady = true;
-                      Serial.println("PLC READY: I1 -> Q1");
-                    }
+                    PlcRule &r = activeRules[activeRuleCount++];
+
+                    r.inputIndex = input;
+                    r.expectedState = condition["expectedState"] | true;
+                    r.outputIndex = output;
+                    r.outputState = action["outputState"] | true;
+
+                    Serial.printf("RULE LOADED: I%d -> Q%d\n", input, output);
                   }
+
+                  plcReady = activeRuleCount > 0;
+
+                  Serial.printf("PLC READY: %u RULES\n", activeRuleCount);
                 }
               }
 
@@ -376,28 +389,47 @@ void loop()
   {
     char c = Serial.read();
 
-    if (c == '1')
+    if (c >= '1' && c <= '4')
     {
-      virtualI1 = true;
-      Serial.println("INPUT: I1=ON");
+      int index = c - '1';
+      virtualInputs[index] = true;
+      Serial.printf("INPUT: I%d=ON\n", index + 1);
     }
-    else if (c == '0')
+    else if (c >= 'a' && c <= 'd')
     {
-      virtualI1 = false;
-      Serial.println("INPUT: I1=OFF");
+      int index = c - 'a';
+      virtualInputs[index] = false;
+      Serial.printf("INPUT: I%d=OFF\n", index + 1);
     }
   }
 
   if (plcReady)
   {
-    bool newQ1 = virtualI1;
-
-    if (newQ1 != virtualQ1)
+    for (uint8_t i = 0; i < activeRuleCount; i++)
     {
-      virtualQ1 = newQ1;
+      const PlcRule &rule = activeRules[i];
 
-      Serial.printf("PLC: I1=%d -> Q1=%d\n",
-                    virtualI1, virtualQ1);
+      int inputIndex = rule.inputIndex - 1;
+      int outputIndex = rule.outputIndex - 1;
+
+      bool inputState = virtualInputs[inputIndex];
+
+      bool newOutput =
+          (inputState == rule.expectedState)
+              ? rule.outputState
+              : !rule.outputState;
+
+      if (newOutput != virtualOutputs[outputIndex])
+      {
+        virtualOutputs[outputIndex] = newOutput;
+
+        Serial.printf(
+            "PLC: I%d=%d -> Q%d=%d\n",
+            rule.inputIndex,
+            inputState,
+            rule.outputIndex,
+            newOutput);
+      }
     }
   }
 
