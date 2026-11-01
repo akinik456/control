@@ -4,6 +4,7 @@ import '../models/control_block.dart';
 import '../models/control_program.dart';
 import '../core/widgets/control_circuit_painter.dart';
 import 'program_simulator_page.dart';
+import 'ble_connection_page.dart';
 
 /// Structured EGER-ISE editor. No free-form program text or block cards.
 class ProgramEditorPage extends StatefulWidget {
@@ -403,6 +404,19 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               _openDiagram();
             },
           ),
+					IconButton(
+  tooltip: 'Cihaza Gönder',
+  icon: const Icon(Icons.upload_outlined),
+  onPressed: () {
+    _program.name = _name.text.trim();
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BleConnectionPage(program: _program),
+      ),
+    );
+  },
+),
         ]),
         body: Center(child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),

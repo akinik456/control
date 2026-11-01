@@ -1,6 +1,7 @@
 
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -20,6 +21,9 @@ uint32_t expectedProgramSize = 0;
 uint32_t expectedProgramCRC = 0;
 uint32_t receivedProgramSize = 0;
 bool programTransferActive = false;
+bool plcReady = false;
+bool virtualI1 = false;
+bool virtualQ1 = false;
 
 uint32_t lastSeq = 0;
 bool hasLastSeq = false;
@@ -186,6 +190,76 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
               Serial.println("PROGRAM TRANSFER COMPLETE");
 
               programTransferActive = false;
+              JsonDocument doc;
+
+              DeserializationError error = deserializeJson(
+                  doc,
+                  programBuffer,
+                  receivedProgramSize);
+
+              if (error)
+              {
+                Serial.printf("JSON ERROR: %s\n", error.c_str());
+              }
+              else
+              {
+                const char *name = doc["name"] | "Unknown";
+                JsonArray blocks = doc["controlBlocks"].as<JsonArray>();
+
+                Serial.printf("PROGRAM NAME: %s\n", name);
+                Serial.printf("CONTROL BLOCKS: %u\n",
+                              (unsigned)blocks.size());
+
+                if (!blocks.isNull() && blocks.size() > 0)
+                {
+                  JsonArray groups = blocks[0]["groups"].as<JsonArray>();
+
+                  Serial.printf("RULE COUNT: %u\n",
+                                (unsigned)groups.size());
+
+                  if (groups.size() > 0)
+                  {
+                    JsonObject rule = groups[0];
+
+                    JsonArray conditions = rule["conditions"].as<JsonArray>();
+                    JsonArray actions = rule["actions"].as<JsonArray>();
+
+                    Serial.printf("CONDITIONS: %u\n",
+                                  (unsigned)conditions.size());
+
+                    Serial.printf("ACTIONS: %u\n",
+                                  (unsigned)actions.size());
+
+                    if (conditions.size() > 0)
+                    {
+                      Serial.printf("INPUT INDEX: %d\n",
+                                    conditions[0]["inputIndex"].as<int>());
+
+                      serializeJsonPretty(conditions[0], Serial);
+                      Serial.println();
+                    }
+
+                    if (actions.size() > 0)
+                    {
+                      Serial.printf("OUTPUT INDEX: %d\n",
+                                    actions[0]["outputIndex"].as<int>());
+
+                      serializeJsonPretty(actions[0], Serial);
+                      Serial.println();
+                    }
+                    if (conditions.size() == 1 && actions.size() == 1 &&
+                        conditions[0]["inputIndex"].as<int>() == 1 &&
+                        strcmp(conditions[0]["trigger"] | "", "highLevel") == 0 &&
+                        actions[0]["outputIndex"].as<int>() == 1 &&
+                        strcmp(actions[0]["type"] | "", "setOutput") == 0 &&
+                        (actions[0]["outputState"] | false))
+                    {
+                      plcReady = true;
+                      Serial.println("PLC READY: I1 -> Q1");
+                    }
+                  }
+                }
+              }
 
               // JSON doğrulama ve programı etkinleştirme
               // sonraki aşamada yapılacak.
@@ -298,5 +372,34 @@ void setup()
 
 void loop()
 {
-  delay(1000);
+  if (Serial.available())
+  {
+    char c = Serial.read();
+
+    if (c == '1')
+    {
+      virtualI1 = true;
+      Serial.println("INPUT: I1=ON");
+    }
+    else if (c == '0')
+    {
+      virtualI1 = false;
+      Serial.println("INPUT: I1=OFF");
+    }
+  }
+
+  if (plcReady)
+  {
+    bool newQ1 = virtualI1;
+
+    if (newQ1 != virtualQ1)
+    {
+      virtualQ1 = newQ1;
+
+      Serial.printf("PLC: I1=%d -> Q1=%d\n",
+                    virtualI1, virtualQ1);
+    }
+  }
+
+  delay(100);
 }

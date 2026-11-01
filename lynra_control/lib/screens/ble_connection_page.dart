@@ -5,8 +5,15 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'dart:async';
 
+import '../models/control_program.dart';
+
 class BleConnectionPage extends StatefulWidget {
-  const BleConnectionPage({super.key});
+  final ControlProgram? program;
+
+  const BleConnectionPage({
+    super.key,
+    this.program,
+  });
 
   @override
   State<BleConnectionPage> createState() => _BleConnectionPageState();
@@ -303,15 +310,24 @@ Future<bool> sendWithAck(
 										
 										
 										
-final testBytes = List<int>.generate(
-  1000,
-  (i) => 65 + (i % 26),
+if (widget.program == null) {
+  debugPrint('PROGRAM NOT PROVIDED');
+  return;
+}
+
+final programBytes = utf8.encode(
+  jsonEncode(widget.program!.toJson()),
 );
 
-final programCRC = calculateCRC32(testBytes);
+debugPrint('REAL PROGRAM SIZE: ${programBytes.length} bytes');
+
+final programCRC = calculateCRC32(programBytes);
 
 final beginPayload = <int>[
-  0xE8, 0x03, 0x00, 0x00,
+  programBytes.length & 0xFF,
+(programBytes.length >> 8) & 0xFF,
+(programBytes.length >> 16) & 0xFF,
+(programBytes.length >> 24) & 0xFF,
   programCRC & 0xFF,
   (programCRC >> 8) & 0xFF,
   (programCRC >> 16) & 0xFF,
@@ -328,12 +344,12 @@ if (!beginOk) return;
 
 int seq = 3;
 
-for (int offset = 0; offset < testBytes.length; offset += 200) {
-  final end = (offset + 200 < testBytes.length)
+for (int offset = 0; offset < programBytes.length; offset += 200) {
+  final end = (offset + 200 < programBytes.length)
       ? offset + 200
-      : testBytes.length;
+      : programBytes.length;
 
-  final chunk = testBytes.sublist(offset, end);
+  final chunk = programBytes.sublist(offset, end);
 
   final dataFrame = buildFrame(0x11, seq, chunk);
 
