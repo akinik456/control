@@ -7,6 +7,10 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include "lynra_protocol.h"
+#include "models/control_program.h"
+#include "core/control_engine.h"
+
+void testControlProgramJson();
 
 #define SERVICE_UUID "8d21a100-64c2-4c3a-9d1e-123456789abc"
 #define WRITE_UUID "8d21a101-64c2-4c3a-9d1e-123456789abc"
@@ -21,26 +25,13 @@ uint32_t expectedProgramSize = 0;
 uint32_t expectedProgramCRC = 0;
 uint32_t receivedProgramSize = 0;
 bool programTransferActive = false;
-bool plcReady = false;
+
+ControlProgram activeProgram;
+ControlEngine controlEngine(activeProgram);
 bool virtualInputs[4] = {false, false, false, false};
-bool virtualOutputs[4] = {false, false, false, false};
 
 uint32_t lastSeq = 0;
 bool hasLastSeq = false;
-
-struct PlcRule
-{
-  uint8_t inputIndex;
-  bool expectedState;
-  uint8_t outputIndex;
-  bool outputState;
-};
-
-constexpr uint8_t MAX_PLC_RULES = 16;
-
-PlcRule activeRules[MAX_PLC_RULES];
-
-uint8_t activeRuleCount = 0;
 
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
@@ -224,56 +215,32 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 Serial.printf("CONTROL BLOCKS: %u\n",
                               (unsigned)blocks.size());
 
-                if (!blocks.isNull() && blocks.size() > 0)
+                ControlProgram receivedProgram;
+
+                if (!receivedProgram.fromJson(doc.as<JsonVariantConst>()))
                 {
-                  JsonArray groups = blocks[0]["groups"].as<JsonArray>();
+                  Serial.println("NEW PARSER: FAILED");
+                }
+                else
+                {
+                  size_t ruleCount = 0;
 
-                  Serial.printf("RULE COUNT: %u\n",
-                                (unsigned)groups.size());
-
-                  activeRuleCount = 0;
-                  plcReady = false;
-
-                  for (JsonObject rule : groups)
+                  for (const auto &block : receivedProgram.controlBlocks)
                   {
-                    if (activeRuleCount >= MAX_PLC_RULES)
-                      break;
-
-                    JsonArray conditions = rule["conditions"].as<JsonArray>();
-                    JsonArray actions = rule["actions"].as<JsonArray>();
-
-                    if (conditions.size() != 1 || actions.size() != 1)
-                      continue;
-
-                    JsonObject condition = conditions[0];
-                    JsonObject action = actions[0];
-
-                    if (strcmp(condition["trigger"] | "", "highLevel") != 0 ||
-                        strcmp(action["type"] | "", "setOutput") != 0)
-                      continue;
-
-                    int input = condition["inputIndex"] | 0;
-                    int output = action["outputIndex"] | 0;
-
-                    if (input < 1 || input > 4 || output < 1 || output > 4)
-                      continue;
-
-                    PlcRule &r = activeRules[activeRuleCount++];
-
-                    r.inputIndex = input;
-                    r.expectedState = condition["expectedState"] | true;
-                    r.outputIndex = output;
-                    r.outputState = action["outputState"] | true;
-
-                    Serial.printf("RULE LOADED: I%d -> Q%d\n", input, output);
+                    ruleCount += block.groups.size();
                   }
 
-                  plcReady = activeRuleCount > 0;
+                  Serial.printf(
+                      "NEW PARSER: OK - Blocks=%u Rules=%u\n",
+                      (unsigned)receivedProgram.controlBlocks.size(),
+                      (unsigned)ruleCount);
 
-                  Serial.printf("PLC READY: %u RULES\n", activeRuleCount);
+                  activeProgram = std::move(receivedProgram);
+                  controlEngine.reset();
+
+                  Serial.println("NEW ENGINE: PROGRAM LOADED");
                 }
               }
-
               // JSON doğrulama ve programı etkinleştirme
               // sonraki aşamada yapılacak.
             }
@@ -324,6 +291,8 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 void setup()
 {
   Serial.begin(115200);
+  delay(500);
+  testControlProgramJson();
   const uint8_t testData[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
 
   uint32_t crc = LynraProtocol::calculateCRC32(
@@ -403,35 +372,33 @@ void loop()
     }
   }
 
-  if (plcReady)
+  static bool previousNewOutputs[4] = {false, false, false, false};
+
+  if (!activeProgram.controlBlocks.empty())
   {
-    for (uint8_t i = 0; i < activeRuleCount; i++)
+    std::map<int, bool> inputs;
+
+    for (int i = 0; i < 4; i++)
     {
-      const PlcRule &rule = activeRules[i];
+      inputs[i + 1] = virtualInputs[i];
+    }
 
-      int inputIndex = rule.inputIndex - 1;
-      int outputIndex = rule.outputIndex - 1;
+    controlEngine.scan(millis(), inputs);
 
-      bool inputState = virtualInputs[inputIndex];
+    for (int i = 0; i < 4; i++)
+    {
+      bool state = controlEngine.output(i + 1);
 
-      bool newOutput =
-          (inputState == rule.expectedState)
-              ? rule.outputState
-              : !rule.outputState;
-
-      if (newOutput != virtualOutputs[outputIndex])
+      if (state != previousNewOutputs[i])
       {
-        virtualOutputs[outputIndex] = newOutput;
+        previousNewOutputs[i] = state;
 
         Serial.printf(
-            "PLC: I%d=%d -> Q%d=%d\n",
-            rule.inputIndex,
-            inputState,
-            rule.outputIndex,
-            newOutput);
+            "NEW ENGINE: Q%d=%d\n",
+            i + 1,
+            state);
       }
     }
   }
-
   delay(100);
 }

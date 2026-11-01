@@ -19,6 +19,7 @@ void ControlEngine::reset()
     resetPriority_.clear();
     blinkOwners_.clear();
     blinkOwnerStartedMs_.clear();
+    lastNowMs_ = -1;
 }
 
 bool ControlEngine::output(int index) const
@@ -31,12 +32,43 @@ void ControlEngine::scan(
     uint32_t nowMs,
     const std::map<int, bool> &inputs)
 {
+    if (lastNowMs_ >= 0 &&
+        static_cast<int64_t>(nowMs) < lastNowMs_)
+    {
+        Serial.println("PLC ERROR: Time moved backwards");
+        return;
+    }
+
+    lastNowMs_ = nowMs;
     resetPriority_.clear();
+
+    std::set<String> seenRuleIds;
 
     for (const auto &block : program_.controlBlocks)
     {
         for (const auto &rule : block.groups)
         {
+            if (!seenRuleIds.insert(rule.id).second)
+            {
+                Serial.printf(
+                    "PLC ERROR: Duplicate rule ID: %s\n",
+                    rule.id.c_str());
+                return;
+            }
+        }
+    }
+
+    for (const auto &block : program_.controlBlocks)
+    {
+        for (const auto &rule : block.groups)
+        {
+            if (rule.onDelayMs < 0 || rule.offDelayMs < 0)
+            {
+                Serial.printf(
+                    "PLC ERROR: Negative timer duration in rule %s\n",
+                    rule.id.c_str());
+                return;
+            }
             RuleState &state = ruleStates_[rule.id];
 
             const bool edgeRule = std::any_of(
@@ -99,6 +131,16 @@ void ControlEngine::scan(
 
             if (blinkOnly)
             {
+                for (const auto &action : rule.actions)
+                {
+                    if (action.durationMs <= 0 || action.offDurationMs <= 0)
+                    {
+                        Serial.printf(
+                            "PLC ERROR: Invalid BLINK duration in rule %s\n",
+                            rule.id.c_str());
+                        return;
+                    }
+                }
                 if (matched && state.blinkActivationSerial < 0)
                 {
                     state.blinkActivationSerial = ++blinkActivationSerial_;
@@ -466,6 +508,14 @@ void ControlEngine::advanceRule(
             break;
 
         case ControlActionType::Delay:
+            if (action.durationMs < 0)
+            {
+                Serial.printf(
+                    "PLC ERROR: Negative DELAY in rule %s\n",
+                    rule.id.c_str());
+                state.running = false;
+                return;
+            }
             if (state.waitUntilMs < 0)
             {
                 state.waitUntilMs =

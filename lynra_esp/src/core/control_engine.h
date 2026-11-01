@@ -78,4 +78,5 @@ private:
 
     std::map<int, String> blinkOwners_;
     std::map<int, int64_t> blinkOwnerStartedMs_;
+    int64_t lastNowMs_ = -1;
 };

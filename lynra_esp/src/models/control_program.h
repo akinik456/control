@@ -2,6 +2,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <vector>
 
 #include "control_block.h"
@@ -11,4 +12,5 @@ struct ControlProgram
 {
     String name;
     std::vector<ControlBlock> controlBlocks;
+    bool fromJson(JsonVariantConst json);
 };
