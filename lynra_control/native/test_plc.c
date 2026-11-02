@@ -26,6 +26,9 @@ static void check_output(
 
 int main(void)
 {
+    printf("C LynraCondition: %zu bytes\n", sizeof(LynraCondition));
+    printf("C LynraAction: %zu bytes\n", sizeof(LynraAction));
+    printf("C LynraRule: %zu bytes\n", sizeof(LynraRule));
     LynraPlcEngine* engine = lynra_plc_create();
 
     if (engine == NULL) {
