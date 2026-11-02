@@ -21,6 +21,11 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   );
   int _id = 0;
 
+  // UI-only draft values. Not serialized or sent to the PLC.
+  final Map<ControlAction, int> _draftOnDelays = {};
+  final Map<ControlAction, int> _draftOffDelays = {};
+
+
   ControlConditionGroup _makeRule() => ControlConditionGroup(
     id: 'rule_${++_id}',
     conditions: [InputCondition(inputIndex: 1)],
@@ -87,9 +92,58 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   Widget _token(String text, VoidCallback onTap, {Color? color}) =>
       ActionChip(
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        side: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.55)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
         label: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
         onPressed: onTap,
         visualDensity: VisualDensity.compact,
+      );
+
+  Widget _sectionLabel(String text) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(text, style: TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.primary,
+        )),
+      );
+
+  ControlAction _makeAction(ControlActionType type) => switch (type) {
+        ControlActionType.delay => ControlAction.delay(),
+        ControlActionType.setLatch => ControlAction.set(),
+        ControlActionType.resetLatch => ControlAction.reset(),
+        ControlActionType.toggleOutput => ControlAction.toggle(),
+        ControlActionType.blinkOutput => ControlAction.blink(),
+        _ => ControlAction.output(),
+      };
+
+  void _addAction(ControlConditionGroup rule, ControlActionType type) =>
+      setState(() => rule.actions.add(_makeAction(type)));
+
+  Widget _quickAction(ControlConditionGroup rule, IconData icon,
+      String label, ControlActionType type, Color color) => OutlinedButton(
+        onPressed: () => _addAction(rule, type),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (type == ControlActionType.blinkOutput)
+            const SizedBox(
+              width: 34,
+              height: 22,
+              child: CustomPaint(painter: _BlinkWavePainter()),
+            )
+          else
+            Icon(icon, color: color, size: 22),
+          const SizedBox(height: 5),
+          Text(label, style: const TextStyle(fontSize: 11)),
+        ]),
       );
 
   String _triggerName(ConditionTrigger t) => switch (t) {
@@ -101,7 +155,16 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   String _seconds(int ms) => '${(ms / 1000).toStringAsFixed(ms % 1000 == 0 ? 0 : 1)} sn';
 
-  Widget _condition(ControlConditionGroup rule, InputCondition condition) => Wrap(
+  Widget _groupFrame(Widget child) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+    decoration: BoxDecoration(
+      border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.65)),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: child,
+  );
+
+  Widget _condition(ControlConditionGroup rule, InputCondition condition) => _groupFrame(Wrap(
     spacing: 5,
     runSpacing: 3,
     crossAxisAlignment: WrapCrossAlignment.center,
@@ -123,148 +186,309 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         });
       }),
       if (rule.conditions.length > 1)
-        IconButton(tooltip: 'Koşulu sil', onPressed: () => setState(() => rule.conditions.remove(condition)), icon: const Icon(Icons.close, size: 18)),
+        IconButton(tooltip: 'Koşulu sil', onPressed: () => setState(() => rule.conditions.remove(condition)), icon: const Icon(Icons.close, size: 18, color: Colors.redAccent)),
     ],
+  ));
+
+  Widget _action(ControlConditionGroup rule, ControlAction action) {
+    final delete = IconButton(
+      tooltip: 'İşlemi sil',
+      onPressed: () => setState(() => rule.actions.remove(action)),
+      icon: const Icon(Icons.close, size: 20, color: Colors.redAccent),
+    );
+    if (action.type == ControlActionType.delay) {
+      return _groupFrame(Wrap(spacing: 5, runSpacing: 3,
+        crossAxisAlignment: WrapCrossAlignment.center, children: [
+          _token('${_seconds(action.durationMs)} BEKLE', () async {
+            final v = await _duration('Bekleme süresi', action.durationMs);
+            if (v != null) setState(() => action.durationMs = v);
+          }),
+          delete,
+        ]));
+    }
+
+    final output = _token('Q${action.outputIndex}', () async {
+      final v = await _choose<int>('Çıkış seç',
+          [for (var i = 1; i <= 4; i++) (i, 'Q$i')]);
+      if (v != null) setState(() => action.outputIndex = v);
+    }, color: Colors.deepOrange);
+    final operation = _token(switch (action.type) {
+      ControlActionType.setLatch => 'SET',
+      ControlActionType.resetLatch => 'RESET',
+      ControlActionType.toggleOutput => 'DEĞİŞTİR',
+      ControlActionType.blinkOutput => 'YANIP SÖN',
+      _ => action.outputState ? 'ON' : 'OFF',
+    }, () async {
+      final v = await _choose<(ControlActionType, bool?)>('Çıkış işlemi', [
+        ((ControlActionType.setOutput, true), 'ON (koşulu takip et)'),
+        ((ControlActionType.setOutput, false), 'OFF (koşulu takip et)'),
+        ((ControlActionType.setLatch, null), 'SET (ON kal)'),
+        ((ControlActionType.resetLatch, null), 'RESET (OFF kal)'),
+        ((ControlActionType.toggleOutput, null), 'DEĞİŞTİR (ON/OFF tersine çevir)'),
+        ((ControlActionType.blinkOutput, null), 'YANIP SÖN (tekrarla)'),
+      ]);
+      if (v != null) setState(() {
+        action.type = v.$1;
+        if (v.$1 == ControlActionType.setOutput) {
+          action.outputState = v.$2!;
+        }
+        if (v.$1 == ControlActionType.blinkOutput) {
+          action.durationMs = 3000;
+          action.offDurationMs = 3000;
+        }
+        if (v.$1 == ControlActionType.setLatch) action.outputState = true;
+        if (v.$1 == ControlActionType.resetLatch) action.outputState = false;
+      });
+    });
+
+    if (action.type != ControlActionType.blinkOutput) {
+      return _groupFrame(Row(mainAxisSize: MainAxisSize.min, children: [
+        output, const SizedBox(width: 5), operation, delete,
+      ]));
+    }
+
+    return _groupFrame(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Wrap(spacing: 5, runSpacing: 3,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          output,
+          operation,
+          if (action.type == ControlActionType.blinkOutput)
+            const SizedBox(
+              width: 68, height: 32,
+              child: CustomPaint(painter: _BlinkWavePainter()),
+            ),
+          delete,
+        ]),
+      if (action.type == ControlActionType.blinkOutput)
+        Padding(
+          padding: const EdgeInsets.only(left: 8, top: 3, bottom: 5),
+          child: Wrap(spacing: 6, runSpacing: 3, children: [
+            _token('◷  ON ${_seconds(action.durationMs)}', () async {
+              final v = await _duration('Yanma süresi', action.durationMs);
+              if (v != null && v > 0) setState(() => action.durationMs = v);
+            }),
+            _token('◷  OFF ${_seconds(action.offDurationMs)}', () async {
+              final v = await _duration('Sönme süresi', action.offDurationMs);
+              if (v != null && v > 0) setState(() => action.offDurationMs = v);
+            }),
+          ]),
+        ),
+    ]));
+  }
+
+  Widget _delayToken(String text, VoidCallback onTap) => ActionChip(
+    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+    side: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.55)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
+    label: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+    onPressed: onTap,
+    visualDensity: VisualDensity.compact,
   );
 
-  Widget _action(ControlConditionGroup rule, ControlAction action) => Wrap(
-    spacing: 5,
-    runSpacing: 3,
-    crossAxisAlignment: WrapCrossAlignment.center,
-    children: [
-      if (action.type == ControlActionType.delay)
-        _token('${_seconds(action.durationMs)} BEKLE', () async {
-          final v = await _duration('Bekleme süresi', action.durationMs);
-          if (v != null) setState(() => action.durationMs = v);
-        })
-      else ...[
-        _token('Q${action.outputIndex}', () async {
-          final v = await _choose<int>('Çıkış seç', [for (var i = 1; i <= 4; i++) (i, 'Q$i')]);
-          if (v != null) setState(() => action.outputIndex = v);
-        }, color: Colors.deepOrange),
-        _token(switch (action.type) {
-          ControlActionType.setLatch => 'SET',
-          ControlActionType.resetLatch => 'RESET',
-          ControlActionType.toggleOutput => 'DEĞİŞTİR',
-          ControlActionType.blinkOutput => 'YANIP SÖN',
-          _ => action.outputState ? 'ON' : 'OFF',
-        }, () async {
-          final v = await _choose<ControlActionType>('Çıkış işlemi', [
-            (ControlActionType.setOutput, 'ON / OFF (koşulu takip et)'),
-            (ControlActionType.setLatch, 'SET (ON kal)'),
-            (ControlActionType.resetLatch, 'RESET (OFF kal)'),
-            (ControlActionType.toggleOutput, 'DEĞİŞTİR (ON/OFF tersine çevir)'),
-            (ControlActionType.blinkOutput, 'YANIP SÖN (tekrarla)'),
-          ]);
-          if (v != null) setState(() {
-            action.type = v;
-            if (v == ControlActionType.blinkOutput) {
-              action.durationMs = 3000;
-              action.offDurationMs = 3000;
-            }
-            if (v == ControlActionType.setLatch) action.outputState = true;
-            if (v == ControlActionType.resetLatch) action.outputState = false;
-          });
-        }),
-        if (action.type == ControlActionType.blinkOutput) ...[
-          _token('ON ${_seconds(action.durationMs)}', () async {
-            final v = await _duration('Yanma süresi', action.durationMs);
-            if (v != null && v > 0) setState(() => action.durationMs = v);
-          }),
-          _token('OFF ${_seconds(action.offDurationMs)}', () async {
-            final v = await _duration('Sönme süresi', action.offDurationMs);
-            if (v != null && v > 0) setState(() => action.offDurationMs = v);
-          }),
-        ],
-        if (action.type == ControlActionType.setOutput)
-          _token('Değiştir', () => setState(() => action.outputState = !action.outputState)),
-      ],
-      IconButton(tooltip: 'İşlemi sil', onPressed: () => setState(() => rule.actions.remove(action)), icon: const Icon(Icons.close, size: 18)),
-    ],
-  );
+  Widget _actionDelayPreview(ControlAction action) {
+    if (action.type == ControlActionType.delay) return const SizedBox.shrink();
+    final onMs = _draftOnDelays[action] ?? 0;
+    final offMs = _draftOffDelays[action] ?? 0;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      _delayToken(onMs > 0 ? 'ON ${_seconds(onMs)}' : 'ON gec.', () async {
+        final v = await _duration('Bu işlem için ON gecikmesi (taslak)', onMs);
+        if (v != null) setState(() => _draftOnDelays[action] = v);
+      }),
+      const SizedBox(width: 2),
+      _delayToken(offMs > 0 ? 'OFF ${_seconds(offMs)}' : 'OFF gec.', () async {
+        final v = await _duration('Bu işlem için OFF gecikmesi (taslak)', offMs);
+        if (v != null) setState(() => _draftOffDelays[action] = v);
+      }),
+    ]);
+  }
 
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
-    return Padding(
+    final primary = Theme.of(context).colorScheme.primary;
+    final outline = Theme.of(context).colorScheme.outline;
+    return Container(
       key: ValueKey(rule.id),
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: primary.withValues(alpha: 0.75)),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Text('KURAL ${index + 1}', style: Theme.of(context).textTheme.labelMedium),
-          const Spacer(),
-          IconButton(tooltip: 'Yukarı', onPressed: index == 0 ? null : () => setState(() {
-            _rules.removeAt(index); _rules.insert(index - 1, rule);
-          }), icon: const Icon(Icons.arrow_upward, size: 19)),
-          IconButton(tooltip: 'Aşağı', onPressed: index == _rules.length - 1 ? null : () => setState(() {
-            _rules.removeAt(index); _rules.insert(index + 1, rule);
-          }), icon: const Icon(Icons.arrow_downward, size: 19)),
-          IconButton(tooltip: 'Kuralı sil', onPressed: () => setState(() => _rules.remove(rule)), icon: const Icon(Icons.delete_outline, size: 19)),
-        ]),
-        Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          const Text('EĞER', style: TextStyle(fontWeight: FontWeight.bold)),
-          for (var i = 0; i < rule.conditions.length; i++) ...[
-            if (i > 0) _token(switch (rule.logicOperator) {
-              LogicOperator.and => 'VE', LogicOperator.or => 'VEYA', LogicOperator.xor => 'FARKLIYSA',
-            }, () async {
-              final v = await _choose<LogicOperator>('Bağlaç', [
-                (LogicOperator.and, 'VE'), (LogicOperator.or, 'VEYA'), (LogicOperator.xor, 'FARKLIYSA'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
+          child: Row(children: [
+            Text('KURAL ${index + 1}', style: TextStyle(
+              fontWeight: FontWeight.bold, color: primary, fontSize: 15)),
+            const Spacer(),
+            IconButton(tooltip: 'Yukarı',
+              onPressed: index == 0 ? null : () => setState(() {
+                _rules.removeAt(index); _rules.insert(index - 1, rule);
+              }), icon: const Icon(Icons.arrow_upward, size: 20)),
+            IconButton(tooltip: 'Aşağı',
+              onPressed: index == _rules.length - 1 ? null : () => setState(() {
+                _rules.removeAt(index); _rules.insert(index + 1, rule);
+              }), icon: const Icon(Icons.arrow_downward, size: 20)),
+            IconButton(tooltip: 'Kuralı sil',
+              onPressed: () => setState(() => _rules.remove(rule)),
+              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent)),
+          ]),
+        ),
+        Divider(height: 1, color: outline.withValues(alpha: 0.3)),
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _sectionLabel('EĞER'),
+            const SizedBox(height: 6),
+            for (var i = 0; i < rule.conditions.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    _condition(rule, rule.conditions[i]),
+                    if (rule.conditions.length > 1)
+                      Column(mainAxisSize: MainAxisSize.min, children: [
+                        InkWell(
+                          onTap: i == 0 ? null : () => setState(() {
+                            final item = rule.conditions.removeAt(i);
+                            rule.conditions.insert(i - 1, item);
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Icon(Icons.keyboard_arrow_up, size: 20,
+                              color: i == 0 ? Theme.of(context).disabledColor : primary),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: i == rule.conditions.length - 1 ? null : () => setState(() {
+                            final item = rule.conditions.removeAt(i);
+                            rule.conditions.insert(i + 1, item);
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Icon(Icons.keyboard_arrow_down, size: 20,
+                              color: i == rule.conditions.length - 1 ? Theme.of(context).disabledColor : primary),
+                          ),
+                        ),
+                      ]),
+                    const SizedBox(width: 5),
+                    if (i < rule.conditions.length - 1)
+                      _token(switch (rule.logicOperator) {
+                        LogicOperator.and => 'VE',
+                        LogicOperator.or => 'VEYA',
+                        LogicOperator.xor => 'FARKLIYSA',
+                      }, () async {
+                        final v = await _choose<LogicOperator>('Bağlaç', [
+                          (LogicOperator.and, 'VE'),
+                          (LogicOperator.or, 'VEYA'),
+                          (LogicOperator.xor, 'FARKLIYSA'),
+                        ]);
+                        if (v != null) setState(() => rule.logicOperator = v);
+                      })
+                    else
+                      _token('Koşul ekle', () => setState(() =>
+                        rule.conditions.add(InputCondition(inputIndex: 1)))),
+                  ]),
+                ),
+              ),
+            if (rule.conditions.isEmpty)
+              _token('Koşul ekle', () => setState(() =>
+                rule.conditions.add(InputCondition(inputIndex: 1)))),
+            if (rule.onDelayMs > 0)
+              Text('${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa'),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: primary.withValues(alpha: 0.7)),
+            const SizedBox(height: 12),
+            _sectionLabel('İSE'),
+            const SizedBox(height: 6),
+            for (var i = 0; i < rule.actions.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    _action(rule, rule.actions[i]),
+                    const SizedBox(width: 5),
+                    _actionDelayPreview(rule.actions[i]),
+                    if (rule.actions.length > 1)
+                      Column(mainAxisSize: MainAxisSize.min, children: [
+                        InkWell(
+                          onTap: i == 0 ? null : () => setState(() {
+                            final item = rule.actions.removeAt(i);
+                            rule.actions.insert(i - 1, item);
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Icon(Icons.keyboard_arrow_up, size: 20,
+                              color: i == 0 ? Theme.of(context).disabledColor : primary),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: i == rule.actions.length - 1 ? null : () => setState(() {
+                            final item = rule.actions.removeAt(i);
+                            rule.actions.insert(i + 1, item);
+                          }),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Icon(Icons.keyboard_arrow_down, size: 20,
+                              color: i == rule.actions.length - 1 ? Theme.of(context).disabledColor : primary),
+                          ),
+                        ),
+                      ]),
+                  ]),
+                ),
+              ),
+            _token('İşlem ekle', () async {
+              final v = await _choose<ControlActionType>('İşlem ekle', [
+                (ControlActionType.setOutput, 'Çıkış ON / OFF'),
+                (ControlActionType.setLatch, 'Çıkış SET'),
+                (ControlActionType.resetLatch, 'Çıkış RESET'),
+                (ControlActionType.toggleOutput, 'Çıkış DEĞİŞTİR'),
+                (ControlActionType.blinkOutput, 'Çıkış YANIP SÖN'),
+                (ControlActionType.delay, 'Bekle'),
               ]);
-              if (v != null) setState(() => rule.logicOperator = v);
+              if (v != null) _addAction(rule, v);
             }),
-            _condition(rule, rule.conditions[i]),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: primary.withValues(alpha: 0.7)),
+            const SizedBox(height: 10),
+            Text('Çalışma Şekli', style: Theme.of(context).textTheme.labelMedium),
+            const SizedBox(height: 4),
+            Wrap(spacing: 5, runSpacing: 4, children: [
+              _token(rule.runPolicy == RuleRunPolicy.once
+                  ? '1 kez çalış' : 'Tekrarla (koşullar sağlanıyorsa)', () async {
+                final v = await _choose<RuleRunPolicy>('Çalışma şekli', [
+                  (RuleRunPolicy.once, '1 kez çalış'),
+                  (RuleRunPolicy.repeat, 'Tekrarla (koşullar sağlanıyorsa)'),
+                ]);
+                if (v != null) setState(() => rule.runPolicy = v);
+              }),
+
+            ]),
+          ]),
+        ),
+        ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          title: const Text('Hızlı İşlem Ekle',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+          children: [
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final item in [
+                (Icons.power_settings_new, 'ON', ControlActionType.setOutput, Colors.cyan),
+                (Icons.timeline, 'Blink', ControlActionType.blinkOutput, Colors.cyan),
+                (Icons.timer_outlined, 'SET', ControlActionType.setLatch, Colors.green),
+                (Icons.restart_alt, 'RESET', ControlActionType.resetLatch, Colors.purple),
+                (Icons.hourglass_empty, 'Bekle', ControlActionType.delay, Colors.amber),
+                (Icons.swap_horiz, 'Toggle', ControlActionType.toggleOutput, Colors.blue),
+              ])
+                SizedBox(width: 94,
+                  child: _quickAction(rule, item.$1, item.$2, item.$3, item.$4)),
+            ]),
           ],
-          _token('+ Koşul', () => setState(() => rule.conditions.add(InputCondition(inputIndex: 1)))),
-          if (rule.onDelayMs > 0) Text(' ${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa'),
-        ]),
-				const Divider(height: 16, thickness: 1,color: Color(0xFF00BCD4)),
-        const SizedBox(height: 4),
-        Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          const Text('İSE', style: TextStyle(fontWeight: FontWeight.bold)),
-          for (var i = 0; i < rule.actions.length; i++) ...[
-            if (i > 0) const Text('→'),
-            _action(rule, rule.actions[i]),
-          ],
-          _token('+ İşlem', () async {
-            final v = await _choose<ControlActionType>('İşlem ekle', [
-              (ControlActionType.setOutput, 'Çıkış ON / OFF'),
-              (ControlActionType.setLatch, 'Çıkış SET'),
-              (ControlActionType.resetLatch, 'Çıkış RESET'),
-              (ControlActionType.toggleOutput, 'Çıkış DEĞİŞTİR'),
-              (ControlActionType.blinkOutput, 'Çıkış YANIP SÖN'),
-              (ControlActionType.delay, 'Bekle'),
-            ]);
-            if (v != null) setState(() => rule.actions.add(
-              switch (v) {
-                ControlActionType.delay => ControlAction.delay(),
-                ControlActionType.setLatch => ControlAction.set(),
-                ControlActionType.resetLatch => ControlAction.reset(),
-                ControlActionType.toggleOutput => ControlAction.toggle(),
-                ControlActionType.blinkOutput => ControlAction.blink(),
-                _ => ControlAction.output(),
-              },
-            ));
-          }),
-        ]),
-				const Divider(height: 16, thickness: 1,color: Color(0xFF00BCD4)),
-        const SizedBox(height: 4),
-        Wrap(spacing: 5, crossAxisAlignment: WrapCrossAlignment.center, children: [
-           _token(rule.runPolicy == RuleRunPolicy.once ? '1 kez çalış' : 'Tekrarla (koşullar sağlanıyorsa)', () async {
-             final v = await _choose<RuleRunPolicy>('Çalışma şekli', [
-               (RuleRunPolicy.once, '1 kez çalış'),
-               (RuleRunPolicy.repeat, 'Tekrarla (koşullar sağlanıyorsa)'),
-             ]);
-             if (v != null) setState(() => rule.runPolicy = v);
-           }),
-          _token(rule.onDelayMs > 0 ? 'ON için ${_seconds(rule.onDelayMs)} bekle' : 'ON gecikmesi ekle', () async {
-            final v = await _duration('ON gecikmesi (TON)', rule.onDelayMs);
-            if (v != null) setState(() => rule.onDelayMs = v);
-          }),
-          _token(rule.offDelayMs > 0 ? 'OFF için ${_seconds(rule.offDelayMs)} bekle' : 'OFF gecikmesi ekle', () async {
-            final v = await _duration('OFF gecikmesi (TOF)', rule.offDelayMs);
-            if (v != null) setState(() => rule.offDelayMs = v);
-          }),
-        ]),
-        const Divider(height: 24),
-				const Divider(height: 16, thickness: 1,color: Color(0xFF00BCD4)),
+        ),
       ]),
     );
   }
@@ -456,22 +680,74 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           builder: (_) => ProgramSimulatorPage(program: _program),
         ));
       }),
-      IconButton(tooltip: 'Program Özeti', onPressed: _openSummary, icon: const Icon(Icons.description_outlined)),
-      IconButton(tooltip: 'Program JSON', onPressed: _showJson, icon: const Icon(Icons.data_object)),
+      IconButton(tooltip: 'Program Özeti', onPressed: _openSummary,
+          icon: const Icon(Icons.description_outlined)),
+      IconButton(tooltip: 'Program JSON', onPressed: _showJson,
+          icon: const Icon(Icons.data_object)),
     ]),
     body: Center(child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 760),
-      child: ListView(padding: const EdgeInsets.all(16), children: [
-        TextField(controller: _name, decoration: const InputDecoration(
-          labelText: 'Program adı', border: OutlineInputBorder(),
-        )),
-        const SizedBox(height: 16),
-        const Text('İfadelere dokunarak düzenleyin.', style: TextStyle(fontSize: 12)),
-        const SizedBox(height: 8),
+      child: ListView(padding: const EdgeInsets.all(14), children: [
+        TextField(
+          controller: _name,
+          decoration: InputDecoration(
+            labelText: 'Program adı',
+            prefixIcon: const Icon(Icons.edit_outlined),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text('İfadelere dokunarak düzenleyin.',
+          style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 14),
         for (var i = 0; i < _rules.length; i++) _ruleEditor(_rules[i], i),
-        FilledButton.icon(onPressed: () => setState(() => _rules.add(_makeRule())),
-          icon: const Icon(Icons.add), label: const Text('Yeni kural ekle')),
+        const SizedBox(height: 4),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          ),
+          onPressed: () => setState(() => _rules.add(_makeRule())),
+          icon: const Icon(Icons.add), label: const Text('Yeni kural ekle'),
+        ),
+        const SizedBox(height: 24),
       ]),
     )),
   );
+}
+
+
+/// Decorative square-wave preview; does not alter PLC timing or behavior.
+class _BlinkWavePainter extends CustomPainter {
+  const _BlinkWavePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF00D5F5)
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeJoin = StrokeJoin.round
+      ..strokeCap = StrokeCap.round;
+    final high = size.height * 0.23;
+    final low = size.height * 0.77;
+    final step = size.width / 4;
+    final path = Path()
+      ..moveTo(0, low)
+      ..lineTo(step * 0.5, low)
+      ..lineTo(step * 0.5, high)
+      ..lineTo(step * 1.5, high)
+      ..lineTo(step * 1.5, low)
+      ..lineTo(step * 2.5, low)
+      ..lineTo(step * 2.5, high)
+      ..lineTo(step * 3.5, high)
+      ..lineTo(step * 3.5, low)
+      ..lineTo(size.width, low);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BlinkWavePainter oldDelegate) => false;
 }
