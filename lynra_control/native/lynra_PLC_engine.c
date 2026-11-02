@@ -67,6 +67,12 @@ struct LynraPlcEngine {
 };
 
 static LynraPlcEngine engine_pool[LYNRA_PLC_MAX_INSTANCES];
+static void lynra_write_output(
+    LynraPlcEngine* engine,
+    uint8_t output_index,
+    bool value,
+    bool from_blink
+);
 
 LynraPlcEngine* lynra_plc_create(void)
 {
@@ -410,7 +416,7 @@ bool lynra_plc_scan(
         if (winner < 0) {
             if (engine->blink_owner_valid[oi]) {
                 engine->blink_owner_valid[oi] = false;
-                engine->outputs &= ~bit;
+                lynra_write_output(engine, oi + 1, false, true);
             }
             continue;
         }
@@ -431,10 +437,9 @@ bool lynra_plc_scan(
 
         bool desired = phase < winner_action->duration_ms;
 
-        if (desired)
-            engine->outputs |= bit;
-        else
-            engine->outputs &= ~bit;
+        if (((engine->outputs & bit) != 0) != desired) {
+            lynra_write_output(engine, oi + 1, desired, true);
+        }
     }
 
     engine->previous_inputs = input_mask;
@@ -443,17 +448,22 @@ bool lynra_plc_scan(
 }
 
 
+
 static void lynra_write_output(
     LynraPlcEngine* engine,
     uint8_t output_index,
-    bool value)
+    bool value,
+    bool from_blink)
 {
     if (output_index < 1 ||
         output_index > LYNRA_PLC_MAX_OUTPUTS)
         return;
 
-    uint32_t bit = 1u << (output_index - 1);
     uint32_t index = output_index - 1;
+    uint32_t bit = 1u << index;
+
+    // Any output write cancels a pending transition.
+    engine->pending_outputs[index].active = false;
 
     if (value)
         engine->outputs |= bit;
@@ -462,9 +472,13 @@ static void lynra_write_output(
 
     engine->output_versions[index]++;
 
-    engine->blink_suppressed_through[index] =
-        engine->blink_activation_serial;
+    // Explicit commands suppress existing FLASH activations.
+    if (!from_blink) {
+        engine->blink_suppressed_through[index] =
+            engine->blink_activation_serial;
+    }
 }
+
 
 static void lynra_command_output(
     LynraPlcEngine* engine,
@@ -493,7 +507,7 @@ static void lynra_command_output(
     // Immediate command.
     if (delay == 0) {
         pending->active = false;
-        lynra_write_output(engine, output_index, value);
+        lynra_write_output(engine, output_index, value, false);
         return;
     }
 
@@ -541,7 +555,7 @@ static void lynra_process_pending_outputs(
 
         pending->active = false;
 
-        lynra_write_output(engine, i + 1, value);
+        lynra_write_output(engine, i + 1, value, false);
     }
 }
 
