@@ -194,29 +194,31 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     final delete = IconButton(
       tooltip: 'İşlemi sil',
       onPressed: () => setState(() => rule.actions.remove(action)),
-      icon: const Icon(Icons.close, size: 20, color: Colors.redAccent),
+      icon: const Icon(Icons.close, size: 18, color: Colors.redAccent),
+      constraints: const BoxConstraints(minWidth: 26, minHeight: 40),
+      padding: EdgeInsets.zero,
     );
     if (action.type == ControlActionType.delay) {
-      return _groupFrame(Wrap(spacing: 5, runSpacing: 3,
+      return SizedBox(width: 160, child: _groupFrame(Wrap(spacing: 5, runSpacing: 3,
         crossAxisAlignment: WrapCrossAlignment.center, children: [
           _token('${_seconds(action.durationMs)} BEKLE', () async {
             final v = await _duration('Bekleme süresi', action.durationMs);
             if (v != null) setState(() => action.durationMs = v);
           }),
           delete,
-        ]));
+        ])));
     }
 
-    final output = _token('Q${action.outputIndex}', () async {
+    final output = _outputToken('Q${action.outputIndex}', () async {
       final v = await _choose<int>('Çıkış seç',
           [for (var i = 1; i <= 4; i++) (i, 'Q$i')]);
       if (v != null) setState(() => action.outputIndex = v);
     }, color: Colors.deepOrange);
-    final operation = _token(switch (action.type) {
+    final operation = _operationToken(switch (action.type) {
       ControlActionType.setLatch => 'SET',
       ControlActionType.resetLatch => 'RESET',
-      ControlActionType.toggleOutput => 'DEĞİŞTİR',
-      ControlActionType.blinkOutput => 'YANIP SÖN',
+      ControlActionType.toggleOutput => 'DEĞİŞ.',
+      ControlActionType.blinkOutput => 'AÇ KAPAT',
       _ => action.outputState ? 'ON' : 'OFF',
     }, () async {
       final v = await _choose<(ControlActionType, bool?)>('Çıkış işlemi', [
@@ -225,7 +227,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         ((ControlActionType.setLatch, null), 'SET (ON kal)'),
         ((ControlActionType.resetLatch, null), 'RESET (OFF kal)'),
         ((ControlActionType.toggleOutput, null), 'DEĞİŞTİR (ON/OFF tersine çevir)'),
-        ((ControlActionType.blinkOutput, null), 'YANIP SÖN (tekrarla)'),
+        ((ControlActionType.blinkOutput, null), 'AÇ KAPAT (tekrarla)'),
       ]);
       if (v != null) setState(() {
         action.type = v.$1;
@@ -241,41 +243,44 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       });
     });
 
-    if (action.type != ControlActionType.blinkOutput) {
-      return _groupFrame(Row(mainAxisSize: MainAxisSize.min, children: [
-        output, const SizedBox(width: 5), operation, delete,
-      ]));
-    }
-
-    return _groupFrame(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Wrap(spacing: 5, runSpacing: 3,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          output,
-          operation,
-          if (action.type == ControlActionType.blinkOutput)
-            const SizedBox(
-              width: 68, height: 32,
-              child: CustomPaint(painter: _BlinkWavePainter()),
-            ),
-          delete,
+    return Container(
+      width: 160,
+      padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 2),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.65)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          output, const SizedBox(width: 1), operation, delete,
         ]),
-      if (action.type == ControlActionType.blinkOutput)
-        Padding(
-          padding: const EdgeInsets.only(left: 8, top: 3, bottom: 5),
-          child: Wrap(spacing: 6, runSpacing: 3, children: [
-            _token('◷  ON ${_seconds(action.durationMs)}', () async {
-              final v = await _duration('Yanma süresi', action.durationMs);
-              if (v != null && v > 0) setState(() => action.durationMs = v);
-            }),
-            _token('◷  OFF ${_seconds(action.offDurationMs)}', () async {
-              final v = await _duration('Sönme süresi', action.offDurationMs);
-              if (v != null && v > 0) setState(() => action.offDurationMs = v);
-            }),
-          ]),
-        ),
-    ]));
+      ),
+    );
   }
+
+  // Slightly narrower output controls, without changing text size or height.
+  Widget _outputToken(String text, VoidCallback onTap, {Color? color}) => ActionChip(
+    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+    side: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.55)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 7),
+    label: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+    onPressed: onTap,
+    visualDensity: VisualDensity.compact,
+  );
+
+  // Only output-operation controls use compact horizontal padding.
+  Widget _operationToken(String text, VoidCallback onTap) => ActionChip(
+    backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+    side: BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.55)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 7),
+    label: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+    onPressed: onTap,
+    visualDensity: VisualDensity.compact,
+  );
 
   Widget _delayToken(String text, VoidCallback onTap) => ActionChip(
     backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -289,17 +294,30 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   Widget _actionDelayPreview(ControlAction action) {
     if (action.type == ControlActionType.delay) return const SizedBox.shrink();
-    final onMs = _draftOnDelays[action] ?? 0;
-    final offMs = _draftOffDelays[action] ?? 0;
+    final isBlink = action.type == ControlActionType.blinkOutput;
+    final onMs = isBlink ? action.durationMs : (_draftOnDelays[action] ?? 0);
+    final offMs = isBlink ? action.offDurationMs : (_draftOffDelays[action] ?? 0);
     return Row(mainAxisSize: MainAxisSize.min, children: [
       _delayToken(onMs > 0 ? 'ON ${_seconds(onMs)}' : 'ON gec.', () async {
-        final v = await _duration('Bu işlem için ON gecikmesi (taslak)', onMs);
-        if (v != null) setState(() => _draftOnDelays[action] = v);
+        final v = await _duration(isBlink ? 'AÇ KAPAT ON süresi' : 'Bu işlem için ON gecikmesi (taslak)', onMs);
+        if (v != null && (!isBlink || v > 0)) setState(() {
+          if (isBlink) {
+            action.durationMs = v;
+          } else {
+            _draftOnDelays[action] = v;
+          }
+        });
       }),
       const SizedBox(width: 2),
       _delayToken(offMs > 0 ? 'OFF ${_seconds(offMs)}' : 'OFF gec.', () async {
-        final v = await _duration('Bu işlem için OFF gecikmesi (taslak)', offMs);
-        if (v != null) setState(() => _draftOffDelays[action] = v);
+        final v = await _duration(isBlink ? 'AÇ KAPAT OFF süresi' : 'Bu işlem için OFF gecikmesi (taslak)', offMs);
+        if (v != null && (!isBlink || v > 0)) setState(() {
+          if (isBlink) {
+            action.offDurationMs = v;
+          } else {
+            _draftOffDelays[action] = v;
+          }
+        });
       }),
     ]);
   }
@@ -403,42 +421,72 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
             const SizedBox(height: 12),
             _sectionLabel('İSE'),
             const SizedBox(height: 6),
+            // Fixed columns keep every action, delay and arrow aligned.
             for (var i = 0; i < rule.actions.length; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 5),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    _action(rule, rule.actions[i]),
-                    const SizedBox(width: 5),
-                    _actionDelayPreview(rule.actions[i]),
-                    if (rule.actions.length > 1)
-                      Column(mainAxisSize: MainAxisSize.min, children: [
-                        InkWell(
-                          onTap: i == 0 ? null : () => setState(() {
-                            final item = rule.actions.removeAt(i);
-                            rule.actions.insert(i - 1, item);
-                          }),
-                          child: Padding(
-                            padding: const EdgeInsets.all(2),
-                            child: Icon(Icons.keyboard_arrow_up, size: 20,
-                              color: i == 0 ? Theme.of(context).disabledColor : primary),
-                          ),
+                child: LayoutBuilder(builder: (context, constraints) {
+                  const actionWidth = 160.0;
+                  const arrowsWidth = 24.0;
+                  const gap = 3.0;
+                  final available = constraints.maxWidth;
+                  final delayWidth = available - actionWidth - arrowsWidth - gap * 2;
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: available,
+                      child: Row(children: [
+                        SizedBox(
+                          width: actionWidth,
+                          child: _action(rule, rule.actions[i]),
                         ),
-                        InkWell(
-                          onTap: i == rule.actions.length - 1 ? null : () => setState(() {
-                            final item = rule.actions.removeAt(i);
-                            rule.actions.insert(i + 1, item);
-                          }),
-                          child: Padding(
-                            padding: const EdgeInsets.all(2),
-                            child: Icon(Icons.keyboard_arrow_down, size: 20,
-                              color: i == rule.actions.length - 1 ? Theme.of(context).disabledColor : primary),
-                          ),
+                        const SizedBox(width: gap),
+                        Expanded(
+                          child: rule.actions[i].type == ControlActionType.delay
+                              ? const SizedBox.shrink()
+                              : Align(
+                                  alignment: Alignment.centerRight,
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerRight,
+                                    child: _actionDelayPreview(rule.actions[i]),
+                                  ),
+                                ),
+                        ),
+                        const SizedBox(width: gap),
+                        SizedBox(
+                          width: arrowsWidth,
+                          child: rule.actions.length > 1
+                              ? Column(mainAxisSize: MainAxisSize.min, children: [
+                                  InkWell(
+                                    onTap: i == 0 ? null : () => setState(() {
+                                      final item = rule.actions.removeAt(i);
+                                      rule.actions.insert(i - 1, item);
+                                    }),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(2),
+                                      child: Icon(Icons.keyboard_arrow_up, size: 20,
+                                        color: i == 0 ? Theme.of(context).disabledColor : primary),
+                                    ),
+                                  ),
+                                  InkWell(
+                                    onTap: i == rule.actions.length - 1 ? null : () => setState(() {
+                                      final item = rule.actions.removeAt(i);
+                                      rule.actions.insert(i + 1, item);
+                                    }),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(2),
+                                      child: Icon(Icons.keyboard_arrow_down, size: 20,
+                                        color: i == rule.actions.length - 1 ? Theme.of(context).disabledColor : primary),
+                                    ),
+                                  ),
+                                ])
+                              : const SizedBox.shrink(),
                         ),
                       ]),
-                  ]),
-                ),
+                    ),
+                  );
+                }),
               ),
             _token('İşlem ekle', () async {
               final v = await _choose<ControlActionType>('İşlem ekle', [
@@ -451,7 +499,30 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               ]);
               if (v != null) _addAction(rule, v);
             }),
-            const SizedBox(height: 12),
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text('Hızlı İşlem Ekle',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              childrenPadding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
+              children: [
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final item in [
+                    (Icons.power_settings_new, 'ON', ControlActionType.setOutput, Colors.cyan),
+                    (Icons.timeline, 'Blink', ControlActionType.blinkOutput, Colors.cyan),
+                    (Icons.timer_outlined, 'SET', ControlActionType.setLatch, Colors.green),
+                    (Icons.restart_alt, 'RESET', ControlActionType.resetLatch, Colors.purple),
+                    (Icons.hourglass_empty, 'Bekle', ControlActionType.delay, Colors.amber),
+                    (Icons.swap_horiz, 'Toggle', ControlActionType.toggleOutput, Colors.blue),
+                  ])
+                    SizedBox(width: 94,
+                      child: _quickAction(rule, item.$1, item.$2, item.$3, item.$4)),
+                ]),
+              ],
+              ),
+            ),
+            const SizedBox(height: 6),
             Divider(height: 1, color: primary.withValues(alpha: 0.7)),
             const SizedBox(height: 10),
             Text('Çalışma Şekli', style: Theme.of(context).textTheme.labelMedium),
@@ -468,26 +539,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
             ]),
           ]),
-        ),
-        ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-          title: const Text('Hızlı İşlem Ekle',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
-          children: [
-            Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final item in [
-                (Icons.power_settings_new, 'ON', ControlActionType.setOutput, Colors.cyan),
-                (Icons.timeline, 'Blink', ControlActionType.blinkOutput, Colors.cyan),
-                (Icons.timer_outlined, 'SET', ControlActionType.setLatch, Colors.green),
-                (Icons.restart_alt, 'RESET', ControlActionType.resetLatch, Colors.purple),
-                (Icons.hourglass_empty, 'Bekle', ControlActionType.delay, Colors.amber),
-                (Icons.swap_horiz, 'Toggle', ControlActionType.toggleOutput, Colors.blue),
-              ])
-                SizedBox(width: 94,
-                  child: _quickAction(rule, item.$1, item.$2, item.$3, item.$4)),
-            ]),
-          ],
         ),
       ]),
     );
