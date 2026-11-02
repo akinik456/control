@@ -42,3 +42,15 @@ Toplam sabit yük: 27 byte + payload.
 
 CRC32, SOF hariç bütün mesajı kapsayacak. Çok byte'lı sayıları little-endian kodlayacağız.
 
+************
+
+PLC	GPIO	Test
+I1	GPIO32	GND / 3.3V
+I2	GPIO33	GND / 3.3V
+I3	GPIO25	GND / 3.3V
+I4	GPIO26	GND / 3.3V
+Q1	GPIO16	Multimetre
+Q2	GPIO17	Multimetre
+Q3	GPIO18	Multimetre
+Q4	GPIO19	Multimetre
+

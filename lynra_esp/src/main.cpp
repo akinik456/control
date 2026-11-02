@@ -37,7 +37,9 @@ enum class PlcState
 
 PlcState plcState = PlcState::Stop;
 SemaphoreHandle_t programMutex = nullptr;
-bool virtualInputs[4] = {false, false, false, false};
+// LynraControl physical I/O (ESP32-WROOM-32D, 3.3V logic)
+constexpr uint8_t INPUT_PINS[4] = {32, 33, 25, 26};
+constexpr uint8_t OUTPUT_PINS[4] = {16, 17, 18, 19};
 
 uint32_t lastSeq = 0;
 bool hasLastSeq = false;
@@ -445,6 +447,14 @@ void setup()
     while (true)
       delay(1000);
   }
+  // Safe default: drive all PLC outputs LOW before enabling BLE.
+  for (int i = 0; i < 4; ++i)
+  {
+    digitalWrite(OUTPUT_PINS[i], LOW);
+    pinMode(OUTPUT_PINS[i], OUTPUT);
+    pinMode(INPUT_PINS[i], INPUT_PULLDOWN);
+  }
+  Serial.println("PHYSICAL GPIO READY: I1-I4 / Q1-Q4");
   delay(500);
   testControlProgramJson();
   const uint8_t testData[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
@@ -510,24 +520,6 @@ void setup()
 
 void loop()
 {
-  if (Serial.available())
-  {
-    char c = Serial.read();
-
-    if (c >= '1' && c <= '4')
-    {
-      int index = c - '1';
-      virtualInputs[index] = true;
-      Serial.printf("INPUT: I%d=ON\n", index + 1);
-    }
-    else if (c >= 'a' && c <= 'd')
-    {
-      int index = c - 'a';
-      virtualInputs[index] = false;
-      Serial.printf("INPUT: I%d=OFF\n", index + 1);
-    }
-  }
-
   static bool previousNewOutputs[4] = {false, false, false, false};
   bool transferTimedOut = false;
   xSemaphoreTake(programMutex, portMAX_DELAY);
@@ -550,7 +542,7 @@ void loop()
 
     for (int i = 0; i < 4; i++)
     {
-      inputs[i + 1] = virtualInputs[i];
+      inputs[i + 1] = (digitalRead(INPUT_PINS[i]) == HIGH);
     }
 
     controlEngine.scan(millis(), inputs);
@@ -558,6 +550,7 @@ void loop()
     for (int i = 0; i < 4; i++)
     {
       bool state = controlEngine.output(i + 1);
+      digitalWrite(OUTPUT_PINS[i], state ? HIGH : LOW);
 
       if (state != previousNewOutputs[i])
       {
@@ -574,6 +567,7 @@ void loop()
   {
     for (int i = 0; i < 4; i++)
     {
+      digitalWrite(OUTPUT_PINS[i], LOW);
       if (previousNewOutputs[i])
       {
         previousNewOutputs[i] = false;
