@@ -16,6 +16,8 @@ class ControlEngine {
   final Map<int, int> _blinkOwnerStartedMs = {};
   final Map<int, int> _blinkSuppressedThrough = {};
   int _blinkActivationSerial = 0;
+  // One pending transition per physical output; a newer command supersedes it.
+  final Map<int, _PendingOutput> _pendingOutputs = {};
 
   ControlEngine(this.program);
 
@@ -32,6 +34,7 @@ class ControlEngine {
     _blinkOwnerStartedMs.clear();
     _blinkSuppressedThrough.clear();
     _blinkActivationSerial = 0;
+    _pendingOutputs.clear();
   }
 
   /// Input indices are 1-based. Missing inputs are treated as OFF.
@@ -55,7 +58,8 @@ class ControlEngine {
         throw StateError('Duplicate rule id: ${rule.id}');
       }
       final state = _states.putIfAbsent(rule.id, _RuleState.new);
-      if (rule.onDelayMs < 0 || rule.offDelayMs < 0) {
+      if (rule.onDelayMs < 0 || rule.offDelayMs < 0 ||
+          rule.actions.any((a) => a.onDelayMs < 0 || a.offDelayMs < 0)) {
         throw StateError('Negative timer duration in rule ${rule.id}');
       }
       final edgeRule = rule.conditions.any((c) =>
@@ -115,7 +119,7 @@ class ControlEngine {
           if (rule.outputBehavior == OutputBehavior.followCondition) {
             for (final action in rule.actions) {
               if (action.type == ControlActionType.setOutput) {
-                _writeOutput(action.outputIndex, !action.outputState);
+                _commandOutput(action, !action.outputState, nowMs);
               }
             }
           }
@@ -146,7 +150,18 @@ class ControlEngine {
       }
       state.previousMatch = matched;
     }
+    // Apply independent output timers after rule evaluation. A later command
+    // replaces a pending one; the timer never blocks the action sequence.
+    for (final entry in _pendingOutputs.entries.toList()) {
+      final pending = entry.value;
+      if (nowMs >= pending.dueMs) {
+        _pendingOutputs.remove(entry.key);
+        _writeOutput(entry.key, pending.value);
+      }
+    }
+
     for (final index in _resetPriority) {
+      _pendingOutputs.remove(index);
       outputs[index] = false;
       _blinkSuppressedThrough[index] = _blinkActivationSerial;
     }
@@ -239,7 +254,30 @@ class ControlEngine {
     };
   }
 
+  void _commandOutput(ControlAction action, bool value, int nowMs) {
+    final index = action.outputIndex;
+    final delay = value ? action.onDelayMs : action.offDelayMs;
+    if (delay < 0) throw StateError('Negative output delay for Q$index');
+    if (delay == 0) {
+      _writeOutput(index, value);
+      return;
+    }
+    final pending = _pendingOutputs[index];
+    // Repeated identical commands must not restart an active timer.
+    if (pending != null && identical(pending.action, action) &&
+        pending.value == value) return;
+    // The output is already in the requested state: no timer needed.
+    if (output(index) == value) {
+      _pendingOutputs.remove(index);
+      return;
+    }
+    _pendingOutputs[index] = _PendingOutput(action, value, nowMs + delay);
+    _outputVersions[index] = (_outputVersions[index] ?? 0) + 1;
+    _blinkSuppressedThrough[index] = _blinkActivationSerial;
+  }
+
   void _writeOutput(int index, bool value, {bool fromBlink = false}) {
+    _pendingOutputs.remove(index);
     // An explicit command (e.g. EDGE RESET) cancels pending FLASH ownership
     // until a new FLASH condition activation occurs.
     if (!fromBlink) {
@@ -266,27 +304,27 @@ class ControlEngine {
         continue;
       }
       if (action.type == ControlActionType.setOutput) {
-        _writeOutput(action.outputIndex, action.outputState);
+        _commandOutput(action, action.outputState, nowMs);
         state.outputVersions[action.outputIndex] = _outputVersions[action.outputIndex]!;
         state.actionIndex++;
         continue;
       }
       if (action.type == ControlActionType.toggleOutput) {
-        _writeOutput(action.outputIndex, !output(action.outputIndex));
+        _commandOutput(action, !output(action.outputIndex), nowMs);
         state.outputVersions[action.outputIndex] = _outputVersions[action.outputIndex]!;
         state.actionIndex++;
         continue;
       }
       if (action.type == ControlActionType.setLatch) {
-        _writeOutput(action.outputIndex, true);
+        _commandOutput(action, true, nowMs);
         state.outputVersions[action.outputIndex] = _outputVersions[action.outputIndex]!;
         state.actionIndex++;
         continue;
       }
       if (action.type == ControlActionType.resetLatch) {
-        _writeOutput(action.outputIndex, false);
+        _commandOutput(action, false, nowMs);
         state.outputVersions[action.outputIndex] = _outputVersions[action.outputIndex]!;
-        _resetPriority.add(action.outputIndex);
+        if (action.offDelayMs == 0) _resetPriority.add(action.outputIndex);
         state.actionIndex++;
         continue;
       }
@@ -323,4 +361,11 @@ class _BlinkCandidate {
   final int serial;
   final ControlAction action;
   _BlinkCandidate(this.ruleId, this.serial, this.action);
+}
+
+class _PendingOutput {
+  final ControlAction action;
+  final bool value;
+  final int dueMs;
+  _PendingOutput(this.action, this.value, this.dueMs);
 }

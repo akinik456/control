@@ -21,10 +21,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   );
   int _id = 0;
 
-  // UI-only draft values. Not serialized or sent to the PLC.
-  final Map<ControlAction, int> _draftOnDelays = {};
-  final Map<ControlAction, int> _draftOffDelays = {};
-
 
   ControlConditionGroup _makeRule() => ControlConditionGroup(
     id: 'rule_${++_id}',
@@ -295,27 +291,27 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   Widget _actionDelayPreview(ControlAction action) {
     if (action.type == ControlActionType.delay) return const SizedBox.shrink();
     final isBlink = action.type == ControlActionType.blinkOutput;
-    final onMs = isBlink ? action.durationMs : (_draftOnDelays[action] ?? 0);
-    final offMs = isBlink ? action.offDurationMs : (_draftOffDelays[action] ?? 0);
+    final onMs = isBlink ? action.durationMs : action.onDelayMs;
+    final offMs = isBlink ? action.offDurationMs : action.offDelayMs;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       _delayToken(onMs > 0 ? 'ON ${_seconds(onMs)}' : 'ON gec.', () async {
-        final v = await _duration(isBlink ? 'AÇ KAPAT ON süresi' : 'Bu işlem için ON gecikmesi (taslak)', onMs);
+        final v = await _duration(isBlink ? 'AÇ KAPAT ON süresi' : 'Bu işlem için ON gecikmesi', onMs);
         if (v != null && (!isBlink || v > 0)) setState(() {
           if (isBlink) {
             action.durationMs = v;
           } else {
-            _draftOnDelays[action] = v;
+            action.onDelayMs = v;
           }
         });
       }),
       const SizedBox(width: 2),
       _delayToken(offMs > 0 ? 'OFF ${_seconds(offMs)}' : 'OFF gec.', () async {
-        final v = await _duration(isBlink ? 'AÇ KAPAT OFF süresi' : 'Bu işlem için OFF gecikmesi (taslak)', offMs);
+        final v = await _duration(isBlink ? 'AÇ KAPAT OFF süresi' : 'Bu işlem için OFF gecikmesi', offMs);
         if (v != null && (!isBlink || v > 0)) setState(() {
           if (isBlink) {
             action.offDurationMs = v;
           } else {
-            _draftOffDelays[action] = v;
+            action.offDelayMs = v;
           }
         });
       }),

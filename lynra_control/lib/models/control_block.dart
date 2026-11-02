@@ -64,35 +64,37 @@ class ControlAction {
   bool outputState;
   int durationMs;
   int offDurationMs;
+  int onDelayMs;
+  int offDelayMs;
 
-  ControlAction.output({this.outputIndex = 1, this.outputState = true})
+  ControlAction.output({this.outputIndex = 1, this.outputState = true, this.onDelayMs = 0, this.offDelayMs = 0})
       : type = ControlActionType.setOutput,
         durationMs = 1000,
         offDurationMs = 0;
 
-  ControlAction.set({this.outputIndex = 1})
+  ControlAction.set({this.outputIndex = 1, this.onDelayMs = 0, this.offDelayMs = 0})
       : type = ControlActionType.setLatch,
         outputState = true,
         durationMs = 0,
         offDurationMs = 0;
 
-  ControlAction.reset({this.outputIndex = 1})
+  ControlAction.reset({this.outputIndex = 1, this.onDelayMs = 0, this.offDelayMs = 0})
       : type = ControlActionType.resetLatch,
         outputState = false,
         durationMs = 0,
         offDurationMs = 0;
 
-  ControlAction.toggle({this.outputIndex = 1})
+  ControlAction.toggle({this.outputIndex = 1, this.onDelayMs = 0, this.offDelayMs = 0})
       : type = ControlActionType.toggleOutput,
         outputState = false,
         durationMs = 0,
         offDurationMs = 0;
 
-  ControlAction.blink({this.outputIndex = 1, this.durationMs = 3000, this.offDurationMs = 3000})
+  ControlAction.blink({this.outputIndex = 1, this.durationMs = 3000, this.offDurationMs = 3000, this.onDelayMs = 0, this.offDelayMs = 0})
       : type = ControlActionType.blinkOutput,
         outputState = true;
 
-  ControlAction.delay({this.durationMs = 1000})
+  ControlAction.delay({this.durationMs = 1000, this.onDelayMs = 0, this.offDelayMs = 0})
       : type = ControlActionType.delay,
         outputIndex = 1,
         outputState = true,
@@ -106,27 +108,33 @@ class ControlAction {
         },
         if (type == ControlActionType.delay || type == ControlActionType.blinkOutput) 'durationMs': durationMs,
         if (type == ControlActionType.blinkOutput) 'offDurationMs': offDurationMs,
+        if (type != ControlActionType.delay) ...{
+          'onDelayMs': onDelayMs,
+          'offDelayMs': offDelayMs,
+        },
       };
 
   factory ControlAction.fromJson(Map<String, dynamic> json) {
     final type = ControlActionType.values.byName(json['type'] as String);
     if (type == ControlActionType.setLatch) {
-      return ControlAction.set(outputIndex: json['outputIndex'] as int? ?? 1);
+      return ControlAction.set(outputIndex: json['outputIndex'] as int? ?? 1, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0);
     }
     if (type == ControlActionType.resetLatch) {
-      return ControlAction.reset(outputIndex: json['outputIndex'] as int? ?? 1);
+      return ControlAction.reset(outputIndex: json['outputIndex'] as int? ?? 1, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0);
     }
     if (type == ControlActionType.blinkOutput) {
-      return ControlAction.blink(outputIndex: json['outputIndex'] as int? ?? 1, durationMs: json['durationMs'] as int? ?? 3000, offDurationMs: json['offDurationMs'] as int? ?? 3000);
+      return ControlAction.blink(outputIndex: json['outputIndex'] as int? ?? 1, durationMs: json['durationMs'] as int? ?? 3000, offDurationMs: json['offDurationMs'] as int? ?? 3000, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0);
     }
     if (type == ControlActionType.toggleOutput) {
-      return ControlAction.toggle(outputIndex: json['outputIndex'] as int? ?? 1);
+      return ControlAction.toggle(outputIndex: json['outputIndex'] as int? ?? 1, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0);
     }
     return type == ControlActionType.delay
         ? ControlAction.delay(durationMs: json['durationMs'] as int? ?? 1000)
         : ControlAction.output(
             outputIndex: json['outputIndex'] as int? ?? 1,
             outputState: json['outputState'] as bool? ?? true,
+            onDelayMs: json['onDelayMs'] as int? ?? 0,
+            offDelayMs: json['offDelayMs'] as int? ?? 0,
           );
   }
 }

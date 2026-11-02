@@ -1,0 +1,2 @@
+Her Q çıkışının bağımsız ON gecikmesi ve OFF gecikmesi olması.
+
