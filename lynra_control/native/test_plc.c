@@ -213,6 +213,167 @@ int main(void)
        lynra_plc_scan(engine, 400, 3);
        check_output("RESET: 400ms", engine, 0);
 
+
+    LynraRule follow_rule = {0};
+
+    follow_rule.logic_operator = LYNRA_LOGIC_AND;
+    follow_rule.output_behavior = LYNRA_OUTPUT_FOLLOW;
+    follow_rule.run_policy = LYNRA_RUN_ONCE;
+
+    follow_rule.condition_count = 1;
+    follow_rule.conditions[0].input_index = 1;
+    follow_rule.conditions[0].trigger = LYNRA_TRIGGER_HIGH;
+
+    follow_rule.action_count = 1;
+    follow_rule.actions[0].type = LYNRA_ACTION_OUTPUT;
+    follow_rule.actions[0].output_index = 1;
+    follow_rule.actions[0].output_state = true;
+
+    lynra_plc_load_rules(engine, &follow_rule, 1);
+
+    lynra_plc_scan(engine, 0, 0);
+    check_output("FOLLOW: I1 OFF", engine, 0);
+
+    lynra_plc_scan(engine, 100, 1);
+    check_output("FOLLOW: I1 ON", engine, 1);
+
+    lynra_plc_scan(engine, 200, 0);
+    check_output("FOLLOW: I1 OFF again", engine, 0);
+
+
+    follow_rule.on_delay_ms = 300;
+    follow_rule.off_delay_ms = 200;
+
+    lynra_plc_load_rules(engine, &follow_rule, 1);
+
+    lynra_plc_scan(engine, 0, 0);
+    lynra_plc_scan(engine, 100, 1);
+    check_output("FOLLOW TON: 100ms", engine, 0);
+
+    lynra_plc_scan(engine, 399, 1);
+    check_output("FOLLOW TON: 399ms", engine, 0);
+
+    lynra_plc_scan(engine, 400, 1);
+    check_output("FOLLOW TON: 400ms", engine, 1);
+
+    lynra_plc_scan(engine, 500, 0);
+    check_output("FOLLOW TOF: 500ms", engine, 1);
+
+    lynra_plc_scan(engine, 699, 0);
+    check_output("FOLLOW TOF: 699ms", engine, 1);
+
+    lynra_plc_scan(engine, 700, 0);
+    check_output("FOLLOW TOF: 700ms", engine, 0);
+
+    LynraRule flash_rule = {0};
+
+    flash_rule.logic_operator = LYNRA_LOGIC_AND;
+    flash_rule.output_behavior = LYNRA_OUTPUT_LATCH;
+    flash_rule.run_policy = LYNRA_RUN_ONCE;
+
+    flash_rule.condition_count = 1;
+    flash_rule.conditions[0].input_index = 1;
+    flash_rule.conditions[0].trigger = LYNRA_TRIGGER_HIGH;
+
+    flash_rule.action_count = 1;
+    flash_rule.actions[0].type = LYNRA_ACTION_BLINK;
+    flash_rule.actions[0].output_index = 1;
+    flash_rule.actions[0].duration_ms = 300;
+    flash_rule.actions[0].off_duration_ms = 200;
+
+    lynra_plc_load_rules(engine, &flash_rule, 1);
+
+    lynra_plc_scan(engine, 0, 0);
+    check_output("FLASH: inactive", engine, 0);
+
+    lynra_plc_scan(engine, 100, 1);
+    check_output("FLASH: ON at 100ms", engine, 1);
+
+    lynra_plc_scan(engine, 399, 1);
+    check_output("FLASH: ON at 399ms", engine, 1);
+
+    lynra_plc_scan(engine, 400, 1);
+    check_output("FLASH: OFF at 400ms", engine, 0);
+
+    lynra_plc_scan(engine, 600, 1);
+    check_output("FLASH: ON at 600ms", engine, 1);
+
+    lynra_plc_scan(engine, 700, 0);
+    check_output("FLASH: inactive again", engine, 0);
+
+    LynraRule flash_rules[2] = {0};
+
+    flash_rules[0] = flash_rule;
+    flash_rules[0].conditions[0].input_index = 1;
+    flash_rules[0].actions[0].duration_ms = 300;
+    flash_rules[0].actions[0].off_duration_ms = 200;
+
+    flash_rules[1] = flash_rule;
+    flash_rules[1].conditions[0].input_index = 2;
+    flash_rules[1].actions[0].duration_ms = 100;
+    flash_rules[1].actions[0].off_duration_ms = 400;
+
+    lynra_plc_load_rules(engine, flash_rules, 2);
+
+    lynra_plc_scan(engine, 0, 0);
+
+    lynra_plc_scan(engine, 100, 1);
+    check_output("FLASH A: starts", engine, 1);
+
+    lynra_plc_scan(engine, 200, 3);
+    check_output("FLASH B: takes priority", engine, 1);
+
+    lynra_plc_scan(engine, 300, 3);
+    check_output("FLASH B: OFF phase", engine, 0);
+
+    lynra_plc_scan(engine, 400, 1);
+    check_output("FLASH A: resumes ON", engine, 1);
+
+    lynra_plc_scan(engine, 700, 1);
+    check_output("FLASH A: resumes OFF", engine, 0);
+
+    lynra_plc_scan(engine, 800, 0);
+    check_output("FLASH: both inactive", engine, 0);
+
+    LynraRule flash_reset_rules[2] = {0};
+
+    flash_reset_rules[0] = flash_rule;
+    flash_reset_rules[0].conditions[0].input_index = 1;
+
+    flash_reset_rules[1].logic_operator = LYNRA_LOGIC_AND;
+    flash_reset_rules[1].output_behavior = LYNRA_OUTPUT_LATCH;
+    flash_reset_rules[1].run_policy = LYNRA_RUN_ONCE;
+
+    flash_reset_rules[1].condition_count = 1;
+    flash_reset_rules[1].conditions[0].input_index = 2;
+    flash_reset_rules[1].conditions[0].trigger = LYNRA_TRIGGER_HIGH;
+
+    flash_reset_rules[1].action_count = 1;
+    flash_reset_rules[1].actions[0].type = LYNRA_ACTION_RESET;
+    flash_reset_rules[1].actions[0].output_index = 1;
+
+    lynra_plc_load_rules(engine, flash_reset_rules, 2);
+
+    lynra_plc_scan(engine, 0, 0);
+
+    lynra_plc_scan(engine, 100, 1);
+    check_output("FLASH RESET: FLASH starts", engine, 1);
+
+    lynra_plc_scan(engine, 200, 3);
+    check_output("FLASH RESET: RESET active", engine, 0);
+
+    lynra_plc_scan(engine, 300, 1);
+    check_output("FLASH RESET: RESET released", engine, 0);
+
+    lynra_plc_scan(engine, 400, 1);
+    check_output("FLASH RESET: remains suppressed", engine, 0);
+
+    lynra_plc_scan(engine, 500, 0);
+    check_output("FLASH RESET: FLASH condition OFF", engine, 0);
+
+    lynra_plc_scan(engine, 600, 1);
+    check_output("FLASH RESET: new activation", engine, 1);
+
     lynra_plc_destroy(engine);
     printf("\nRESULT: %s (%d failures)\n",
            test_failures ? "FAIL" : "PASS", test_failures);

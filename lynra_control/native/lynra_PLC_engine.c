@@ -60,6 +60,10 @@ struct LynraPlcEngine {
 
     uint64_t last_now_ms;
     bool has_last_scan;
+
+    int16_t blink_owner[LYNRA_PLC_MAX_OUTPUTS];
+    uint64_t blink_owner_started_ms[LYNRA_PLC_MAX_OUTPUTS];
+    bool blink_owner_valid[LYNRA_PLC_MAX_OUTPUTS];
 };
 
 static LynraPlcEngine engine_pool[LYNRA_PLC_MAX_INSTANCES];
@@ -99,6 +103,12 @@ void lynra_plc_reset(LynraPlcEngine* engine)
 				 sizeof(engine->blink_suppressed_through));
     memset(engine->pending_outputs, 0,
        sizeof(engine->pending_outputs));
+
+    memset(engine->blink_owner, 0, sizeof(engine->blink_owner));
+    memset(engine->blink_owner_started_ms, 0,
+           sizeof(engine->blink_owner_started_ms));
+    memset(engine->blink_owner_valid, 0,
+           sizeof(engine->blink_owner_valid));
 
 	engine->reset_priority_mask = 0;
 	engine->blink_activation_serial = 0;
@@ -279,6 +289,24 @@ bool lynra_plc_scan(
         // Action execution will be added next.
 
         bool edge_rule = lynra_has_edge_condition(rule);
+        bool blink_only = !edge_rule && rule->action_count > 0;
+
+        for (uint8_t a = 0; a < rule->action_count; a++) {
+            if (rule->actions[a].type != LYNRA_ACTION_BLINK) {
+                blink_only = false;
+                break;
+            }
+        }
+
+        if (blink_only) {
+            if (matched && !state->blink_active) {
+                state->blink_active = true;
+                state->blink_activation_serial =
+                    ++engine->blink_activation_serial;
+            } else if (!matched) {
+                state->blink_active = false;
+            }
+        }
 
         if (edge_rule) {
             // Edge-triggered rules run independently.
@@ -342,6 +370,72 @@ bool lynra_plc_scan(
         state->previous_match = matched;
     }
     lynra_process_pending_outputs(engine, now_ms);
+    // Resolve FLASH ownership per output.
+    for (uint8_t oi = 0; oi < LYNRA_PLC_MAX_OUTPUTS; oi++) {
+        int16_t winner = -1;
+        uint32_t highest_serial = 0;
+        const LynraAction* winner_action = NULL;
+
+        for (size_t i = 0; i < engine->rule_count; i++) {
+            const LynraRule* rule = &engine->rules[i];
+            const LynraRuleState* state = &engine->states[i];
+
+            if (!state->blink_active)
+                continue;
+
+            if (state->blink_activation_serial <=
+                engine->blink_suppressed_through[oi])
+                continue;
+
+            for (uint8_t a = 0; a < rule->action_count; a++) {
+                const LynraAction* action = &rule->actions[a];
+
+                if (action->type != LYNRA_ACTION_BLINK ||
+                    action->output_index != oi + 1 ||
+                    action->duration_ms == 0 ||
+                    action->off_duration_ms == 0)
+                    continue;
+
+                if (winner < 0 ||
+                    state->blink_activation_serial > highest_serial) {
+                    winner = (int16_t)i;
+                    highest_serial = state->blink_activation_serial;
+                    winner_action = action;
+                    }
+            }
+        }
+
+        uint32_t bit = 1u << oi;
+
+        if (winner < 0) {
+            if (engine->blink_owner_valid[oi]) {
+                engine->blink_owner_valid[oi] = false;
+                engine->outputs &= ~bit;
+            }
+            continue;
+        }
+
+        if (!engine->blink_owner_valid[oi] ||
+            engine->blink_owner[oi] != winner) {
+            engine->blink_owner_valid[oi] = true;
+            engine->blink_owner[oi] = winner;
+            engine->blink_owner_started_ms[oi] = now_ms;
+            }
+
+        uint64_t period =
+            (uint64_t)winner_action->duration_ms +
+            winner_action->off_duration_ms;
+
+        uint64_t phase =
+            (now_ms - engine->blink_owner_started_ms[oi]) % period;
+
+        bool desired = phase < winner_action->duration_ms;
+
+        if (desired)
+            engine->outputs |= bit;
+        else
+            engine->outputs &= ~bit;
+    }
 
     engine->previous_inputs = input_mask;
 
