@@ -1,3 +1,10 @@
+
+************
+"C:\Android\cmake\3.22.1\bin\cmake.exe" --build native/build-android-arm64
+
+copy /Y native\build-android-arm64\liblynra_PLC_engine.so android\app\src\main\jniLibs\arm64-v8a\
+
+************
 İlk genel kabullerimiz şöyle olsun:
 1. Kurallar yukarıdan aşağıya değerlendirilir.
 2. Çakışma varsa alttaki kural kazanır.
@@ -53,4 +60,7 @@ Q1	GPIO16	Multimetre
 Q2	GPIO17	Multimetre
 Q3	GPIO18	Multimetre
 Q4	GPIO19	Multimetre
+
+***************
+
 

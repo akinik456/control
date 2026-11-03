@@ -393,11 +393,17 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
                         LogicOperator.and => 'VE',
                         LogicOperator.or => 'VEYA',
                         LogicOperator.xor => 'FARKLIYSA',
+												LogicOperator.andEdge => 'VE (Kenar)',
+												LogicOperator.nand => 'VE DEĞİL',
+												LogicOperator.nandEdge => 'VE DEĞİL (Kenar)',
                       }, () async {
                         final v = await _choose<LogicOperator>('Bağlaç', [
                           (LogicOperator.and, 'VE'),
                           (LogicOperator.or, 'VEYA'),
                           (LogicOperator.xor, 'FARKLIYSA'),
+													(LogicOperator.andEdge, 'VE (Kenar)'),
+													(LogicOperator.nand, 'VE DEĞİL'),
+													(LogicOperator.nandEdge, 'VE DEĞİL (Kenar)'),
                         ]);
                         if (v != null) setState(() => rule.logicOperator = v);
                       })
@@ -566,6 +572,9 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     LogicOperator.and => 'VE',
     LogicOperator.or => 'VEYA',
     LogicOperator.xor => 'FARKLIYSA',
+		LogicOperator.andEdge => 'VE (Kenar)',
+		LogicOperator.nand => 'VE DEĞİL',
+		LogicOperator.nandEdge => 'VE DEĞİL (Kenar)',
   };
 
   void _openSummary() {

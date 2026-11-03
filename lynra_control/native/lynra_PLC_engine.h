@@ -19,7 +19,10 @@ extern "C" {
 typedef enum {
     LYNRA_LOGIC_AND,
     LYNRA_LOGIC_OR,
-    LYNRA_LOGIC_XOR
+    LYNRA_LOGIC_XOR,
+    LYNRA_LOGIC_AND_EDGE,
+    LYNRA_LOGIC_NAND,
+    LYNRA_LOGIC_NAND_EDGE
 } LynraLogicOperator;
 
 typedef enum {

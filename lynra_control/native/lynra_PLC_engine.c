@@ -9,6 +9,7 @@ static void lynra_process_pending_outputs(
 
 typedef struct {
     bool previous_match;
+    bool match_initialized;
     bool completed_once;
 
     bool raw_on_active;
@@ -211,6 +212,12 @@ static bool lynra_matches(
         case LYNRA_LOGIC_XOR:
             return (true_count % 2) != 0;
 
+        case LYNRA_LOGIC_AND_EDGE:
+            return true_count == rule->condition_count;
+        case LYNRA_LOGIC_NAND:
+        case LYNRA_LOGIC_NAND_EDGE:
+            return true_count != rule->condition_count;
+
         default:
             return false;
     }
@@ -290,6 +297,11 @@ bool lynra_plc_scan(
         // Effective condition transitions.
         bool matched = state->timed_match;
         bool rising = matched && !state->previous_match;
+        if (rule->logic_operator == LYNRA_LOGIC_NAND_EDGE &&
+        !state->match_initialized) {
+                rising = false;
+                state->match_initialized = true;
+        }
         bool falling = !matched && state->previous_match;
 
         // Action execution will be added next.
@@ -315,6 +327,22 @@ bool lynra_plc_scan(
         }
 
         if (edge_rule) {
+            if ((rule->logic_operator == LYNRA_LOGIC_AND_EDGE ||
+            rule->logic_operator == LYNRA_LOGIC_NAND_EDGE) &&
+            !rising &&
+            rule->output_behavior == LYNRA_OUTPUT_FOLLOW) {
+
+                for (uint8_t a = 0; a < rule->action_count; a++) {
+                    const LynraAction* action = &rule->actions[a];
+
+                    if (action->type == LYNRA_ACTION_OUTPUT) {
+                        lynra_command_output(
+                            engine, action, (uint16_t)i, a,
+                            !action->output_state, now_ms
+                        );
+                    }
+                }
+            }
             // Edge-triggered rules run independently.
             if (rising && !state->running)
                 lynra_start_rule(engine, state);
@@ -679,6 +707,11 @@ static void lynra_advance_rule(
 
 static bool lynra_has_edge_condition(const LynraRule* rule)
 {
+    if (rule->logic_operator == LYNRA_LOGIC_AND_EDGE ||
+    rule->logic_operator == LYNRA_LOGIC_NAND_EDGE)
+        return true;
+    if (rule->logic_operator == LYNRA_LOGIC_AND_EDGE)
+        return true;
     for (uint8_t i = 0; i < rule->condition_count; i++) {
         LynraConditionTrigger trigger = rule->conditions[i].trigger;
 

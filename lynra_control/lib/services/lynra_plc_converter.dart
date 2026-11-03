@@ -150,6 +150,16 @@ target.offDelayMs = source.offDelayMs;
     case LogicOperator.xor:
       target.logicOperator = 2;
       break;
+		case LogicOperator.andEdge:
+			target.logicOperator = 3;
+			break;
+			case LogicOperator.nand:
+			target.logicOperator = 4;
+			break;
+
+		case LogicOperator.nandEdge:
+			target.logicOperator = 5;
+			break;
   }
 
   switch (source.outputBehavior) {

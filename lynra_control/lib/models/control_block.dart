@@ -1,7 +1,14 @@
 // Unified EGER-ISE PLC program model.
 // This first revision preserves the current editor API; execution comes next.
 
-enum LogicOperator { and, or, xor }
+enum LogicOperator {
+  and,
+  or,
+  xor,
+  andEdge,
+  nand,
+  nandEdge,
+}
 
 enum OutputBehavior { followCondition, latch }
 
