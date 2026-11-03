@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/control_program.dart';
 import '../services/lynra_native_engine.dart';
+import '../models/control_block.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'dart:ui' show FontFeature;
 
 class ProgramTestPage extends StatefulWidget {
   final ControlProgram program;
@@ -19,6 +21,12 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
 	final AudioPlayer _relayPlayer = AudioPlayer();
 	final List<bool> _previousOutputs = List.filled(4, false);
 	bool _soundEnabled = true;
+	bool _autoTesting = false;
+	int _autoStep = 0;
+	int _autoStepStartMs = 0;
+	bool _paused = true;
+	double _testSpeed = 1.0;
+	bool _autoCompleted = false;
 
   final Map<int, bool> _inputs = {
     for (var i = 1; i <= 4; i++) i: false,
@@ -26,6 +34,40 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
 
   int _nowMs = 0;
   DateTime? _lastTick;
+	
+	List<int> get _usedInputs {
+  final indexes = <int>{};
+
+  for (final block in widget.program.controlBlocks) {
+    for (final rule in block.groups) {
+      final conditions = rule.logicOperator == LogicOperator.not
+          ? rule.conditions.take(1)
+          : rule.conditions;
+
+      for (final condition in conditions) {
+        indexes.add(condition.inputIndex);
+      }
+    }
+  }
+
+  return indexes.where((i) => i >= 1 && i <= 4).toList()..sort();
+}
+
+List<int> get _usedOutputs {
+  final indexes = <int>{};
+
+  for (final block in widget.program.controlBlocks) {
+    for (final rule in block.groups) {
+      for (final action in rule.actions) {
+        if (action.type != ControlActionType.delay) {
+          indexes.add(action.outputIndex);
+        }
+      }
+    }
+  }
+
+  return indexes.where((i) => i >= 1 && i <= 4).toList()..sort();
+}
 
   @override
   void initState() {
@@ -38,6 +80,7 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
   }
 
   void _restart() {
+	final wasPaused = _paused;
     _engine?.dispose();
 		for (var i = 0; i < _previousOutputs.length; i++) {
 			_previousOutputs[i] = false;
@@ -45,6 +88,11 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
     _engine = LynraNativeEngine(widget.program);
 
     _nowMs = 0;
+		_paused = wasPaused;
+_autoTesting = false;
+_autoStep = 0;
+_autoStepStartMs = 0;
+_autoCompleted = false;
     _lastTick = DateTime.now();
 
     for (var i = 1; i <= 4; i++) {
@@ -53,9 +101,42 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
 
     _scan();
   }
+	
+	void _startAutoTest() {
+  setState(() {
+    _restart();
+    _autoTesting = true;
+		_paused = false;
+		_autoCompleted = false;
+    _autoStep = 0;
+    _autoStepStartMs = 0;
+    _applyAutoStep();
+  });
+}
+
+void _applyAutoStep() {
+  final inputs = _usedInputs;
+  final total = 1 << inputs.length;
+
+  if (_autoStep >= total) {
+  _autoTesting = false;
+  _autoCompleted = true;
+  return;
+}
+
+  for (var i = 1; i <= 4; i++) {
+    _inputs[i] = false;
+  }
+
+  for (var bit = 0; bit < inputs.length; bit++) {
+    _inputs[inputs[bit]] = (_autoStep & (1 << bit)) != 0;
+  }
+
+  _scan();
+}
 
   void _tick() {
-    if (!mounted || _engine == null) return;
+    if (!mounted || _engine == null || _paused) return;
 
     final now = DateTime.now();
     final elapsed = now.difference(_lastTick!).inMilliseconds;
@@ -64,14 +145,18 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
     if (elapsed <= 0) return;
 
     setState(() {
-      final end = _nowMs + elapsed;
+      final end = _nowMs + (elapsed * _testSpeed).round();
 
       while (_nowMs < end) {
         final step = (end - _nowMs).clamp(1, 10);
         _nowMs += step;
         _scan();
       }		
-			
+			if (_autoTesting && _nowMs - _autoStepStartMs >= 1000) {
+				_autoStep++;
+				_autoStepStartMs = _nowMs;
+				_applyAutoStep();
+			}
     });
   }
 void _scan() {
@@ -102,12 +187,24 @@ void _scan() {
   }
 }
   void _setInput(int index) {
+	if (_autoTesting || _paused) return;
     setState(() {
       _inputs[index] = !_inputs[index]!;
       _nowMs += 1;
       _scan();
     });
   }
+	
+	void _pauseTest() {
+  setState(() => _paused = true);
+}
+
+void _resumeTest() {
+  setState(() {
+    _lastTick = DateTime.now();
+    _paused = false;
+  });
+}
 
   @override
   void dispose() {
@@ -135,64 +232,217 @@ void _scan() {
           IconButton(
             tooltip: 'Sıfırla',
             icon: const Icon(Icons.restart_alt),
-            onPressed: () => setState(_restart),
+            onPressed: () {
+  setState(() {
+    _restart();
+    _resumeTest();
+  });
+},
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            'Çalışma süresi: ${(_nowMs / 1000).toStringAsFixed(1)} sn',
+      body: Padding(
+  padding: const EdgeInsets.all(4),
+  child: Column(
+    children: [
+          Card(
+  elevation: 2,
+  child: Padding(
+    padding: const EdgeInsets.all(4),
+    child: Column(
+      children: [
+        const Text(
+          'TEST KONTROL',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${(_nowMs / 1000).toStringAsFixed(3)} sn',
+          style: const TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            fontFeatures: [FontFeature.tabularFigures()],
           ),
-          const SizedBox(height: 24),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _paused ? _resumeTest : null,
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Başlat'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _paused ? null : _pauseTest,
+                icon: const Icon(Icons.stop),
+                label: const Text('Durdur'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => setState(_restart),
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('Sıfırla'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
 
-          Text(
-            'GİRİŞLER',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
+FilledButton.tonalIcon(
+  onPressed: _startAutoTest,
+  icon: const Icon(Icons.auto_mode),
+  label: const Text('Otomatik Test'),
+),
 
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (var i = 1; i <= 4; i++)
-                InkWell(
-                  onTap: () => _setInput(i),
-                  child: _ioCard(
-                    'I$i',
-                    _inputs[i]!,
-                    isInput: true,
-                  ),
-                ),
-            ],
-          ),
+const SizedBox(height: 4),
 
-          const SizedBox(height: 32),
+Row(
+  children: [
+    const SizedBox(width: 12),
+    const Text('Hız'),
+    Expanded(
+      child: Slider(
+        min: 0.25,
+        max: 4.0,
+        divisions: 15,
+        value: _testSpeed,
+        onChanged: (value) {
+          setState(() => _testSpeed = value);
+        },
+      ),
+    ),
+    SizedBox(
+      width: 52,
+      child: Text(
+        '${_testSpeed.toStringAsFixed(2)}×',
+        textAlign: TextAlign.center,
+      ),
+    ),
+  ],
+),
 
-          Text(
-            'ÇIKIŞLAR',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
+if (_autoTesting || _autoCompleted) ...[
+  Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: LinearProgressIndicator(
+      value: _autoCompleted
+          ? 1.0
+          : _autoStep / (1 << _usedInputs.length),
+    ),
+  ),
+  const SizedBox(height: 4),
+  Text(
+    _autoCompleted
+        ? 'Test tamamlandı'
+        : 'Test ${_autoStep + 1} / ${1 << _usedInputs.length}',
+  ),
+],
 
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (var i = 1; i <= 4; i++)
-                _ioCard(
-                  'Q$i',
-                  _engine!.output(i),
-                  isInput: false,
-                ),
-            ],
-          ),
+      ],
+    ),
+  ),
+),
+          
+Expanded(
+  child: ListView(
+    children: [
+      for (final (index, rule) in [
+        for (final block in widget.program.controlBlocks)
+          ...block.groups,
+      ].indexed)
+        _ruleCard(index + 1, rule),
+    ],
+  ),
+),
+					
+					
         ],
+				),
       ),
     );
   }
+	
+	Widget _ruleCard(int ruleNumber, ControlConditionGroup rule) {
+  final inputs = (rule.logicOperator == LogicOperator.not
+          ? rule.conditions.take(1)
+          : rule.conditions)
+      .map((c) => c.inputIndex)
+      .where((i) => i >= 1 && i <= 4)
+      .toSet()
+      .toList()
+    ..sort();
+
+  final outputs = rule.actions
+      .where((a) => a.type != ControlActionType.delay)
+      .map((a) => a.outputIndex)
+      .where((i) => i >= 1 && i <= 4)
+      .toSet()
+      .toList()
+    ..sort();
+
+  return Container(
+    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    padding: const EdgeInsets.all(8),
+    decoration: BoxDecoration(
+      border: Border.all(
+        color: Theme.of(context).colorScheme.outlineVariant,
+      ),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Column(
+      children: [
+        Text(
+          'KURAL $ruleNumber',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                children: [
+                  for (final i in inputs) ...[
+                    InkWell(
+                      onTap: () => _setInput(i),
+                      child: _ioCard(
+                        'I$i',
+                        _inputs[i]!,
+                        isInput: true,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                children: [
+                  for (final i in outputs) ...[
+                    _ioCard(
+                      'Q$i',
+                      _engine!.output(i),
+                      isInput: false,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _ioCard(
     String label,
@@ -204,8 +454,8 @@ void _scan() {
         : (active ? Colors.amber : Colors.red);
 
     return Container(
-      width: 110,
-      padding: const EdgeInsets.all(16),
+      width: 92,
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         border: Border.all(color: color, width: 1.5),
         borderRadius: BorderRadius.circular(12),
@@ -216,10 +466,10 @@ void _scan() {
             isInput
                 ? (active ? Icons.toggle_on : Icons.toggle_off)
                 : Icons.lightbulb,
-            size: 42,
+            size: 34,
             color: color,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             label,
             style: const TextStyle(fontWeight: FontWeight.bold),
