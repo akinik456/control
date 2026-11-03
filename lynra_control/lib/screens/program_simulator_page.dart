@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../services/lynra_native_engine.dart';
 import '../models/control_program.dart';
 
-/// Virtual-time simulator: uses the same ControlEngine as the application.
 class ProgramSimulatorPage extends StatefulWidget {
   final ControlProgram program;
   const ProgramSimulatorPage({super.key, required this.program});
