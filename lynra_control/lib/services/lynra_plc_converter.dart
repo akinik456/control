@@ -153,13 +153,18 @@ target.offDelayMs = source.offDelayMs;
 		case LogicOperator.andEdge:
 			target.logicOperator = 3;
 			break;
-			case LogicOperator.nand:
+		case LogicOperator.nand:
 			target.logicOperator = 4;
 			break;
-
 		case LogicOperator.nandEdge:
 			target.logicOperator = 5;
 			break;
+		case LogicOperator.nor:
+			target.logicOperator = 6;
+			break;
+		case LogicOperator.not:
+			target.logicOperator = 7;
+			break;	
   }
 
   switch (source.outputBehavior) {
@@ -186,13 +191,15 @@ if (source.conditions.length > 8) {
   );
 }
 
-target.conditionCount = source.conditions.length;
+final conditionCount =
+    source.logicOperator == LogicOperator.not
+        ? (source.conditions.isEmpty ? 0 : 1)
+        : source.conditions.length;
 
-for (var i = 0; i < source.conditions.length; i++) {
-  writeCondition(
-    source.conditions[i],
-    target.conditions.elements[i],
-  );
+target.conditionCount = conditionCount;
+
+for (var i = 0; i < conditionCount; i++) {
+  writeCondition(source.conditions[i], target.conditions.elements[i]);
 }
 
 if (source.actions.length > 16) {

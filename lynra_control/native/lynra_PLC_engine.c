@@ -27,6 +27,8 @@ typedef struct {
     uint32_t output_versions[LYNRA_PLC_MAX_OUTPUTS];
     uint32_t blink_activation_serial;
     bool blink_active;
+    bool nor_armed;
+    bool not_armed;
 } LynraRuleState;
 
 
@@ -156,6 +158,7 @@ uint32_t lynra_plc_get_outputs(const LynraPlcEngine* engine)
 
 static bool lynra_matches(
     const LynraRule* rule,
+    LynraRuleState* state,
     uint32_t inputs,
     uint32_t previous_inputs)
 {
@@ -217,6 +220,14 @@ static bool lynra_matches(
         case LYNRA_LOGIC_NAND:
         case LYNRA_LOGIC_NAND_EDGE:
             return true_count != rule->condition_count;
+        case LYNRA_LOGIC_NOR:
+            if (true_count > 0)
+                state->nor_armed = true;
+            return state->nor_armed && true_count == 0;
+        case LYNRA_LOGIC_NOT:
+            if (true_count > 0)
+                state->not_armed = true;
+            return state->not_armed && true_count == 0;
 
         default:
             return false;
@@ -258,6 +269,7 @@ bool lynra_plc_scan(
 
         bool raw_match = lynra_matches(
             rule,
+            state,
             input_mask,
             engine->previous_inputs
         );

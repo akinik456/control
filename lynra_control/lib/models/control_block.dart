@@ -8,6 +8,8 @@ enum LogicOperator {
   andEdge,
   nand,
   nandEdge,
+	nor,
+	not,
 }
 
 enum OutputBehavior { followCondition, latch }

@@ -42,7 +42,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         isScrollControlled: true,
         builder: (ctx) => SafeArea(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold))),
+            if (title.isNotEmpty)
+  ListTile(title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold))),
             ...choices.map((c) => ListTile(
               title: Text(c.$2),
               onTap: () => Navigator.pop(ctx, c.$1),
@@ -355,7 +356,11 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _sectionLabel('EĞER'),
             const SizedBox(height: 6),
-            for (var i = 0; i < rule.conditions.length; i++)
+            for (var i = 0;
+							i < (rule.logicOperator == LogicOperator.not
+									? (rule.conditions.isEmpty ? 0 : 1)
+									: rule.conditions.length);
+							i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 5),
                 child: SingleChildScrollView(
@@ -388,28 +393,35 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
                         ),
                       ]),
                     const SizedBox(width: 5),
-                    if (i < rule.conditions.length - 1)
-                      _token(switch (rule.logicOperator) {
-                        LogicOperator.and => 'VE',
-                        LogicOperator.or => 'VEYA',
-                        LogicOperator.xor => 'FARKLIYSA',
-												LogicOperator.andEdge => 'VE (Kenar)',
-												LogicOperator.nand => 'VE DEĞİL',
-												LogicOperator.nandEdge => 'VE DEĞİL (Kenar)',
-                      }, () async {
-                        final v = await _choose<LogicOperator>('Bağlaç', [
-                          (LogicOperator.and, 'VE'),
-                          (LogicOperator.or, 'VEYA'),
-                          (LogicOperator.xor, 'FARKLIYSA'),
-													(LogicOperator.andEdge, 'VE (Kenar)'),
-													(LogicOperator.nand, 'VE DEĞİL'),
-													(LogicOperator.nandEdge, 'VE DEĞİL (Kenar)'),
-                        ]);
-                        if (v != null) setState(() => rule.logicOperator = v);
-                      })
-                    else
-                      _token('Koşul ekle', () => setState(() =>
-                        rule.conditions.add(InputCondition(inputIndex: 1)))),
+                    if (i < rule.conditions.length - 1 ||
+											(i == 0 && rule.logicOperator == LogicOperator.not))
+										_token(switch (rule.logicOperator) {
+											LogicOperator.and => 'VE',
+											LogicOperator.or => 'VEYA',
+											LogicOperator.xor => 'FARKLIYSA',
+											LogicOperator.andEdge => 'VE (Kenar)',
+											LogicOperator.nand => 'VE DEĞİL',
+											LogicOperator.nandEdge => 'VE DEĞİL (Kenar)',
+											LogicOperator.nor => 'VEYA DEĞİL',
+											LogicOperator.not => 'DEĞİL',
+										}, () async {
+											final v = await _choose<LogicOperator>('', [
+												(LogicOperator.and, 'VE'),
+												(LogicOperator.or, 'VEYA'),
+												(LogicOperator.xor, 'FARKLIYSA'),
+												(LogicOperator.andEdge, 'VE (Kenar)'),
+												(LogicOperator.nand, 'VE DEĞİL'),
+												(LogicOperator.nandEdge, 'VE DEĞİL (Kenar)'),
+												(LogicOperator.nor, 'VEYA DEĞİL'),
+												(LogicOperator.not, 'DEĞİL'),
+											]);
+											if (v != null) {
+												setState(() => rule.logicOperator = v);
+											}
+										})
+									else if (rule.logicOperator != LogicOperator.not)
+										_token('Koşul ekle', () => setState(() =>
+											rule.conditions.add(InputCondition(inputIndex: 1)))),
                   ]),
                 ),
               ),
@@ -575,6 +587,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 		LogicOperator.andEdge => 'VE (Kenar)',
 		LogicOperator.nand => 'VE DEĞİL',
 		LogicOperator.nandEdge => 'VE DEĞİL (Kenar)',
+		LogicOperator.nor => 'VEYA DEĞİL',
+		LogicOperator.not => 'DEĞİL',
   };
 
   void _openSummary() {
@@ -598,13 +612,25 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       if (rule.conditions.isEmpty) {
         add('(koşul yok)');
       } else {
-        for (var c = 0; c < rule.conditions.length; c++) {
-          if (c > 0) add(' ${_summaryOperator(rule.logicOperator)} ', keyword);
-          final condition = rule.conditions[c];
-          add('I${condition.inputIndex}', input);
-          add(' ${_triggerName(condition.trigger)}');
-        }
+  if (rule.logicOperator == LogicOperator.not) {
+    if (rule.conditions.isNotEmpty) {
+      final condition = rule.conditions.first;
+      add('DEĞİL ', keyword);
+      add('I${condition.inputIndex}', input);
+      add(' ${_triggerName(condition.trigger)}');
+    }
+  } else {
+    for (var c = 0; c < rule.conditions.length; c++) {
+      if (c > 0) {
+        add(' ${_summaryOperator(rule.logicOperator)} ', keyword);
       }
+
+      final condition = rule.conditions[c];
+      add('I${condition.inputIndex}', input);
+      add(' ${_triggerName(condition.trigger)}');
+    }
+  }
+}
       // A TON waits for the complete logical condition, not each input separately.
       if (rule.onDelayMs > 0) {
         add(', ${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa');

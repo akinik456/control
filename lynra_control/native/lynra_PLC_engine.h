@@ -22,7 +22,9 @@ typedef enum {
     LYNRA_LOGIC_XOR,
     LYNRA_LOGIC_AND_EDGE,
     LYNRA_LOGIC_NAND,
-    LYNRA_LOGIC_NAND_EDGE
+    LYNRA_LOGIC_NAND_EDGE,
+    LYNRA_LOGIC_NOR,
+    LYNRA_LOGIC_NOT
 } LynraLogicOperator;
 
 typedef enum {
