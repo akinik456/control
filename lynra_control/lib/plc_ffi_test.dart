@@ -1,5 +1,9 @@
+import 'services/lynra_plc_ffi.dart' as bridge;
 import 'dart:ffi';
 import 'package:ffi/ffi.dart' as ffi;
+
+import 'models/control_block.dart';
+import 'services/lynra_plc_converter.dart';
 
 final class LynraCondition extends Struct {
   @Uint8()
@@ -86,6 +90,9 @@ typedef PlcLoadRulesNative = Bool Function(
 
 
 void main() {
+final plc = bridge.LynraPlcFfi();
+plc.printStructSizes();
+print('Kalıcı FFI LynraRule: ${sizeOf<LynraRule>()} bytes');
 print('LynraCondition: ${sizeOf<LynraCondition>()} bytes');
 print('LynraAction: ${sizeOf<LynraAction>()} bytes');
 print('LynraRule: ${sizeOf<LynraRule>()} bytes');
@@ -117,7 +124,7 @@ final loadRules = dll.lookupFunction<
 >('lynra_plc_load_rules');
 
 
-  final engine = create();
+  final engine = plc.createEngine();
 
   if (engine == nullptr) {
     throw StateError('PLC engine creation failed');
@@ -126,54 +133,103 @@ final loadRules = dll.lookupFunction<
   print('PLC engine created: $engine');
 	
 	
-final success = scan(engine, 100, 0);
+final success = plc.scan(engine, 100, 0);
 
 print('PLC scan result: $success');
 
-final outputs = getOutputs(engine);
+final outputs = plc.getOutputs(engine);
 print('PLC outputs: $outputs');
 
 
-final rules = ffi.calloc<LynraRule>(1);
+final flutterRule = ControlConditionGroup(
+  id: 'test-rule-1',
+  conditions: [
+    InputCondition(
+      inputIndex: 1,
+      trigger: ConditionTrigger.highLevel,
+    ),
+  ],
+  actions: [
+    ControlAction.output(
+      outputIndex: 1,
+      outputState: true,
+    ),
+  ],
+);
+
+
+final flutterRule2 = ControlConditionGroup(
+  id: 'test-rule-2',
+  conditions: [
+    InputCondition(
+      inputIndex: 2,
+      trigger: ConditionTrigger.highLevel,
+    ),
+  ],
+  actions: [
+    ControlAction.output(
+      outputIndex: 2,
+      outputState: true,
+    ),
+  ],
+);
+
+
+final convertedRule = ffi.calloc<bridge.LynraRule>(2);
+
+
+  LynraPlcConverter.writeRule(
+    flutterRule,
+    convertedRule.ref,
+    1,
+  );
+LynraPlcConverter.writeRule(
+  flutterRule2,
+  (convertedRule + 1).ref,
+  2,
+);
+  print('Converted rule ID: ${convertedRule.ref.id}');
+  print('Converted conditions: ${convertedRule.ref.conditionCount}');
+  print('Converted actions: ${convertedRule.ref.actionCount}');
+  print('Converted input: ${convertedRule.ref.conditions[0].inputIndex}');
+  print('Converted output: ${convertedRule.ref.actions[0].outputIndex}');
+ 
+
 
 try {
-  final rule = rules.ref;
+  final loaded = plc.loadRules(
+    engine,
+    convertedRule,
+    2,
+  );
 
-  rule.id = 1;
-  rule.logicOperator = 0;   // AND
-  rule.outputBehavior = 0;  // FOLLOW
-  rule.runPolicy = 0;       // ONCE
-
-  rule.onDelayMs = 0;
-  rule.offDelayMs = 0;
-
-  rule.conditionCount = 1;
-  rule.conditions[0].inputIndex = 1;
-  rule.conditions[0].trigger = 0; // HIGH
-
-  rule.actionCount = 1;
-  rule.actions[0].type = 0;        // OUTPUT
-  rule.actions[0].outputIndex = 1;
-  rule.actions[0].outputState = true;
-
-  final loaded = loadRules(engine, rules, 1);
   print('PLC rules loaded: $loaded');
 
   if (!loaded) {
     throw StateError('PLC rule loading failed');
   }
 
-  scan(engine, 200, 1);
-  print('I1 ON -> outputs: ${getOutputs(engine)}');
+  plc.scan(engine, 200, 1);
+  print('I1 ON -> outputs: ${plc.getOutputs(engine)}');
 
-  scan(engine, 300, 0);
-  print('I1 OFF -> outputs: ${getOutputs(engine)}');
+  plc.scan(engine, 300, 0);
+  print('I1 OFF -> outputs: ${plc.getOutputs(engine)}');
+	
+	plc.scan(engine, 400, 2);
+print('I2 ON -> outputs: ${plc.getOutputs(engine)}');
+
+plc.scan(engine, 500, 0);
+print('I2 OFF -> outputs: ${plc.getOutputs(engine)}');
+
+plc.scan(engine, 600, 3);
+print('I1 + I2 ON -> outputs: ${plc.getOutputs(engine)}');
 } finally {
-  ffi.calloc.free(rules);
+  ffi.calloc.free(convertedRule);
 }
 
 
-  destroy(engine);
+
+  plc.destroyEngine(engine);
 
   print('PLC engine destroyed successfully');
 }
