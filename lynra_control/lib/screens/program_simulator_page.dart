@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../core/control_engine.dart';
+import '../services/lynra_native_engine.dart';
 import '../models/control_program.dart';
 
 /// Virtual-time simulator: uses the same ControlEngine as the application.
@@ -19,7 +19,7 @@ class _Sample {
 }
 
 class _ProgramSimulatorPageState extends State<ProgramSimulatorPage> {
-  late ControlEngine _engine;
+  LynraNativeEngine? _engine;
   final Map<int, bool> _inputs = {for (var i = 1; i <= 4; i++) i: false};
   final List<_Sample> _samples = [];
   int _nowMs = 0;
@@ -29,21 +29,26 @@ class _ProgramSimulatorPageState extends State<ProgramSimulatorPage> {
     super.initState();
     _restart();
   }
-
+@override
+void dispose() {
+  _engine?.dispose();
+  super.dispose();
+}
   void _restart() {
-    _engine = ControlEngine(widget.program);
-    _nowMs = 0;
-    for (var i = 1; i <= 4; i++) _inputs[i] = false;
-    _samples.clear();
-    _scan();
-  }
+  _engine?.dispose();
+  _engine = LynraNativeEngine(widget.program);
+  _nowMs = 0;
+  for (var i = 1; i <= 4; i++) _inputs[i] = false;
+  _samples.clear();
+  _scan();
+}
 
   void _scan() {
-    _engine.scan(nowMs: _nowMs, inputs: _inputs);
+    _engine!.scan(nowMs: _nowMs, inputs: _inputs);
     _samples.add(_Sample(
       _nowMs,
       [for (var i = 1; i <= 4; i++) _inputs[i] ?? false],
-      [for (var i = 1; i <= 4; i++) _engine.output(i)],
+      [for (var i = 1; i <= 4; i++) _engine!.output(i)],
     ));
   }
 
@@ -84,8 +89,8 @@ class _ProgramSimulatorPageState extends State<ProgramSimulatorPage> {
       const SizedBox(height: 8),
       const Text('Çıkışlar'),
       Wrap(spacing: 8, children: [for (var i = 1; i <= 4; i++)
-        Chip(label: Text('Q$i  ${_engine.output(i) ? 'ON' : 'OFF'}'),
-          backgroundColor: _engine.output(i)
+        Chip(label: Text('Q$i  ${_engine!.output(i) ? 'ON' : 'OFF'}'),
+          backgroundColor: _engine!.output(i)
               ? Colors.green.withValues(alpha: .2) : null),
       ]),
       const SizedBox(height: 12),

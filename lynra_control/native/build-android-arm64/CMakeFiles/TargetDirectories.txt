@@ -1,0 +1,3 @@
+C:/control/lynra_control/native/build-android-arm64/CMakeFiles/lynra_PLC_engine.dir
+C:/control/lynra_control/native/build-android-arm64/CMakeFiles/edit_cache.dir
+C:/control/lynra_control/native/build-android-arm64/CMakeFiles/rebuild_cache.dir

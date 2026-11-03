@@ -68,9 +68,8 @@ class LynraPlcFfi {
   late final DynamicLibrary _library;
 
   LynraPlcFfi() {
-    _library = DynamicLibrary.open(
-      r'C:\control\lynra_control\native\cmake-build-debug\liblynra_PLC_engine.dll',
-    );
+    _library = DynamicLibrary.open('liblynra_PLC_engine.so');
+    
   }
 	
 	
