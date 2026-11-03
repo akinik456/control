@@ -39,6 +39,7 @@ dependencies:
   intl: any
   flutter_blue_plus: ^2.3.14
   permission_handler: ^13.0.2
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -58,3 +59,7 @@ dev_dependencies:
 flutter:
   generate: true
   uses-material-design: true
+ 
+  assets:
+    - assets/sounds/relay_click.wav
+    - assets/sounds/relay_release.wav
