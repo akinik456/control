@@ -33,6 +33,8 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
   };
 
   int _nowMs = 0;
+	int _counterMs = 0;
+bool _counterRunning = false;
   DateTime? _lastTick;
 	
 	List<int> get _usedInputs {
@@ -93,6 +95,7 @@ _autoTesting = false;
 _autoStep = 0;
 _autoStepStartMs = 0;
 _autoCompleted = false;
+_counterMs = 0;
     _lastTick = DateTime.now();
 
     for (var i = 1; i <= 4; i++) {
@@ -105,6 +108,8 @@ _autoCompleted = false;
 	void _startAutoTest() {
   setState(() {
     _restart();
+		_counterMs = 0;
+_counterRunning = true;
     _autoTesting = true;
 		_paused = false;
 		_autoCompleted = false;
@@ -119,9 +124,7 @@ void _applyAutoStep() {
   final total = 1 << inputs.length;
 
   if (_autoStep >= total) {
-  _autoTesting = false;
-  _autoCompleted = true;
-  return;
+  _autoStep = 0;
 }
 
   for (var i = 1; i <= 4; i++) {
@@ -134,9 +137,35 @@ void _applyAutoStep() {
 
   _scan();
 }
+int get _autoStepDurationMs {
+  var maxDelay = 0;
 
+  for (final block in widget.program.controlBlocks) {
+    for (final rule in block.groups) {
+      if (rule.onDelayMs > maxDelay) {
+        maxDelay = rule.onDelayMs;
+      }
+
+      if (rule.offDelayMs > maxDelay) {
+        maxDelay = rule.offDelayMs;
+      }
+
+      for (final action in rule.actions) {
+        if (action.onDelayMs > maxDelay) {
+          maxDelay = action.onDelayMs;
+        }
+
+        if (action.offDelayMs > maxDelay) {
+          maxDelay = action.offDelayMs;
+        }
+      }
+    }
+  }
+
+  return maxDelay > 500 ? maxDelay + 500 : 1000;
+}
   void _tick() {
-    if (!mounted || _engine == null || _paused) return;
+    if (!mounted || _engine == null) return;
 
     final now = DateTime.now();
     final elapsed = now.difference(_lastTick!).inMilliseconds;
@@ -145,6 +174,9 @@ void _applyAutoStep() {
     if (elapsed <= 0) return;
 
     setState(() {
+		if (_counterRunning) {
+  _counterMs += (elapsed * _testSpeed).round();
+}
       final end = _nowMs + (elapsed * _testSpeed).round();
 
       while (_nowMs < end) {
@@ -152,7 +184,8 @@ void _applyAutoStep() {
         _nowMs += step;
         _scan();
       }		
-			if (_autoTesting && _nowMs - _autoStepStartMs >= 1000) {
+			if (_autoTesting &&
+    _nowMs - _autoStepStartMs >= _autoStepDurationMs) {
 				_autoStep++;
 				_autoStepStartMs = _nowMs;
 				_applyAutoStep();
@@ -187,18 +220,33 @@ void _scan() {
   }
 }
   void _setInput(int index) {
-	if (_autoTesting || _paused) return;
+	if (_autoTesting) return;
     setState(() {
       _inputs[index] = !_inputs[index]!;
       _nowMs += 1;
       _scan();
     });
   }
-	
+	void _startCounter() {
+  setState(() => _counterRunning = true);
+}
+
+void _stopCounter() {
+  setState(() => _counterRunning = false);
+}
+
+void _resetCounter() {
+  setState(() => _counterMs = 0);
+}
 	void _pauseTest() {
   setState(() => _paused = true);
 }
-
+void _stopAutoTest() {
+  setState(() {
+    _autoTesting = false;
+    _autoCompleted = false;
+  });
+}
 void _resumeTest() {
   setState(() {
     _lastTick = DateTime.now();
@@ -229,16 +277,7 @@ void _resumeTest() {
 							setState(() => _soundEnabled = !_soundEnabled);
 						},
 					),
-          IconButton(
-            tooltip: 'Sıfırla',
-            icon: const Icon(Icons.restart_alt),
-            onPressed: () {
-  setState(() {
-    _restart();
-    _resumeTest();
-  });
-},
-          ),
+          
         ],
       ),
       body: Padding(
@@ -257,7 +296,7 @@ void _resumeTest() {
         ),
         const SizedBox(height: 4),
         Text(
-          '${(_nowMs / 1000).toStringAsFixed(3)} sn',
+          '${(_counterMs / 1000).toStringAsFixed(3)} sn',
           style: const TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
@@ -269,7 +308,7 @@ void _resumeTest() {
           children: [
             Expanded(
               child: FilledButton.icon(
-                onPressed: _paused ? _resumeTest : null,
+                onPressed: _counterRunning ? null : _startCounter,
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Başlat'),
               ),
@@ -277,7 +316,7 @@ void _resumeTest() {
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: _paused ? null : _pauseTest,
+                onPressed: _counterRunning ? _stopCounter : null,
                 icon: const Icon(Icons.stop),
                 label: const Text('Durdur'),
               ),
@@ -285,7 +324,7 @@ void _resumeTest() {
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => setState(_restart),
+                onPressed: _resetCounter,
                 icon: const Icon(Icons.restart_alt),
                 label: const Text('Sıfırla'),
               ),
@@ -295,9 +334,13 @@ void _resumeTest() {
         const SizedBox(height: 8),
 
 FilledButton.tonalIcon(
-  onPressed: _startAutoTest,
-  icon: const Icon(Icons.auto_mode),
-  label: const Text('Otomatik Test'),
+  onPressed: _autoTesting ? _stopAutoTest : _startAutoTest,
+  icon: Icon(
+    _autoTesting ? Icons.stop : Icons.auto_mode,
+  ),
+  label: Text(
+    _autoTesting ? 'Otomatik Durdur' : 'Otomatik Başlat',
+  ),
 ),
 
 const SizedBox(height: 4),
@@ -331,17 +374,13 @@ if (_autoTesting || _autoCompleted) ...[
   Padding(
     padding: const EdgeInsets.symmetric(horizontal: 12),
     child: LinearProgressIndicator(
-      value: _autoCompleted
-          ? 1.0
-          : _autoStep / (1 << _usedInputs.length),
+      value: (_autoStep + 1) / (1 << _usedInputs.length),
     ),
   ),
   const SizedBox(height: 4),
   Text(
-    _autoCompleted
-        ? 'Test tamamlandı'
-        : 'Test ${_autoStep + 1} / ${1 << _usedInputs.length}',
-  ),
+  'Test ${_autoStep + 1} / ${1 << _usedInputs.length}',
+),
 ],
 
       ],
