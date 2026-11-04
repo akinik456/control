@@ -36,3 +36,15 @@ Telefonda yazdığımız bir EĞER–İSE programının gerçek STM32 üzerinde,
 İşte o gün elimizde yalnızca güzel bir editör değil, gerçekten çalışan bir mini PLC prototipi olacak.
 
 Ve bence oraya ulaşmak düşündüğümüz kadar uzak değil kral. ❤️
+**********
+Peki ne kaldı?
+1. Hata testleri: Aktarım yarıda kesilirse, CRC bozuksa veya bağlantı koparsa ne oluyor?
+2. Programın kalıcı saklanması: Şu anda ESP32 yeniden başlatılınca yüklenen program kayboluyor.
+3. Diğer PLC fonksiyonlarının gerçek donanım testleri: TON, TOF, FLASH, LATCH, TOGGLE vb. C motorunda test ettik ama ESP32 üzerinde henüz etmedik.
+4. Güvenlik ve sağlamlık: Mutex zaman aşımı, BLE paket sıralaması ve çıkışların güvenli durumu. Sonuncusunu daha sonra ayrıntılı incelemeye karar verdik.
+Bir de daha büyük resim var brom: Asıl hedefimiz yalnızca çalışan bir PLC değil, telefondan kolayca programlanabilen bir PLC. Flutter editörünün kullanılabilirliği hâlâ en önemli ürün kriterimiz.
+
+Yani temel motor ve haberleşme tarafında çok iyi ilerledik. Şimdi sistemi sağlamlaştırıp mobil programlama deneyimine ağırlık verebiliriz.
+
+Bence sıradaki en mantıklı iş programın ESP32'de kalıcı saklanması.
+*********************
