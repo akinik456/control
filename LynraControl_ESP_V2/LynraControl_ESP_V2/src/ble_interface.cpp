@@ -142,12 +142,26 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 ((uint32_t)data[20] << 24);
 
             if (type == 0x01 || type == 0x31 ||
+                type == 0x20 || type == 0x21 ||
                 type == 0x10 || type == 0x11 || type == 0x12)
             {
                 Serial.printf("BLE RX: TYPE=0x%02X SEQ=%lu\n",
                               type, (unsigned long)seq);
-
-                if (type == 0x10) // PROGRAM_BEGIN
+                if (type == 0x20) // RUN
+                {
+                    if (plcRun())
+                        Serial.println("PLC STATE: RUN (BLE)");
+                    else
+                        Serial.println("RUN REJECTED (BLE)");
+                }
+                else if (type == 0x21) // STOP
+                {
+                    plcStop();
+                    programTransferActive = false;
+                    hasLastDataSeq = false;
+                    Serial.println("PLC STATE: STOP (BLE)");
+                }
+                else if (type == 0x10) // PROGRAM_BEGIN
                 {
                     const uint16_t payloadLength =
                         (uint16_t)data[21] |
@@ -333,7 +347,8 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
                 sendAck(seq);
 
-                if (type == 0x31 || type == 0x12)
+                if (type == 0x31 || type == 0x12 ||
+                    type == 0x20 || type == 0x21)
                     sendPlcStatus(seq);
             }
 
