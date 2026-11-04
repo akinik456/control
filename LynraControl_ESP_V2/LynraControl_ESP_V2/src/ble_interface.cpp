@@ -1,6 +1,7 @@
 #include "ble_interface.h"
 
-#include <Arduino.h>
+#include <ArduinoJson.h>
+#include "models/control_program.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -12,6 +13,21 @@
 #define NOTIFY_UUID "8d21a102-64c2-4c3a-9d1e-123456789abc"
 
 static BLECharacteristic *tx = nullptr;
+static SemaphoreHandle_t transferMutex = nullptr;
+static constexpr size_t MAX_PROGRAM_SIZE = 32768;
+
+static uint8_t programBuffer[MAX_PROGRAM_SIZE];
+
+static uint32_t expectedProgramSize = 0;
+static uint32_t expectedProgramCRC = 0;
+static uint32_t receivedProgramSize = 0;
+
+static bool programTransferActive = false;
+static bool hasLastDataSeq = false;
+static uint32_t lastDataSeq = 0;
+static uint32_t lastProgramPacketMs = 0;
+
+static constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
 
 class ServerCallbacks : public BLEServerCallbacks
 {
@@ -92,7 +108,25 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
     void onWrite(BLECharacteristic *characteristic) override
     {
+        if (transferMutex == nullptr)
+            return;
+
+        if (xSemaphoreTake(transferMutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+        {
+            Serial.println("BLE RX: MUTEX TIMEOUT");
+            return;
+        }
         std::string value = characteristic->getValue();
+        if (programTransferActive &&
+            (uint32_t)(millis() - lastProgramPacketMs) > PROGRAM_TIMEOUT_MS)
+        {
+            programTransferActive = false;
+            hasLastDataSeq = false;
+
+            plcAbortProgramming();
+
+            Serial.println("PROGRAM TRANSFER TIMEOUT");
+        }
 
         const uint8_t *data =
             reinterpret_cast<const uint8_t *>(value.data());
@@ -107,16 +141,203 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 ((uint32_t)data[19] << 16) |
                 ((uint32_t)data[20] << 24);
 
-            if (type == 0x01 || type == 0x31)
+            if (type == 0x01 || type == 0x31 ||
+                type == 0x10 || type == 0x11 || type == 0x12)
             {
                 Serial.printf("BLE RX: TYPE=0x%02X SEQ=%lu\n",
                               type, (unsigned long)seq);
 
+                if (type == 0x10) // PROGRAM_BEGIN
+                {
+                    const uint16_t payloadLength =
+                        (uint16_t)data[21] |
+                        ((uint16_t)data[22] << 8);
+
+                    if (payloadLength == 8)
+                    {
+                        const uint32_t size =
+                            (uint32_t)data[23] |
+                            ((uint32_t)data[24] << 8) |
+                            ((uint32_t)data[25] << 16) |
+                            ((uint32_t)data[26] << 24);
+
+                        const uint32_t crc =
+                            (uint32_t)data[27] |
+                            ((uint32_t)data[28] << 8) |
+                            ((uint32_t)data[29] << 16) |
+                            ((uint32_t)data[30] << 24);
+
+                        if (size > 0 && size <= MAX_PROGRAM_SIZE &&
+                            plcBeginProgramming())
+                        {
+                            expectedProgramSize = size;
+                            expectedProgramCRC = crc;
+                            receivedProgramSize = 0;
+                            programTransferActive = true;
+                            hasLastDataSeq = false;
+                            lastProgramPacketMs = millis();
+
+                            Serial.printf(
+                                "PROGRAM_BEGIN: SIZE=%lu CRC=%08lX\n",
+                                (unsigned long)size,
+                                (unsigned long)crc);
+                        }
+                        else
+                        {
+                            Serial.println("PROGRAM_BEGIN REJECTED");
+                        }
+                    }
+                    else
+                    {
+                        Serial.println("PROGRAM_BEGIN: INVALID LENGTH");
+                    }
+                }
+                else if (type == 0x11) // PROGRAM_DATA
+                {
+                    const uint16_t payloadLength =
+                        (uint16_t)data[21] |
+                        ((uint16_t)data[22] << 8);
+
+                    if (!programTransferActive)
+                    {
+                        Serial.println("PROGRAM_DATA: NO ACTIVE TRANSFER");
+                    }
+                    else if (hasLastDataSeq && seq == lastDataSeq)
+                    {
+                        Serial.printf("PROGRAM_DATA: DUPLICATE SEQ=%lu\n",
+                                      (unsigned long)seq);
+                    }
+                    else if (payloadLength >
+                             expectedProgramSize - receivedProgramSize)
+                    {
+                        programTransferActive = false;
+                        plcAbortProgramming();
+
+                        Serial.println("PROGRAM_DATA: SIZE OVERFLOW");
+                    }
+                    else
+                    {
+                        memcpy(
+                            programBuffer + receivedProgramSize,
+                            data + 23,
+                            payloadLength);
+
+                        receivedProgramSize += payloadLength;
+                        lastDataSeq = seq;
+                        hasLastDataSeq = true;
+                        lastProgramPacketMs = millis();
+
+                        Serial.printf(
+                            "PROGRAM_DATA: RECEIVED=%lu/%lu\n",
+                            (unsigned long)receivedProgramSize,
+                            (unsigned long)expectedProgramSize);
+                    }
+                }
+                else if (type == 0x12) // PROGRAM_END
+                {
+                    const uint16_t payloadLength =
+                        (uint16_t)data[21] |
+                        ((uint16_t)data[22] << 8);
+
+                    if (!programTransferActive ||
+                        payloadLength != 0 ||
+                        receivedProgramSize != expectedProgramSize)
+                    {
+                        programTransferActive = false;
+                        plcAbortProgramming();
+
+                        Serial.println("PROGRAM_END: INVALID TRANSFER");
+                    }
+                    else
+                    {
+                        const uint32_t actualCRC =
+                            LynraProtocol::calculateCRC32(
+                                programBuffer, receivedProgramSize);
+
+                        if (actualCRC != expectedProgramCRC)
+                        {
+                            programTransferActive = false;
+                            plcAbortProgramming();
+
+                            Serial.println("PROGRAM_END: CRC ERROR");
+                        }
+                        else
+                        {
+                            programTransferActive = false;
+                            Serial.println("PROGRAM_END: CRC OK");
+
+                            JsonDocument doc;
+
+                            DeserializationError error = deserializeJson(
+                                doc, programBuffer, receivedProgramSize);
+
+                            if (error)
+                            {
+                                Serial.printf(
+                                    "JSON ERROR: %s\n", error.c_str());
+                                plcAbortProgramming();
+                            }
+                            else
+                            {
+                                ControlProgram receivedProgram;
+
+                                if (!receivedProgram.fromJson(
+                                        doc.as<JsonVariantConst>()))
+                                {
+                                    Serial.println("PROGRAM PARSE FAILED");
+                                    plcAbortProgramming();
+                                }
+                                else
+                                {
+                                    String validationError;
+
+                                    if (!receivedProgram.validate(
+                                            validationError))
+                                    {
+                                        Serial.printf(
+                                            "VALIDATION FAILED: %s\n",
+                                            validationError.c_str());
+                                        plcAbortProgramming();
+                                    }
+                                    else
+                                    {
+                                        Serial.println(
+                                            "PROGRAM VALIDATION OK");
+
+                                        if (plcLoadProgram(receivedProgram))
+                                        {
+                                            Serial.println("PROGRAM LOAD SUCCESS");
+
+                                            if (plcFinishProgramming())
+                                            {
+                                                Serial.println("PROGRAM ACTIVATED");
+                                            }
+                                            else
+                                            {
+                                                Serial.println("PROGRAM ACTIVATION FAILED");
+                                                plcAbortProgramming();
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Serial.println(
+                                                "PROGRAM LOAD FAILED");
+                                            plcAbortProgramming();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 sendAck(seq);
-                if (type == 0x31)
+
+                if (type == 0x31 || type == 0x12)
                     sendPlcStatus(seq);
             }
 
+            xSemaphoreGive(transferMutex);
             return;
         }
 
@@ -130,11 +351,18 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 tx->notify();
             }
         }
+        xSemaphoreGive(transferMutex);
     }
 };
-
 bool bleInit()
 {
+    transferMutex = xSemaphoreCreateMutex();
+
+    if (transferMutex == nullptr)
+    {
+        Serial.println("BLE TRANSFER MUTEX CREATE FAILED");
+        return false;
+    }
     BLEDevice::init("LynraControl");
 
     BLEServer *server = BLEDevice::createServer();
@@ -165,4 +393,25 @@ bool bleInit()
 
     Serial.println("LynraControl BLE ready");
     return true;
+}
+void bleLoop()
+{
+    if (transferMutex == nullptr)
+        return;
+
+    if (xSemaphoreTake(transferMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+        return;
+
+    if (programTransferActive &&
+        (uint32_t)(millis() - lastProgramPacketMs) > PROGRAM_TIMEOUT_MS)
+    {
+        programTransferActive = false;
+        hasLastDataSeq = false;
+
+        plcAbortProgramming();
+
+        Serial.println("PROGRAM TRANSFER TIMEOUT");
+    }
+
+    xSemaphoreGive(transferMutex);
 }

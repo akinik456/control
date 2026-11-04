@@ -23,5 +23,6 @@ void setup()
 void loop()
 {
   plcLoop();
-  delay(100);
+  bleLoop();
+  delay(1);
 }
