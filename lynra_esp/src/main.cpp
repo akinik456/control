@@ -12,8 +12,6 @@
 #include "plc_native/lynra_PLC_engine.h"
 #include "plc_adapter.h"
 
-void testControlProgramJson();
-
 #define SERVICE_UUID "8d21a100-64c2-4c3a-9d1e-123456789abc"
 #define WRITE_UUID "8d21a101-64c2-4c3a-9d1e-123456789abc"
 #define NOTIFY_UUID "8d21a102-64c2-4c3a-9d1e-123456789abc"
@@ -495,38 +493,6 @@ void setup()
   }
   Serial.println("PHYSICAL GPIO READY: I1-I4 / Q1-Q4");
   delay(500);
-
-  const uint8_t testData[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
-
-  uint32_t crc = LynraProtocol::calculateCRC32(
-      testData, sizeof(testData));
-
-  Serial.printf("CRC32 TEST: %08lX\n", (unsigned long)crc);
-
-  uint8_t frame[27] = {
-      0x4C, 0x43, // SOF
-      1, 23       // VERSION, HEADER_LEN
-  };
-
-  // Boş payload için CRC hesapla
-  uint32_t frameCRC =
-      LynraProtocol::calculateCRC32(frame + 2, 21);
-
-  frame[23] = frameCRC & 0xFF;
-  frame[24] = (frameCRC >> 8) & 0xFF;
-  frame[25] = (frameCRC >> 16) & 0xFF;
-  frame[26] = (frameCRC >> 24) & 0xFF;
-
-  Serial.printf("VALID FRAME: %s\n",
-                LynraProtocol::verifyFrame(frame, sizeof(frame)) ? "OK" : "ERROR");
-
-  // CRC kapsamındaki bir byte'ı boz
-  frame[4] ^= 0x01;
-
-  Serial.printf("CORRUPTED FRAME: %s\n",
-                LynraProtocol::verifyFrame(frame, sizeof(frame)) ? "OK" : "REJECTED");
-
-  delay(1000);
 
   BLEDevice::init("LynraControl");
 
