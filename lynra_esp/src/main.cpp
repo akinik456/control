@@ -8,7 +8,9 @@
 #include <BLE2902.h>
 #include "lynra_protocol.h"
 #include "models/control_program.h"
-#include "core/control_engine.h"
+
+#include "plc_native/lynra_PLC_engine.h"
+#include "plc_adapter.h"
 
 void testControlProgramJson();
 
@@ -27,7 +29,7 @@ uint32_t receivedProgramSize = 0;
 bool programTransferActive = false;
 
 ControlProgram activeProgram;
-ControlEngine controlEngine(activeProgram);
+LynraPlcEngine *nativeEngine = nullptr;
 enum class PlcState
 {
   Stop,
@@ -157,7 +159,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
           if (plcState == PlcState::Stop &&
               !activeProgram.controlBlocks.empty())
           {
-            controlEngine.reset();
+            lynra_plc_reset(nativeEngine);
             plcState = PlcState::Run;
             Serial.println("PLC STATE: RUN (BLE)");
           }
@@ -174,7 +176,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
           xSemaphoreTake(programMutex, portMAX_DELAY);
 
           plcState = PlcState::Stop;
-          controlEngine.reset();
+          lynra_plc_reset(nativeEngine);
 
           xSemaphoreGive(programMutex);
 
@@ -224,7 +226,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
               xSemaphoreTake(programMutex, portMAX_DELAY);
 
               plcState = PlcState::Programming;
-              controlEngine.reset();
+              lynra_plc_reset(nativeEngine);
 
               xSemaphoreGive(programMutex);
 
@@ -369,11 +371,34 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                   else
                   {
                     Serial.println("PROGRAM VALIDATION OK");
+                    //** */
 
+                    std::vector<LynraRule> nativeRules;
+                    String adapterError;
+
+                    if (!plcConvertProgram(receivedProgram, nativeRules, adapterError))
+                    {
+                      Serial.printf("NATIVE ADAPTER FAILED: %s\n",
+                                    adapterError.c_str());
+                      return;
+                    }
+
+                    if (!lynra_plc_load_rules(
+                            nativeEngine,
+                            nativeRules.data(),
+                            nativeRules.size()))
+                    {
+                      Serial.println("NATIVE LOAD FAILED");
+                      return;
+                    }
+
+                    Serial.printf("NATIVE PROGRAM LOADED: %u rules\n",
+                                  (unsigned)nativeRules.size());
+
+                    //** */
                     xSemaphoreTake(programMutex, portMAX_DELAY);
 
                     activeProgram = std::move(receivedProgram);
-                    controlEngine.reset();
                     plcState = PlcState::Run;
 
                     xSemaphoreGive(programMutex);
@@ -438,7 +463,21 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
 void setup()
 {
+
   Serial.begin(115200);
+  //** */
+  nativeEngine = lynra_plc_create();
+
+  if (nativeEngine == nullptr)
+  {
+    Serial.println("NATIVE ENGINE CREATE FAILED");
+    while (true)
+      delay(1000);
+  }
+
+  Serial.println("NATIVE ENGINE READY");
+  //** */
+
   programMutex = xSemaphoreCreateMutex();
 
   if (programMutex == nullptr)
@@ -456,7 +495,7 @@ void setup()
   }
   Serial.println("PHYSICAL GPIO READY: I1-I4 / Q1-Q4");
   delay(500);
-  testControlProgramJson();
+
   const uint8_t testData[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
 
   uint32_t crc = LynraProtocol::calculateCRC32(
@@ -486,6 +525,7 @@ void setup()
 
   Serial.printf("CORRUPTED FRAME: %s\n",
                 LynraProtocol::verifyFrame(frame, sizeof(frame)) ? "OK" : "REJECTED");
+
   delay(1000);
 
   BLEDevice::init("LynraControl");
@@ -538,31 +578,34 @@ void loop()
   if (plcState == PlcState::Run &&
       !activeProgram.controlBlocks.empty())
   {
-    std::map<int, bool> inputs;
+    uint32_t inputMask = 0;
 
     for (int i = 0; i < 4; i++)
     {
-      inputs[i + 1] = (digitalRead(INPUT_PINS[i]) == HIGH);
+      if (digitalRead(INPUT_PINS[i]) == HIGH)
+        inputMask |= (1UL << i);
     }
 
-    controlEngine.scan(millis(), inputs);
+    lynra_plc_scan(nativeEngine, millis(), inputMask);
+
+    uint32_t outputMask = lynra_plc_get_outputs(nativeEngine);
 
     for (int i = 0; i < 4; i++)
     {
-      bool state = controlEngine.output(i + 1);
+      bool state = (outputMask & (1UL << i)) != 0;
+
       digitalWrite(OUTPUT_PINS[i], state ? HIGH : LOW);
 
       if (state != previousNewOutputs[i])
       {
         previousNewOutputs[i] = state;
 
-        Serial.printf(
-            "NEW ENGINE: Q%d=%d\n",
-            i + 1,
-            state);
+        Serial.printf("NATIVE ENGINE: Q%d=%d\n",
+                      i + 1, state);
       }
     }
   }
+
   if (plcState != PlcState::Run)
   {
     for (int i = 0; i < 4; i++)
