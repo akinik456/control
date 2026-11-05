@@ -39,6 +39,20 @@ class ServerCallbacks : public BLEServerCallbacks
     void onDisconnect(BLEServer *server) override
     {
         Serial.println("BLE CLIENT DISCONNECTED");
+        // Only an interrupted programming session is aborted. Normal RUN
+        // remains independent of the phone connection.
+        if (transferMutex != nullptr &&
+            xSemaphoreTake(transferMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
+        {
+            if (programTransferActive)
+            {
+                programTransferActive = false;
+                hasLastDataSeq = false;
+                plcAbortProgramming();
+                Serial.println("PROGRAM TRANSFER ABORTED: BLE DISCONNECT");
+            }
+            xSemaphoreGive(transferMutex);
+        }
         BLEDevice::startAdvertising();
         Serial.println("BLE ADVERTISING RESTARTED");
     }
@@ -149,7 +163,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                               type, (unsigned long)seq);
                 if (type == 0x20) // RUN
                 {
-                    if (plcRun())
+                    if (!programTransferActive && plcRun())
                         Serial.println("PLC STATE: RUN (BLE)");
                     else
                         Serial.println("RUN REJECTED (BLE)");
@@ -354,6 +368,16 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
             xSemaphoreGive(transferMutex);
             return;
+        }
+
+        // A corrupt framed packet during programming invalidates the session.
+        // Do not abort on arbitrary noise while not programming.
+        if (programTransferActive)
+        {
+            programTransferActive = false;
+            hasLastDataSeq = false;
+            plcAbortProgramming();
+            Serial.println("PROGRAM TRANSFER ABORTED: INVALID FRAME/CRC");
         }
 
         if (value == "HELLO")

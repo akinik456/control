@@ -34,6 +34,8 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
   Completer<void>? pendingAck;
   int? pendingSeq;
   int nextSeq = 1;
+  int? pendingStatusSeq;
+  Completer<int>? pendingStatus;
   String status = 'Disconnected';
   String plcStatus = 'Unknown';
 
@@ -113,6 +115,10 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
         2 => 'RUN',
         _ => 'Unknown',
       };
+      if (seq == pendingStatusSeq && pendingStatus != null &&
+          !pendingStatus!.isCompleted) {
+        pendingStatus!.complete(value[23]);
+      }
       debugPrint('PLC STATUS: $state');
       if (mounted) setState(() => plcStatus = state);
       return;
@@ -357,8 +363,29 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
         if (!await sendWithAck(rx, buildFrame(0x11, seq, chunk), seq)) return;
       }
       seq = nextSeq++;
-      final ok = await sendWithAck(rx, buildFrame(0x12, seq, []), seq);
-      debugPrint('PROGRAM END: ${ok ? 'ACK' : 'FAILED'}');
+      final endSeq = seq;
+      final statusResult = Completer<int>();
+      pendingStatusSeq = endSeq;
+      pendingStatus = statusResult;
+      try {
+        final ok = await sendWithAck(rx, buildFrame(0x12, endSeq, []), endSeq);
+        if (!ok) {
+          debugPrint('PROGRAM END: ACK NOT RECEIVED - RESULT UNKNOWN');
+          return;
+        }
+        // ACK confirms frame reception, not successful program activation.
+        final result = await statusResult.future.timeout(const Duration(seconds: 3));
+        if (result == 2) {
+          debugPrint('PROGRAM LOAD SUCCESS: PLC RUN');
+        } else {
+          debugPrint('PROGRAM LOAD FAILED: PLC STATUS=$result');
+        }
+      } on TimeoutException {
+        debugPrint('PROGRAM END: STATUS TIMEOUT - RESULT UNKNOWN');
+      } finally {
+        pendingStatusSeq = null;
+        pendingStatus = null;
+      }
     } catch (e) {
       debugPrint('PROGRAM SEND ERROR: $e');
     } finally {
