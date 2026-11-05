@@ -397,6 +397,35 @@ bool lynra_plc_scan(
 
             if (state->running)
                 lynra_advance_rule(engine, (uint16_t)i, now_ms);
+
+            // For a single rising-edge input, TOFF follows the physical
+            // falling edge, not the one-scan rising-edge match.
+            if (rule->condition_count == 1 &&
+                rule->conditions[0].trigger == LYNRA_TRIGGER_RISING &&
+                rule->output_behavior == LYNRA_OUTPUT_FOLLOW)
+            {
+                uint8_t input_index = rule->conditions[0].input_index;
+                if (input_index >= 1 && input_index <= LYNRA_PLC_MAX_INPUTS)
+                {
+                    uint32_t input_bit = 1u << (input_index - 1);
+                    bool falling = (engine->previous_inputs & input_bit) != 0 &&
+                                   (input_mask & input_bit) == 0;
+                    if (falling)
+                    {
+                        for (uint8_t a = 0; a < rule->action_count; ++a)
+                        {
+                            const LynraAction *action = &rule->actions[a];
+                            if (action->type == LYNRA_ACTION_OUTPUT &&
+                                action->output_state && action->off_delay_ms > 0 &&
+                                action->onr_delay_ms == 0)
+                            {
+                                lynra_command_output(engine, action, (uint16_t)i,
+                                                     a, false, now_ms);
+                            }
+                        }
+                    }
+                }
+            }
         }
         else
         {
