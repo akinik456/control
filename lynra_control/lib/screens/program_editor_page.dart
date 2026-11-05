@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import '../models/control_block.dart';
 import '../models/control_program.dart';
@@ -592,6 +594,62 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 		LogicOperator.not => 'DEĞİL',
   };
 
+  // Program is embedded in the URL; no Firebase or additional package needed.
+  // Browser counterpart must decode Base64URL and decompress gzip.
+  Future<void> _createShareLink() async {
+    _program.name = _name.text.trim();
+    final jsonBytes = utf8.encode(jsonEncode(_program.toJson()));
+    final compressed = gzip.encode(jsonBytes);
+    final payload = base64UrlEncode(compressed).replaceAll('=', '');
+    final link = 'https://lynra.app/plc/#p=$payload';
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Program Linki'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Program: ${_program.name}'),
+              const SizedBox(height: 8),
+              Text('JSON: ${jsonBytes.length} bayt · Sıkıştırılmış: ${compressed.length} bayt'),
+              const SizedBox(height: 12),
+              const Text('Linki kopyalayıp WhatsApp üzerinden gönderebilirsin.'),
+              const SizedBox(height: 8),
+              SelectableText(link, maxLines: 4),
+              if (link.length > 8000) ...[
+                const SizedBox(height: 12),
+                const Text('Uyarı: Bu link çok uzun. Bazı uygulamalarda paylaşım sorunları olabilir.'),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Kapat'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: link));
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Program linki kopyalandı')),
+                );
+              }
+            },
+            icon: const Icon(Icons.copy),
+            label: const Text('Linki Kopyala'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openSummary() {
     final primary = Theme.of(context).colorScheme.primary;
     final base = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
@@ -723,6 +781,11 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               Navigator.of(ctx).pop();
               _openDiagram();
             },
+          ),
+          IconButton(
+            tooltip: 'Link Oluştur',
+            icon: const Icon(Icons.link_outlined),
+            onPressed: _createShareLink,
           ),
 					IconButton(
 						tooltip: 'Cihaza Gönder',
