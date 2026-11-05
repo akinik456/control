@@ -1,6 +1,7 @@
 
 #include "lynra_PLC_engine.h"
 #include <string.h>
+static bool lynra_has_edge_condition(const LynraRule *rule);
 static void lynra_process_pending_outputs(
     LynraPlcEngine *engine,
     uint64_t now_ms);
@@ -28,6 +29,10 @@ typedef struct
     uint32_t blink_activation_serial;
     bool blink_active;
     bool priority_rearm;
+    uint64_t onr_elapsed_ms[LYNRA_PLC_MAX_ACTIONS];
+    uint64_t onr_last_ms[LYNRA_PLC_MAX_ACTIONS];
+    bool onr_counting[LYNRA_PLC_MAX_ACTIONS];
+    bool onr_done[LYNRA_PLC_MAX_ACTIONS];
     bool nor_armed;
     bool not_armed;
 } LynraRuleState;
@@ -56,6 +61,7 @@ struct LynraPlcEngine
     LynraPendingOutput pending_outputs[LYNRA_PLC_MAX_OUTPUTS];
     uint32_t output_versions[LYNRA_PLC_MAX_OUTPUTS];
     uint32_t reset_priority_mask;
+    uint32_t reset_fired[LYNRA_PLC_MAX_RULES];
     uint32_t blink_suppressed_through[LYNRA_PLC_MAX_OUTPUTS];
     uint32_t blink_activation_serial;
 
@@ -121,6 +127,7 @@ void lynra_plc_reset(LynraPlcEngine *engine)
            sizeof(engine->blink_owner_valid));
 
     engine->reset_priority_mask = 0;
+    memset(engine->reset_fired, 0, sizeof(engine->reset_fired));
     engine->blink_activation_serial = 0;
 }
 
@@ -140,6 +147,14 @@ bool lynra_plc_load_rules(
         if (rules[i].condition_count > LYNRA_PLC_MAX_CONDITIONS ||
             rules[i].action_count > LYNRA_PLC_MAX_ACTIONS)
             return false;
+        for (uint8_t a = 0; a < rules[i].action_count; ++a) {
+            const LynraAction *act = &rules[i].actions[a];
+            if (act->onr_delay_ms != 0 &&
+                (act->type != LYNRA_ACTION_OUTPUT || !act->output_state ||
+                 act->output_index < 1 || act->output_index > LYNRA_PLC_MAX_OUTPUTS ||
+                 lynra_has_edge_condition(&rules[i])))
+                return false;
+        }
     }
 
     if (rule_count > 0)
@@ -263,6 +278,7 @@ bool lynra_plc_scan(
         now_ms < engine->last_now_ms)
         return false;
     engine->reset_priority_mask = 0;
+    memset(engine->reset_fired, 0, sizeof(engine->reset_fired));
     engine->last_now_ms = now_ms;
     engine->has_last_scan = true;
 
@@ -326,7 +342,6 @@ bool lynra_plc_scan(
             rising = false;
             state->match_initialized = true;
         }
-        bool falling = !matched && state->previous_match;
 
         // Action execution will be added next.
 
@@ -368,7 +383,7 @@ bool lynra_plc_scan(
                 {
                     const LynraAction *action = &rule->actions[a];
 
-                    if (action->type == LYNRA_ACTION_OUTPUT)
+                    if (action->type == LYNRA_ACTION_OUTPUT && action->onr_delay_ms == 0)
                     {
                         lynra_command_output(
                             engine, action, (uint16_t)i, a,
@@ -399,7 +414,7 @@ bool lynra_plc_scan(
                     {
                         const LynraAction *action = &rule->actions[a];
 
-                        if (action->type == LYNRA_ACTION_OUTPUT)
+                        if (action->type == LYNRA_ACTION_OUTPUT && action->onr_delay_ms == 0)
                         {
                             lynra_command_output(
                                 engine, action, (uint16_t)i, a,
@@ -501,6 +516,56 @@ bool lynra_plc_scan(
             if ((engine->outputs & bit) != 0)
                 lynra_write_output(engine, oi, false, false);
             engine->reset_priority_mask |= bit;
+        }
+    }
+
+    // Retentive ON delay (ONR): elapsed time is stored per rule/action.
+    // A lower RESET clears elapsed time even before the output ever turned ON.
+    for (size_t ri = 0; ri < engine->rule_count; ++ri) {
+        const LynraRule *rule = &engine->rules[ri];
+        LynraRuleState *st = &engine->states[ri];
+        for (uint8_t ai = 0; ai < rule->action_count; ++ai) {
+            const LynraAction *a = &rule->actions[ai];
+            if (a->onr_delay_ms == 0) continue;
+            const uint32_t bit = 1u << (a->output_index - 1);
+            bool reset = false;
+            for (size_t lower = ri + 1; lower < engine->rule_count && !reset; ++lower) {
+                const LynraRule *lr = &engine->rules[lower];
+                bool level_active = !lynra_has_edge_condition(lr) &&
+                                    engine->states[lower].timed_match;
+                for (uint8_t j = 0; j < lr->action_count; ++j) {
+                    const LynraAction *ra = &lr->actions[j];
+                    if (ra->type == LYNRA_ACTION_RESET &&
+                        ra->off_delay_ms == 0 && ra->output_index == a->output_index &&
+                        (level_active || (engine->reset_fired[lower] & bit))) {
+                        reset = true;
+                        break;
+                    }
+                }
+            }
+            if (reset) {
+                st->onr_elapsed_ms[ai] = 0;
+                st->onr_counting[ai] = false;
+                st->onr_done[ai] = false;
+                continue;
+            }
+            if (!st->timed_match || st->onr_done[ai]) {
+                st->onr_counting[ai] = false;
+                continue;
+            }
+            if (st->onr_counting[ai]) {
+                uint64_t delta = now_ms - st->onr_last_ms[ai];
+                uint64_t remaining = a->onr_delay_ms - st->onr_elapsed_ms[ai];
+                st->onr_elapsed_ms[ai] += delta < remaining ? delta : remaining;
+            }
+            st->onr_last_ms[ai] = now_ms;
+            st->onr_counting[ai] = true;
+            if (st->onr_elapsed_ms[ai] >= a->onr_delay_ms) {
+                st->onr_done[ai] = true;
+                // ONR is an immediate ON command once its accumulated time expires.
+                // The normal on_delay_ms is intentionally ignored.
+                lynra_write_output(engine, a->output_index, true, false);
+            }
         }
     }
 
@@ -733,6 +798,11 @@ static void lynra_advance_rule(
         uint8_t ai = state->action_index;
         const LynraAction *action = &rule->actions[ai];
 
+        // ONR is evaluated continuously, independently of RUN_ONCE and action sequencing.
+        if (action->onr_delay_ms != 0) {
+            state->action_index++;
+            continue;
+        }
         // FLASH is handled separately.
         if (action->type == LYNRA_ACTION_BLINK)
         {
@@ -818,6 +888,7 @@ static void lynra_advance_rule(
         if (action->type == LYNRA_ACTION_RESET &&
             action->off_delay_ms == 0)
         {
+            engine->reset_fired[rule_index] |= (1u << index);
             engine->reset_priority_mask |= (1u << index);
         }
 

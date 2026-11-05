@@ -66,6 +66,7 @@ typedef struct {
     uint32_t off_duration_ms;
     uint32_t on_delay_ms;
     uint32_t off_delay_ms;
+    uint32_t onr_delay_ms; /* Retentive ON delay; overrides on_delay_ms when nonzero */
 } LynraAction;
 
 typedef struct {

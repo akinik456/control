@@ -305,7 +305,16 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
             action.durationMs = v;
           } else {
             action.onDelayMs = v;
+            if (v > 0) action.onrDelayMs = 0;
           }
+        });
+      }),
+      const SizedBox(width: 2),
+      _delayToken(action.onrDelayMs > 0 ? 'ONR ${_seconds(action.onrDelayMs)}' : 'ONR gec.', () async {
+        final v = await _duration('Birikimli ON gecikmesi (ONR)', action.onrDelayMs);
+        if (v != null) setState(() {
+          action.onrDelayMs = v;
+          if (v > 0) action.onDelayMs = 0;
         });
       }),
       const SizedBox(width: 2),

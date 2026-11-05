@@ -72,6 +72,7 @@ final durations = [
   source.offDurationMs,
   source.onDelayMs,
   source.offDelayMs,
+  source.onrDelayMs,
 ];
 
 if (durations.any((value) =>
@@ -115,8 +116,9 @@ if (source.type == ControlActionType.blinkOutput &&
   target.outputState = source.outputState;
   target.durationMs = source.durationMs;
   target.offDurationMs = source.offDurationMs;
-  target.onDelayMs = source.onDelayMs;
+  target.onDelayMs = source.onrDelayMs > 0 ? 0 : source.onDelayMs;
   target.offDelayMs = source.offDelayMs;
+  target.onrDelayMs = source.onrDelayMs;
 }
 
 static void writeRule(
