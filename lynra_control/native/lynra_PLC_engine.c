@@ -2,12 +2,12 @@
 #include "lynra_PLC_engine.h"
 #include <string.h>
 static void lynra_process_pending_outputs(
-    LynraPlcEngine* engine,
+    LynraPlcEngine *engine,
     uint64_t now_ms);
-#define LYNRA_PLC_MAX_INSTANCES 2
+#define LYNRA_PLC_MAX_INSTANCES 1 // ?*? 2
 
-
-typedef struct {
+typedef struct
+{
     bool previous_match;
     bool match_initialized;
     bool completed_once;
@@ -27,12 +27,13 @@ typedef struct {
     uint32_t output_versions[LYNRA_PLC_MAX_OUTPUTS];
     uint32_t blink_activation_serial;
     bool blink_active;
+    bool priority_rearm;
     bool nor_armed;
     bool not_armed;
 } LynraRuleState;
 
-
-typedef struct {
+typedef struct
+{
     bool active;
     bool value;
 
@@ -42,22 +43,21 @@ typedef struct {
     uint8_t action_index;
 } LynraPendingOutput;
 
-
-
-struct LynraPlcEngine {
+struct LynraPlcEngine
+{
     bool in_use;
 
     LynraRule rules[LYNRA_PLC_MAX_RULES];
     size_t rule_count;
-		
-		LynraRuleState states[LYNRA_PLC_MAX_RULES];
+
+    LynraRuleState states[LYNRA_PLC_MAX_RULES];
 
     uint32_t outputs;
     LynraPendingOutput pending_outputs[LYNRA_PLC_MAX_OUTPUTS];
-	uint32_t output_versions[LYNRA_PLC_MAX_OUTPUTS];
-	uint32_t reset_priority_mask;
-	uint32_t blink_suppressed_through[LYNRA_PLC_MAX_OUTPUTS];
-	uint32_t blink_activation_serial;
+    uint32_t output_versions[LYNRA_PLC_MAX_OUTPUTS];
+    uint32_t reset_priority_mask;
+    uint32_t blink_suppressed_through[LYNRA_PLC_MAX_OUTPUTS];
+    uint32_t blink_activation_serial;
 
     uint32_t previous_inputs;
 
@@ -71,16 +71,17 @@ struct LynraPlcEngine {
 
 static LynraPlcEngine engine_pool[LYNRA_PLC_MAX_INSTANCES];
 static void lynra_write_output(
-    LynraPlcEngine* engine,
+    LynraPlcEngine *engine,
     uint8_t output_index,
     bool value,
-    bool from_blink
-);
+    bool from_blink);
 
-LynraPlcEngine* lynra_plc_create(void)
+LynraPlcEngine *lynra_plc_create(void)
 {
-    for (size_t i = 0; i < LYNRA_PLC_MAX_INSTANCES; i++) {
-        if (!engine_pool[i].in_use) {
+    for (size_t i = 0; i < LYNRA_PLC_MAX_INSTANCES; i++)
+    {
+        if (!engine_pool[i].in_use)
+        {
             memset(&engine_pool[i], 0, sizeof(engine_pool[i]));
             engine_pool[i].in_use = true;
             return &engine_pool[i];
@@ -89,29 +90,29 @@ LynraPlcEngine* lynra_plc_create(void)
     return NULL;
 }
 
-void lynra_plc_destroy(LynraPlcEngine* engine)
+void lynra_plc_destroy(LynraPlcEngine *engine)
 {
-    if (engine == NULL) return;
+    if (engine == NULL)
+        return;
     memset(engine, 0, sizeof(*engine));
 }
 
-void lynra_plc_reset(LynraPlcEngine* engine)
+void lynra_plc_reset(LynraPlcEngine *engine)
 {
-    if (engine == NULL) return;
-		memset(engine->states, 0, sizeof(engine->states));	
-		
+    if (engine == NULL)
+        return;
+    memset(engine->states, 0, sizeof(engine->states));
 
     engine->outputs = 0;
     engine->previous_inputs = 0;
     engine->last_now_ms = 0;
     engine->has_last_scan = false;
-		
-		
-	memset(engine->output_versions, 0, sizeof(engine->output_versions));
-	memset(engine->blink_suppressed_through, 0,
-				 sizeof(engine->blink_suppressed_through));
+
+    memset(engine->output_versions, 0, sizeof(engine->output_versions));
+    memset(engine->blink_suppressed_through, 0,
+           sizeof(engine->blink_suppressed_through));
     memset(engine->pending_outputs, 0,
-       sizeof(engine->pending_outputs));
+           sizeof(engine->pending_outputs));
 
     memset(engine->blink_owner, 0, sizeof(engine->blink_owner));
     memset(engine->blink_owner_started_ms, 0,
@@ -119,14 +120,13 @@ void lynra_plc_reset(LynraPlcEngine* engine)
     memset(engine->blink_owner_valid, 0,
            sizeof(engine->blink_owner_valid));
 
-	engine->reset_priority_mask = 0;
-	engine->blink_activation_serial = 0;
-
+    engine->reset_priority_mask = 0;
+    engine->blink_activation_serial = 0;
 }
 
 bool lynra_plc_load_rules(
-    LynraPlcEngine* engine,
-    const LynraRule* rules,
+    LynraPlcEngine *engine,
+    const LynraRule *rules,
     size_t rule_count)
 {
     if (engine == NULL || rule_count > LYNRA_PLC_MAX_RULES)
@@ -135,13 +135,15 @@ bool lynra_plc_load_rules(
     if (rule_count > 0 && rules == NULL)
         return false;
 
-    for (size_t i = 0; i < rule_count; i++) {
+    for (size_t i = 0; i < rule_count; i++)
+    {
         if (rules[i].condition_count > LYNRA_PLC_MAX_CONDITIONS ||
             rules[i].action_count > LYNRA_PLC_MAX_ACTIONS)
             return false;
     }
 
-    if (rule_count > 0) {
+    if (rule_count > 0)
+    {
         memcpy(engine->rules, rules, rule_count * sizeof(LynraRule));
     }
 
@@ -150,15 +152,14 @@ bool lynra_plc_load_rules(
     return true;
 }
 
-uint32_t lynra_plc_get_outputs(const LynraPlcEngine* engine)
+uint32_t lynra_plc_get_outputs(const LynraPlcEngine *engine)
 {
     return engine != NULL ? engine->outputs : 0;
 }
 
-
 static bool lynra_matches(
-    const LynraRule* rule,
-    LynraRuleState* state,
+    const LynraRule *rule,
+    LynraRuleState *state,
     uint32_t inputs,
     uint32_t previous_inputs)
 {
@@ -167,8 +168,9 @@ static bool lynra_matches(
 
     uint8_t true_count = 0;
 
-    for (uint8_t i = 0; i < rule->condition_count; i++) {
-        const LynraCondition* condition = &rule->conditions[i];
+    for (uint8_t i = 0; i < rule->condition_count; i++)
+    {
+        const LynraCondition *condition = &rule->conditions[i];
 
         if (condition->input_index < 1 ||
             condition->input_index > LYNRA_PLC_MAX_INPUTS)
@@ -180,74 +182,76 @@ static bool lynra_matches(
         bool previous = (previous_inputs & bit) != 0;
         bool matched = false;
 
-        switch (condition->trigger) {
-            case LYNRA_TRIGGER_HIGH:
-                matched = current;
-                break;
+        switch (condition->trigger)
+        {
+        case LYNRA_TRIGGER_HIGH:
+            matched = current;
+            break;
 
-            case LYNRA_TRIGGER_LOW:
-                matched = !current;
-                break;
+        case LYNRA_TRIGGER_LOW:
+            matched = !current;
+            break;
 
-            case LYNRA_TRIGGER_RISING:
-                matched = !previous && current;
-                break;
+        case LYNRA_TRIGGER_RISING:
+            matched = !previous && current;
+            break;
 
-            case LYNRA_TRIGGER_FALLING:
-                matched = previous && !current;
-                break;
+        case LYNRA_TRIGGER_FALLING:
+            matched = previous && !current;
+            break;
 
-            default:
-                return false;
+        default:
+            return false;
         }
 
         if (matched)
             true_count++;
     }
 
-    switch (rule->logic_operator) {
-        case LYNRA_LOGIC_AND:
-            return true_count == rule->condition_count;
+    switch (rule->logic_operator)
+    {
+    case LYNRA_LOGIC_AND:
+        return true_count == rule->condition_count;
 
-        case LYNRA_LOGIC_OR:
-            return true_count > 0;
+    case LYNRA_LOGIC_OR:
+        return true_count > 0;
 
-        case LYNRA_LOGIC_XOR:
-            return (true_count % 2) != 0;
+    case LYNRA_LOGIC_XOR:
+        return (true_count % 2) != 0;
 
-        case LYNRA_LOGIC_AND_EDGE:
-            return true_count == rule->condition_count;
-        case LYNRA_LOGIC_NAND:
-        case LYNRA_LOGIC_NAND_EDGE:
-            return true_count != rule->condition_count;
-        case LYNRA_LOGIC_NOR:
-            if (true_count > 0)
-                state->nor_armed = true;
-            return state->nor_armed && true_count == 0;
-        case LYNRA_LOGIC_NOT:
-            if (true_count > 0)
-                state->not_armed = true;
-            return state->not_armed && true_count == 0;
+    case LYNRA_LOGIC_AND_EDGE:
+        return true_count == rule->condition_count;
+    case LYNRA_LOGIC_NAND:
+    case LYNRA_LOGIC_NAND_EDGE:
+        return true_count != rule->condition_count;
+    case LYNRA_LOGIC_NOR:
+        if (true_count > 0)
+            state->nor_armed = true;
+        return state->nor_armed && true_count == 0;
+    case LYNRA_LOGIC_NOT:
+        if (true_count > 0)
+            state->not_armed = true;
+        return state->not_armed && true_count == 0;
 
-        default:
-            return false;
+    default:
+        return false;
     }
 }
-static bool lynra_has_edge_condition(const LynraRule* rule);
-static void lynra_start_rule(LynraPlcEngine* engine, LynraRuleState* state);
+static bool lynra_has_edge_condition(const LynraRule *rule);
+static void lynra_start_rule(LynraPlcEngine *engine, LynraRuleState *state);
 static void lynra_advance_rule(
-    LynraPlcEngine* engine,
+    LynraPlcEngine *engine,
     uint16_t rule_index,
     uint64_t now_ms);
 static void lynra_command_output(
-    LynraPlcEngine* engine,
-    const LynraAction* action,
+    LynraPlcEngine *engine,
+    const LynraAction *action,
     uint16_t rule_index,
     uint8_t action_index,
     bool value,
     uint64_t now_ms);
 bool lynra_plc_scan(
-    LynraPlcEngine* engine,
+    LynraPlcEngine *engine,
     uint64_t now_ms,
     uint32_t input_mask)
 {
@@ -262,44 +266,51 @@ bool lynra_plc_scan(
     engine->last_now_ms = now_ms;
     engine->has_last_scan = true;
 
-    for (size_t i = 0; i < engine->rule_count; i++) {
+    for (size_t i = 0; i < engine->rule_count; i++)
+    {
 
-        const LynraRule* rule = &engine->rules[i];
-        LynraRuleState* state = &engine->states[i];
+        const LynraRule *rule = &engine->rules[i];
+        LynraRuleState *state = &engine->states[i];
 
         bool raw_match = lynra_matches(
             rule,
             state,
             input_mask,
-            engine->previous_inputs
-        );
+            engine->previous_inputs);
 
         // TON: condition must remain true.
-        if (raw_match) {
+        if (raw_match)
+        {
             state->raw_off_active = false;
 
-            if (!state->raw_on_active) {
+            if (!state->raw_on_active)
+            {
                 state->raw_on_active = true;
                 state->raw_on_since_ms = now_ms;
             }
 
             if (now_ms - state->raw_on_since_ms >=
-                rule->on_delay_ms) {
+                rule->on_delay_ms)
+            {
                 state->timed_match = true;
             }
         }
         // TOF: hold effective condition after falling.
-        else {
+        else
+        {
             state->raw_on_active = false;
 
-            if (state->timed_match) {
-                if (!state->raw_off_active) {
+            if (state->timed_match)
+            {
+                if (!state->raw_off_active)
+                {
                     state->raw_off_active = true;
                     state->raw_off_since_ms = now_ms;
                 }
 
                 if (now_ms - state->raw_off_since_ms >=
-                    rule->off_delay_ms) {
+                    rule->off_delay_ms)
+                {
                     state->timed_match = false;
                     state->raw_off_active = false;
                 }
@@ -310,9 +321,10 @@ bool lynra_plc_scan(
         bool matched = state->timed_match;
         bool rising = matched && !state->previous_match;
         if (rule->logic_operator == LYNRA_LOGIC_NAND_EDGE &&
-        !state->match_initialized) {
-                rising = false;
-                state->match_initialized = true;
+            !state->match_initialized)
+        {
+            rising = false;
+            state->match_initialized = true;
         }
         bool falling = !matched && state->previous_match;
 
@@ -321,37 +333,46 @@ bool lynra_plc_scan(
         bool edge_rule = lynra_has_edge_condition(rule);
         bool blink_only = !edge_rule && rule->action_count > 0;
 
-        for (uint8_t a = 0; a < rule->action_count; a++) {
-            if (rule->actions[a].type != LYNRA_ACTION_BLINK) {
+        for (uint8_t a = 0; a < rule->action_count; a++)
+        {
+            if (rule->actions[a].type != LYNRA_ACTION_BLINK)
+            {
                 blink_only = false;
                 break;
             }
         }
 
-        if (blink_only) {
-            if (matched && !state->blink_active) {
+        if (blink_only)
+        {
+            if (matched && !state->blink_active)
+            {
                 state->blink_active = true;
                 state->blink_activation_serial =
                     ++engine->blink_activation_serial;
-            } else if (!matched) {
+            }
+            else if (!matched)
+            {
                 state->blink_active = false;
             }
         }
 
-        if (edge_rule) {
+        if (edge_rule)
+        {
             if ((rule->logic_operator == LYNRA_LOGIC_AND_EDGE ||
-            rule->logic_operator == LYNRA_LOGIC_NAND_EDGE) &&
-            !rising &&
-            rule->output_behavior == LYNRA_OUTPUT_FOLLOW) {
+                 rule->logic_operator == LYNRA_LOGIC_NAND_EDGE) &&
+                !rising &&
+                rule->output_behavior == LYNRA_OUTPUT_FOLLOW)
+            {
 
-                for (uint8_t a = 0; a < rule->action_count; a++) {
-                    const LynraAction* action = &rule->actions[a];
+                for (uint8_t a = 0; a < rule->action_count; a++)
+                {
+                    const LynraAction *action = &rule->actions[a];
 
-                    if (action->type == LYNRA_ACTION_OUTPUT) {
+                    if (action->type == LYNRA_ACTION_OUTPUT)
+                    {
                         lynra_command_output(
                             engine, action, (uint16_t)i, a,
-                            !action->output_state, now_ms
-                        );
+                            !action->output_state, now_ms);
                     }
                 }
             }
@@ -362,47 +383,59 @@ bool lynra_plc_scan(
             if (state->running)
                 lynra_advance_rule(engine, (uint16_t)i, now_ms);
         }
-        else {
-            if (!matched) {
+        else
+        {
+            if (!matched)
+            {
                 state->completed_once = false;
+                state->priority_rearm = false;
                 state->running = false;
                 state->action_index = 0;
                 state->wait_active = false;
 
-                if (rule->output_behavior == LYNRA_OUTPUT_FOLLOW) {
-                    for (uint8_t a = 0; a < rule->action_count; a++) {
-                        const LynraAction* action = &rule->actions[a];
+                if (rule->output_behavior == LYNRA_OUTPUT_FOLLOW)
+                {
+                    for (uint8_t a = 0; a < rule->action_count; a++)
+                    {
+                        const LynraAction *action = &rule->actions[a];
 
-                        if (action->type == LYNRA_ACTION_OUTPUT) {
+                        if (action->type == LYNRA_ACTION_OUTPUT)
+                        {
                             lynra_command_output(
                                 engine, action, (uint16_t)i, a,
-                                !action->output_state, now_ms
-                            );
+                                !action->output_state, now_ms);
                         }
                     }
                 }
             }
-            else {
+            else
+            {
                 bool latch_only = rule->action_count > 0;
 
-                for (uint8_t a = 0; a < rule->action_count; a++) {
+                for (uint8_t a = 0; a < rule->action_count; a++)
+                {
                     LynraActionType type = rule->actions[a].type;
 
                     if (type != LYNRA_ACTION_SET &&
-                        type != LYNRA_ACTION_RESET) {
+                        type != LYNRA_ACTION_RESET)
+                    {
                         latch_only = false;
                         break;
-                        }
+                    }
                 }
 
                 bool can_start = rule->run_policy == LYNRA_RUN_ONCE
-                    ? !state->completed_once
-                    : (!latch_only || rising);
+                                     ? (!state->completed_once || state->priority_rearm)
+                                     : (!latch_only || rising || state->priority_rearm);
 
                 if (!state->running && can_start)
+                {
+                    state->priority_rearm = false;
                     lynra_start_rule(engine, state);
+                }
 
-                if (state->running) {
+                if (state->running)
+                {
                     lynra_advance_rule(engine, (uint16_t)i, now_ms);
 
                     if (!state->running &&
@@ -412,19 +445,77 @@ bool lynra_plc_scan(
             }
         }
 
-
         state->previous_match = matched;
     }
+    // A level RESET in a lower rule stays authoritative on every scan.
+    // Cancel older rules' pending output transitions and running actions.
+    // Do not reset the older rule's edge/level history: it must be
+    // triggered anew after the RESET condition is released.
+    for (size_t ri = 0; ri < engine->rule_count; ++ri)
+    {
+        const LynraRule *reset_rule = &engine->rules[ri];
+        if (lynra_has_edge_condition(reset_rule) ||
+            !engine->states[ri].timed_match)
+            continue;
+
+        for (uint8_t ai = 0; ai < reset_rule->action_count; ++ai)
+        {
+            const LynraAction *reset_action = &reset_rule->actions[ai];
+            if (reset_action->type != LYNRA_ACTION_RESET ||
+                reset_action->off_delay_ms != 0 ||
+                reset_action->output_index < 1 ||
+                reset_action->output_index > LYNRA_PLC_MAX_OUTPUTS)
+                continue;
+
+            uint8_t oi = reset_action->output_index;
+            uint32_t bit = 1u << (oi - 1);
+            for (size_t upper = 0; upper < ri; ++upper)
+            {
+                const LynraRule *r = &engine->rules[upper];
+                bool targets_output = false;
+                for (uint8_t a = 0; a < r->action_count; ++a)
+                {
+                    if (r->actions[a].output_index == oi &&
+                        r->actions[a].type != LYNRA_ACTION_DELAY)
+                    {
+                        targets_output = true;
+                        break;
+                    }
+                }
+                if (!targets_output)
+                    continue;
+
+                LynraRuleState *st = &engine->states[upper];
+                st->running = false;
+                st->wait_active = false;
+                st->action_index = 0;
+                st->completed_once = true;
+                if (!lynra_has_edge_condition(r))
+                    st->priority_rearm = true;
+                st->blink_active = false;
+            }
+            LynraPendingOutput *pending = &engine->pending_outputs[oi - 1];
+            if (pending->active && pending->rule_index < ri)
+                pending->active = false;
+
+            if ((engine->outputs & bit) != 0)
+                lynra_write_output(engine, oi, false, false);
+            engine->reset_priority_mask |= bit;
+        }
+    }
+
     lynra_process_pending_outputs(engine, now_ms);
     // Resolve FLASH ownership per output.
-    for (uint8_t oi = 0; oi < LYNRA_PLC_MAX_OUTPUTS; oi++) {
+    for (uint8_t oi = 0; oi < LYNRA_PLC_MAX_OUTPUTS; oi++)
+    {
         int16_t winner = -1;
         uint32_t highest_serial = 0;
-        const LynraAction* winner_action = NULL;
+        const LynraAction *winner_action = NULL;
 
-        for (size_t i = 0; i < engine->rule_count; i++) {
-            const LynraRule* rule = &engine->rules[i];
-            const LynraRuleState* state = &engine->states[i];
+        for (size_t i = 0; i < engine->rule_count; i++)
+        {
+            const LynraRule *rule = &engine->rules[i];
+            const LynraRuleState *state = &engine->states[i];
 
             if (!state->blink_active)
                 continue;
@@ -433,8 +524,9 @@ bool lynra_plc_scan(
                 engine->blink_suppressed_through[oi])
                 continue;
 
-            for (uint8_t a = 0; a < rule->action_count; a++) {
-                const LynraAction* action = &rule->actions[a];
+            for (uint8_t a = 0; a < rule->action_count; a++)
+            {
+                const LynraAction *action = &rule->actions[a];
 
                 if (action->type != LYNRA_ACTION_BLINK ||
                     action->output_index != oi + 1 ||
@@ -443,18 +535,27 @@ bool lynra_plc_scan(
                     continue;
 
                 if (winner < 0 ||
-                    state->blink_activation_serial > highest_serial) {
+                    state->blink_activation_serial > highest_serial)
+                {
                     winner = (int16_t)i;
                     highest_serial = state->blink_activation_serial;
                     winner_action = action;
-                    }
+                }
             }
         }
 
         uint32_t bit = 1u << oi;
 
-        if (winner < 0) {
-            if (engine->blink_owner_valid[oi]) {
+        if ((engine->reset_priority_mask & bit) != 0)
+        {
+            engine->blink_owner_valid[oi] = false;
+            continue;
+        }
+
+        if (winner < 0)
+        {
+            if (engine->blink_owner_valid[oi])
+            {
                 engine->blink_owner_valid[oi] = false;
                 lynra_write_output(engine, oi + 1, false, true);
             }
@@ -462,11 +563,12 @@ bool lynra_plc_scan(
         }
 
         if (!engine->blink_owner_valid[oi] ||
-            engine->blink_owner[oi] != winner) {
+            engine->blink_owner[oi] != winner)
+        {
             engine->blink_owner_valid[oi] = true;
             engine->blink_owner[oi] = winner;
             engine->blink_owner_started_ms[oi] = now_ms;
-            }
+        }
 
         uint64_t period =
             (uint64_t)winner_action->duration_ms +
@@ -477,7 +579,8 @@ bool lynra_plc_scan(
 
         bool desired = phase < winner_action->duration_ms;
 
-        if (((engine->outputs & bit) != 0) != desired) {
+        if (((engine->outputs & bit) != 0) != desired)
+        {
             lynra_write_output(engine, oi + 1, desired, true);
         }
     }
@@ -487,10 +590,8 @@ bool lynra_plc_scan(
     return true;
 }
 
-
-
 static void lynra_write_output(
-    LynraPlcEngine* engine,
+    LynraPlcEngine *engine,
     uint8_t output_index,
     bool value,
     bool from_blink)
@@ -513,16 +614,16 @@ static void lynra_write_output(
     engine->output_versions[index]++;
 
     // Explicit commands suppress existing FLASH activations.
-    if (!from_blink) {
+    if (!from_blink)
+    {
         engine->blink_suppressed_through[index] =
             engine->blink_activation_serial;
     }
 }
 
-
 static void lynra_command_output(
-    LynraPlcEngine* engine,
-    const LynraAction* action,
+    LynraPlcEngine *engine,
+    const LynraAction *action,
     uint16_t rule_index,
     uint8_t action_index,
     bool value,
@@ -538,14 +639,15 @@ static void lynra_command_output(
     uint32_t bit = 1u << index;
 
     uint32_t delay = value
-        ? action->on_delay_ms
-        : action->off_delay_ms;
+                         ? action->on_delay_ms
+                         : action->off_delay_ms;
 
-    LynraPendingOutput* pending =
+    LynraPendingOutput *pending =
         &engine->pending_outputs[index];
 
     // Immediate command.
-    if (delay == 0) {
+    if (delay == 0)
+    {
         pending->active = false;
         lynra_write_output(engine, output_index, value, false);
         return;
@@ -559,7 +661,8 @@ static void lynra_command_output(
         return;
 
     // Output already has the requested state.
-    if (((engine->outputs & bit) != 0) == value) {
+    if (((engine->outputs & bit) != 0) == value)
+    {
         pending->active = false;
         return;
     }
@@ -577,12 +680,13 @@ static void lynra_command_output(
 }
 
 static void lynra_process_pending_outputs(
-    LynraPlcEngine* engine,
+    LynraPlcEngine *engine,
     uint64_t now_ms)
 {
-    for (uint8_t i = 0; i < LYNRA_PLC_MAX_OUTPUTS; i++) {
+    for (uint8_t i = 0; i < LYNRA_PLC_MAX_OUTPUTS; i++)
+    {
 
-        LynraPendingOutput* pending =
+        LynraPendingOutput *pending =
             &engine->pending_outputs[i];
 
         if (!pending->active)
@@ -600,8 +704,8 @@ static void lynra_process_pending_outputs(
 }
 
 static void lynra_start_rule(
-    LynraPlcEngine* engine,
-    LynraRuleState* state)
+    LynraPlcEngine *engine,
+    LynraRuleState *state)
 {
     state->running = true;
     state->action_index = 0;
@@ -611,33 +715,36 @@ static void lynra_start_rule(
     memcpy(
         state->output_versions,
         engine->output_versions,
-        sizeof(state->output_versions)
-    );
+        sizeof(state->output_versions));
 }
 
 static void lynra_advance_rule(
-    LynraPlcEngine* engine,
+    LynraPlcEngine *engine,
     uint16_t rule_index,
     uint64_t now_ms)
 {
-    const LynraRule* rule = &engine->rules[rule_index];
-    LynraRuleState* state = &engine->states[rule_index];
+    const LynraRule *rule = &engine->rules[rule_index];
+    LynraRuleState *state = &engine->states[rule_index];
 
     while (state->running &&
-           state->action_index < rule->action_count) {
+           state->action_index < rule->action_count)
+    {
 
         uint8_t ai = state->action_index;
-        const LynraAction* action = &rule->actions[ai];
+        const LynraAction *action = &rule->actions[ai];
 
         // FLASH is handled separately.
-        if (action->type == LYNRA_ACTION_BLINK) {
+        if (action->type == LYNRA_ACTION_BLINK)
+        {
             state->action_index++;
             continue;
         }
 
         // DELAY does not operate on an output.
-        if (action->type == LYNRA_ACTION_DELAY) {
-            if (!state->wait_active) {
+        if (action->type == LYNRA_ACTION_DELAY)
+        {
+            if (!state->wait_active)
+            {
                 state->wait_active = true;
                 state->wait_until_ms =
                     now_ms + action->duration_ms;
@@ -653,7 +760,8 @@ static void lynra_advance_rule(
 
         uint8_t oi = action->output_index;
 
-        if (oi < 1 || oi > LYNRA_PLC_MAX_OUTPUTS) {
+        if (oi < 1 || oi > LYNRA_PLC_MAX_OUTPUTS)
+        {
             state->action_index++;
             continue;
         }
@@ -662,51 +770,54 @@ static void lynra_advance_rule(
 
         // A newer output command supersedes this action.
         if (action->type != LYNRA_ACTION_RESET &&
-    engine->output_versions[index] !=
-        state->output_versions[index]) {
+            engine->output_versions[index] !=
+                state->output_versions[index])
+        {
             state->action_index++;
             continue;
         }
 
         bool value;
 
-        switch (action->type) {
-            case LYNRA_ACTION_OUTPUT:
-                value = action->output_state;
-                break;
+        switch (action->type)
+        {
+        case LYNRA_ACTION_OUTPUT:
+            value = action->output_state;
+            break;
 
-            case LYNRA_ACTION_SET:
-                value = true;
-                break;
+        case LYNRA_ACTION_SET:
+            value = true;
+            break;
 
-            case LYNRA_ACTION_RESET:
-                value = false;
-                break;
+        case LYNRA_ACTION_RESET:
+            value = false;
+            break;
 
-            case LYNRA_ACTION_TOGGLE:
-                value =
-                    (engine->outputs & (1u << index)) == 0;
-                break;
+        case LYNRA_ACTION_TOGGLE:
+            value =
+                (engine->outputs & (1u << index)) == 0;
+            break;
 
-            default:
-                state->action_index++;
-                continue;
+        default:
+            state->action_index++;
+            continue;
         }
         // RESET has priority over SET in the same scan.
         if (value &&
-            (engine->reset_priority_mask & (1u << index)) != 0) {
+            (engine->reset_priority_mask & (1u << index)) != 0)
+        {
             state->action_index++;
             continue;
-            }
+        }
         lynra_command_output(
-            engine, action, rule_index, ai, value, now_ms
-        );
+            engine, action, rule_index, ai, value, now_ms);
 
         state->output_versions[index] =
             engine->output_versions[index];
 
         if (action->type == LYNRA_ACTION_RESET &&
-            action->off_delay_ms == 0) {
+            action->off_delay_ms == 0)
+        {
             engine->reset_priority_mask |= (1u << index);
         }
 
@@ -717,14 +828,15 @@ static void lynra_advance_rule(
         state->running = false;
 }
 
-static bool lynra_has_edge_condition(const LynraRule* rule)
+static bool lynra_has_edge_condition(const LynraRule *rule)
 {
     if (rule->logic_operator == LYNRA_LOGIC_AND_EDGE ||
-    rule->logic_operator == LYNRA_LOGIC_NAND_EDGE)
+        rule->logic_operator == LYNRA_LOGIC_NAND_EDGE)
         return true;
     if (rule->logic_operator == LYNRA_LOGIC_AND_EDGE)
         return true;
-    for (uint8_t i = 0; i < rule->condition_count; i++) {
+    for (uint8_t i = 0; i < rule->condition_count; i++)
+    {
         LynraConditionTrigger trigger = rule->conditions[i].trigger;
 
         if (trigger == LYNRA_TRIGGER_RISING ||
@@ -734,5 +846,3 @@ static bool lynra_has_edge_condition(const LynraRule* rule)
 
     return false;
 }
-
-
