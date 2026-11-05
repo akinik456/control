@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>LynraFamily Media Kit</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body {
+      background: #08121f;
+      color: #ffffff;
+      line-height: 1.6;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1100px;
+      margin: auto;
+      padding: 40px 20px 70px;
+    }
+
+    section {
+      margin-bottom: 70px;
+    }
+
+    h1,
+    h2 {
+      color: #45d8f8;
+    }
+
+    h2 {
+      margin-bottom: 20px;
+    }
+
+    p {
+      color: #d6e3ef;
+    }
+
+    .hero {
+      text-align: center;
+      padding: 70px 20px;
+    }
+
+    .hero h1 {
+      font-size: 56px;
+      margin-bottom: 8px;
+    }
+
+    .hero .subtitle {
+      font-size: 24px;
+      color: #ffffff;
+      margin-bottom: 15px;
+    }
+
+    .hero .description {
+      max-width: 760px;
+      margin: 0 auto 35px;
+      font-size: 18px;
+      color: #c8d4e0;
+    }
+
+    .badges {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .badge {
+      background: #13283d;
+      color: #45d8f8;
+      padding: 12px 18px;
+      border-radius: 30px;
+      font-weight: bold;
+    }
+
+    .about-box {
+      background: #13283d;
+      border-radius: 18px;
+      padding: 35px;
+    }
+
+    .about-box p {
+      font-size: 18px;
+      margin-bottom: 18px;
+    }
+
+    .feature-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-top: 25px;
+    }
+
+    .feature-item {
+      background: #1a3550;
+      padding: 14px 18px;
+      border-radius: 12px;
+      color: #45d8f8;
+      font-weight: 600;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 25px;
+    }
+
+    .card {
+      background: #13283d;
+      border-radius: 18px;
+      padding: 35px;
+      text-align: center;
+    }
+
+    .card h3 {
+      color: #45d8f8;
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+
+    .card p {
+      margin-bottom: 25px;
+      color: #c8d4e0;
+    }
+
+    .button {
+      display: inline-block;
+      background: #45d8f8;
+      color: #08121f;
+      text-decoration: none;
+      padding: 14px 26px;
+      border-radius: 12px;
+      font-weight: bold;
+      transition: 0.25s;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+      opacity: 0.9;
+    }
+
+	.contact-box {
+      background: #13283d;
+      border-radius: 18px;
+      padding: 35px;
+      text-align: center;
+    }
+
+    .contact-box a {
+      color: #45d8f8;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    .facts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.fact-card {
+  background: #13283d;
+  border-radius: 16px;
+  padding: 22px;
+  border: 1px solid rgba(69, 216, 248, 0.12);
+}
+
+.fact-card span {
+  display: block;
+  color: #91a6b8;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.fact-card strong {
+  color: #45d8f8;
+  font-size: 19px;
+}
+
+    .gallery{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:18px;
+}
+
+.gallery img{
+    width:100%;
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,.08);
+    transition:.25s;
+    cursor:pointer;
+}
+
+.gallery img:hover{
+    transform:translateY(-4px);
+    box-shadow:0 12px 28px rgba(0,0,0,.35);
+}
+    
+    @media (max-width: 600px) {
+      .container {
+        padding: 20px 16px 50px;
+      }
+
+      .hero {
+        padding: 50px 5px;
+      }
+
+      .hero h1 {
+        font-size: 40px;
+      }
+
+      .hero .subtitle {
+        font-size: 21px;
+      }
+
+      .about-box,
+      .card,
+      .contact-box {
+        padding: 25px;
+      }
+    }
+		.lightbox{
+				display:none;
+				position:fixed;
+				inset:0;
+				background:rgba(0,0,0,.92);
+				z-index:9999;
+				justify-content:center;
+				align-items:center;
+				padding:30px;
+		}
+
+		.lightbox img{
+				max-width:95%;
+				max-height:95%;
+				border-radius:18px;
+		}
+
+		.lightbox.active{
+				display:flex;
+		}
+
+	  .video-container{
+
+    position:relative;
+
+    width:100%;
+
+    padding-top:56.25%;
+
+    border-radius:18px;
+
+    overflow:hidden;
+
+    background:#13283D;
+
+}
+
+.video-container iframe{
+
+    position:absolute;
+
+    inset:0;
+
+    width:100%;
+
+    height:100%;
+
+    border:0;
+
+}
+  </style>
+</head>
+
+<body>
+
+  <main class="container">
+
+    <section id="hero">
+      <div class="hero">
+
+        <h1>LynraFamily</h1>
+
+        <p class="subtitle">
+          Media Kit
+        </p>
+
+        <p class="description">
+          Everything journalists, reviewers and content creators need to feature LynraFamily.
+        </p>
+
+        <div class="badges">
+          <div class="badge">No Ads</div>
+          <div class="badge">No Subscriptions</div>
+          <div class="badge">Pay Once</div>
+          <div class="badge">Use Forever</div>
+        </div>
+
+      </div>
+    </section>
+    <section id="quick-facts">
+
+  <h2>Quick Facts</h2>
+
+  <div class="facts-grid">
+
+    <div class="fact-card">
+      <span>Platform</span>
+      <strong>Android</strong>
+    </div>
+
+    <div class="fact-card">
+      <span>Category</span>
+      <strong>Location & Safety</strong>
+    </div>
+
+    <div class="fact-card">
+      <span>Business Model</span>
+      <strong>One-Time Purchase</strong>
+    </div>
+
+    <div class="fact-card">
+      <span>Subscriptions</span>
+      <strong>None</strong>
+    </div>
+
+    <div class="fact-card">
+      <span>Ads</span>
+      <strong>None</strong>
+    </div>
+
+    <div class="fact-card">
+      <span>Website</span>
+      <strong>lynra.app</strong>
+    </div>
+
+  </div>
+
+</section>
+    <section id="about">
+
+      <h2>About LynraFamily</h2>
+
+      <div class="about-box">
+
+        <p>
+          LynraFamily is a privacy-focused location sharing app that helps couples,
+          families, friends and loved ones stay connected through live location
+          sharing and smart safety features.
+        </p>
+
+        <p>
+          Unlike many alternatives, LynraFamily has no ads, no subscriptions and
+          uses a simple pay once, use forever model.
+        </p>
+
+        <div class="feature-list">
+          <div class="feature-item">📍 Live Location Tracking</div>
+          <div class="feature-item">🔋 GPS & Battery Alerts</div>
+          <div class="feature-item">📞 One-Tap Call Me</div>
+          <div class="feature-item">🆘 Emergency SOS</div>
+          <div class="feature-item">📲 Home Screen Widgets</div>
+          <div class="feature-item">📳 Shake to Send SOS</div>
+          <div class="feature-item">👨‍👩‍👧‍👦 Private Groups</div>
+          <div class="feature-item">🔒 Privacy First</div>
+        </div>
+
+      </div>
+    </section>
+
+    <section id="download">
+
+      <h2>Download the Apps</h2>
+
+      <div class="cards">
+
+        <div class="card">
+
+          <h3>📱 LynraFamily</h3>
+
+          <p>
+            Family Manager App
+          </p>
+
+          <a
+            class="button"
+            href="https://play.google.com/store/apps/details?id=com.lynra.beacon.requester"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View on Google Play
+          </a>
+
+        </div>
+
+        <div class="card">
+
+          <h3>📱 LynraFamily Member</h3>
+
+          <p>
+            Family Member App
+          </p>
+
+          <a
+            class="button"
+            href="https://play.google.com/store/apps/details?id=com.lynra.beacon.locator"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View on Google Play
+          </a>
+
+        </div>
+
+      </div>
+    </section>
+
+    <section id="screenshots">
+
+<h2>Screenshots</h2>
+
+<div class="gallery">
+
+<img src="assets/screenshots/SS_1_result.webp" alt="LynraFamily Screenshot 1">
+
+<img src="assets/screenshots/SS_2_result.webp" alt="LynraFamily Screenshot 2">
+
+<img src="assets/screenshots/SS_3_result.webp" alt="LynraFamily Screenshot 3">
+
+<img src="assets/screenshots/SS_4_result.webp" alt="LynraFamily Screenshot 4">
+
+<img src="assets/screenshots/SS_5_result.webp" alt="LynraFamily Screenshot 5">
+
+<img src="assets/screenshots/SS_6_result.webp" alt="LynraFamily Screenshot 6">
+
+<img src="assets/screenshots/SS_7_result.webp" alt="LynraFamily Screenshot 7">
+
+<img src="assets/screenshots/SS_8_result.webp" alt="LynraFamily Screenshot 8">
+
+<img src="assets/screenshots/SS_9_result.webp" alt="LynraFamily Screenshot 9">
+
+</div>
+
+</section>
+
+<section id="video">
+
+<h2>See LynraFamily in Action</h2>
+
+<p style="text-align:center; margin-top:25px;">
+
+<a
+class="button"
+href="https://youtu.be/qSm5T8kHvEw"
+target="_blank">
+
+▶ Watch on YouTube
+
+</a>
+
+</p>
+
+</section>    <section id="contact">
+
+      <h2>Media Contact</h2>
+
+      <div class="contact-box">
+
+        <p>
+          Questions, review requests or media enquiries:
+        </p>
+
+        <p>
+          <a href="mailto:lynra.dev@gmail.com">
+            lynra.dev@gmail.com
+          </a>
+        </p>
+
+      </div>
+    </section>
+
+  </main>
+<div class="lightbox" id="lightbox">
+
+    <img id="lightbox-image" src="">
+
+</div>
+<script>
+
+const lightbox = document.getElementById("lightbox");
+const lightboxImage = document.getElementById("lightbox-image");
+
+document.querySelectorAll(".gallery img").forEach(img=>{
+
+    img.addEventListener("click",()=>{
+
+        lightboxImage.src = img.src;
+
+        lightbox.classList.add("active");
+
+    });
+
+});
+
+lightbox.addEventListener("click",()=>{
+
+    lightbox.classList.remove("active");
+
+});
+
+</script>
+</body>
+</html>

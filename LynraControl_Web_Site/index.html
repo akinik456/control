@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Lynra</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top, #152a47 0%, #0b1626 45%, #07101c 100%);
+      color: #ffffff;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: auto;
+      padding: 70px 20px;
+      position: relative;
+    }
+
+    .language-switch {
+      position: absolute;
+      top: 25px;
+      right: 20px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .language-switch button {
+      border: 0;
+      background: transparent;
+      color: #6f8093;
+      cursor: pointer;
+      font-weight: 700;
+      padding: 4px;
+    }
+
+    .language-switch button.active {
+      color: #ffffff;
+    }
+
+    .language-switch span {
+      color: #44566b;
+    }
+
+    .hero {
+      text-align: center;
+      margin-bottom: 55px;
+    }
+
+    .brand {
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      margin-bottom: 12px;
+    }
+
+    .hero p {
+      color: #aebbc9;
+      font-size: 18px;
+    }
+
+    .products {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 28px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 20px;
+      padding: 34px;
+      text-decoration: none;
+      color: inherit;
+      transition: 0.2s ease;
+      min-height: 260px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      border-color: rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.075);
+    }
+
+    .product-name {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .product-type {
+      font-size: 14px;
+      color: #67b7ff;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 22px;
+    }
+
+    .description {
+      color: #b8c3cf;
+      font-size: 16px;
+      line-height: 1.6;
+      flex: 1;
+    }
+
+    .open {
+      margin-top: 28px;
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 60px;
+      color: #6f7e8e;
+      font-size: 14px;
+    }
+
+    @media (max-width: 720px) {
+      .container {
+        padding-top: 65px;
+      }
+
+      .brand {
+        font-size: 36px;
+      }
+
+      .products {
+        grid-template-columns: 1fr;
+      }
+
+      .language-switch {
+        top: 20px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+
+    <div class="language-switch">
+      <button id="lang-tr" onclick="setLanguage('tr')">TR</button>
+      <span>|</span>
+      <button id="lang-en" onclick="setLanguage('en')">EN</button>
+    </div>
+
+    <div class="hero">
+      <div class="brand">LYNRA</div>
+
+      <p
+        data-tr="Aileler ve işletmeler için pratik çözümler."
+        data-en="Simple tools for families and businesses.">
+      </p>
+    </div>
+
+    <div class="products">
+
+      <a class="card" href="/lynrafamily">
+
+        <div
+          class="product-type"
+          data-tr="Aile Güvenliği"
+          data-en="Family Safety">
+        </div>
+
+        <div class="product-name">
+          LynraFamily
+        </div>
+
+        <div
+          class="description"
+          data-tr="Özel aile konum paylaşımı, canlı konum güncellemeleri, güvenlik uyarıları ve ailenizin bağlantıda kalmasına yardımcı olan araçlar."
+          data-en="Private family location sharing, live location updates, safety alerts and tools designed to help families stay connected.">
+        </div>
+
+        <div
+          class="open"
+          data-tr="LynraFamily'yi Keşfet →"
+          data-en="Explore LynraFamily →">
+        </div>
+
+      </a>
+
+
+      <a class="card" href="/lynrafleet">
+
+        <div
+          class="product-type"
+          data-tr="Filo Takibi"
+          data-en="Fleet Tracking">
+        </div>
+
+        <div class="product-name">
+          LynraFleet
+        </div>
+
+        <div
+          class="description"
+          data-tr="İşletmeler için gerçek zamanlı araç takibi. Araçlarınızı, konumlarını, hareketlerini, geçmiş rotalarını ve filo aktivitelerini mobil uygulama ve LynraFleet web panelinden takip edin."
+          data-en="Real-time vehicle tracking for businesses. Monitor vehicles, locations, movement, history and fleet activity from the mobile app and the LynraFleet web panel.">
+        </div>
+
+        <div
+          class="open"
+          data-tr="LynraFleet'i Keşfet →"
+          data-en="Explore LynraFleet →">
+        </div>
+
+      </a>
+
+    </div>
+
+    <footer>
+      © 2026 Lynra
+    </footer>
+
+  </div>
+
+
+  <script>
+
+    function setLanguage(lang) {
+
+      document.documentElement.lang = lang;
+
+      document.querySelectorAll('[data-tr][data-en]').forEach(function(element) {
+        element.textContent = element.dataset[lang];
+      });
+
+      document.getElementById('lang-tr').classList.toggle(
+        'active',
+        lang === 'tr'
+      );
+
+      document.getElementById('lang-en').classList.toggle(
+        'active',
+        lang === 'en'
+      );
+
+      localStorage.setItem('lynraLanguage', lang);
+    }
+
+
+    const savedLanguage = localStorage.getItem('lynraLanguage');
+
+    if (savedLanguage === 'tr' || savedLanguage === 'en') {
+
+      setLanguage(savedLanguage);
+
+    } else {
+
+      const browserLanguage =
+        navigator.language ||
+        navigator.userLanguage ||
+        'en';
+
+      setLanguage(
+        browserLanguage.toLowerCase().startsWith('tr')
+          ? 'tr'
+          : 'en'
+      );
+    }
+
+  </script>
+
+</body>
+</html>

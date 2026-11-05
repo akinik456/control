@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <script
+    type="module"
+    src="https://static.cloudflareinsights.com/beacon.min.js"
+    data-cf-beacon='{"token":"7c9d1ea94d524f618ffdb7feb7f852b7"}'>
+  </script>
+
+  <script>
+    setTimeout(function () {
+      const lang =
+        localStorage.getItem('lynraLanguage') === 'tr' ? 'tr' : 'en';
+
+      window.location.replace(
+        '/fleet/?page=signup&lang=' + lang
+      );
+    }, 1200);
+  </script>
+
+  <title>LynraFleet</title>
+</head>
+
+<body style="background:#08121f;color:white;font-family:Arial;text-align:center;padding-top:100px;">
+  Opening LynraFleet...
+</body>
+</html>

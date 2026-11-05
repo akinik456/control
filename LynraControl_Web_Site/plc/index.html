@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LynraControl | Web BLE</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0c1422; color: #edf3fc; }
+    main { max-width: 650px; margin: 45px auto; padding: 0 20px; }
+    h1 { margin-bottom: 4px; font-size: 30px; }
+    .sub { color: #a8b8cd; margin-top: 0; }
+    section { background: #17243a; border: 1px solid #2b3e59; border-radius: 15px; padding: 20px; margin: 18px 0; }
+    h2 { margin: 0 0 14px; font-size: 19px; }
+    .line { display: flex; justify-content: space-between; gap: 12px; margin: 10px 0; }
+    .muted { color: #a8b8cd; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+    button { background: #4c91f6; color: #081321; font-weight: 700; border: 0; border-radius: 9px; padding: 12px 15px; cursor: pointer; }
+    button.secondary { background: #334966; color: #fff; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    .note { color: #b8c7da; font-size: 14px; line-height: 1.5; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0b1525; border-radius: 9px; padding: 12px; max-height: 280px; overflow: auto; font-size: 12px; }
+    progress { width: 100%; height: 15px; }
+    #message { color: #b8d8ff; min-height: 1.5em; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>LynraControl</h1>
+  <p class="sub">Web Bluetooth · PLC program aktarım testi</p>
+
+  <section>
+    <h2>Bağlantı</h2>
+    <div class="line"><span class="muted">BLE</span><strong id="bleStatus">Bağlı değil</strong></div>
+    <div class="line"><span class="muted">PLC</span><strong id="plcStatus">Bilinmiyor</strong></div>
+    <div class="buttons">
+      <button id="connectBtn">PLC'ye Bağlan</button>
+      <button id="disconnectBtn" class="secondary" disabled>Bağlantıyı Kes</button>
+    </div>
+  </section>
+
+  <section>
+    <h2 id="programHeading">Test programı</h2>
+    <p class="note" id="programDescription">Giriş 1 aktifken Çıkış 1 aktif; giriş pasifken çıkış pasif (FOLLOW). Bu işlem PLC'deki mevcut programı değiştirebilir.</p>
+    <div class="buttons">
+      <button id="sendBtn" disabled>Test Programını Yükle</button>
+      <button id="runBtn" class="secondary" disabled>RUN</button>
+      <button id="stopBtn" class="secondary" disabled>STOP</button>
+    </div>
+    <p id="message" role="status" aria-live="polite">Bağlantı bekleniyor.</p>
+    <progress id="progress" max="100" value="0"></progress>
+    <p class="note" id="progressLabel">%0</p>
+  </section>
+
+  <section>
+    <h2>İşlem kaydı</h2>
+    <pre id="log" aria-live="polite">Hazır.</pre>
+  </section>
+</main>
+
+<script id="testProgram" type="application/json">
+{
+  "formatVersion": 2,
+  "name": "Yeni Program",
+  "steps": [],
+  "controlBlocks": [
+    {
+      "id": "main",
+      "groups": [
+        {
+          "id": "rule_1",
+          "logicOperator": "and",
+          "conditions": [
+            { "inputIndex": 1, "expectedState": true, "trigger": "highLevel" }
+          ],
+          "actions": [
+            { "type": "setOutput", "outputIndex": 1, "outputState": true }
+          ],
+          "outputBehavior": "followCondition",
+          "onDelayMs": 0,
+          "offDelayMs": 0,
+          "runPolicy": "repeat",
+          "executionMode": "continuous",
+          "retriggerBehavior": "ignore",
+          "conditionLostBehavior": "continueRunning"
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<script>
+'use strict';
+const SERVICE_UUID = '8d21a100-64c2-4c3a-9d1e-123456789abc';
+const WRITE_UUID   = '8d21a101-64c2-4c3a-9d1e-123456789abc';
+const NOTIFY_UUID  = '8d21a102-64c2-4c3a-9d1e-123456789abc';
+const $ = id => document.getElementById(id);
+
+let device = null, rx = null, tx = null;
+let connected = false, busy = false, nextSeq = 1, pending = null;
+let sharedProgram = null, shareLoading = false, shareInvalid = false;
+
+function log(text) {
+  const time = new Date().toLocaleTimeString('tr-TR');
+  const node = $('log');
+  node.textContent += `\n[${time}] ${text}`;
+  node.scrollTop = node.scrollHeight;
+}
+function message(text) { $('message').textContent = text; log(text); }
+function updateButtons() {
+  $('connectBtn').disabled = connected || busy;
+  $('disconnectBtn').disabled = !connected || busy;
+  $('sendBtn').disabled = !connected || busy || shareLoading || shareInvalid;
+  $('runBtn').disabled = !connected || busy;
+  $('stopBtn').disabled = !connected || busy;
+}
+function setBusy(value) { busy = value; updateButtons(); }
+function setProgress(value) {
+  const percent = Math.min(100, Math.max(0, Math.round(value)));
+  $('progress').value = percent;
+  $('progressLabel').textContent = `%${percent}`;
+}
+function calculateCRC32(data) {
+  let crc = 0xFFFFFFFF;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let i = 0; i < 8; i++) {
+      crc = (crc & 1) ? ((crc >>> 1) ^ 0xEDB88320) : (crc >>> 1);
+    }
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function putU32LE(data, offset, value) {
+  for (let i = 0; i < 4; i++) data[offset + i] = (value >>> (i * 8)) & 0xFF;
+}
+function getU32LE(data, offset) {
+  return (data[offset] | (data[offset+1] << 8) |
+    (data[offset+2] << 16) | (data[offset+3] << 24)) >>> 0;
+}
+function buildFrame(type, seq, payload = new Uint8Array()) {
+  if (payload.length > 65535) throw new Error('Payload çok büyük');
+  const frame = new Uint8Array(27 + payload.length);
+  frame[0] = 0x4C;
+  frame[1] = 0x43;
+  frame[2] = 1;
+  frame[3] = 23;
+  frame[16] = type;
+  putU32LE(frame, 17, seq);
+  frame[21] = payload.length & 0xFF;
+  frame[22] = (payload.length >>> 8) & 0xFF;
+  frame.set(payload, 23);
+  putU32LE(frame, 23 + payload.length,
+    calculateCRC32(frame.subarray(2, 23 + payload.length)));
+  return frame;
+}
+function parseFrame(data) {
+  if (data.length < 27 || data[0] !== 0x4C || data[1] !== 0x43 ||
+      data[2] !== 1 || data[3] !== 23) return null;
+  const length = data[21] | (data[22] << 8);
+  if (data.length !== 27 + length) return null;
+  const crc = getU32LE(data, data.length - 4);
+  if (crc !== calculateCRC32(data.subarray(2, data.length - 4))) {
+    log('Gelen paket: CRC hatası');
+    return null;
+  }
+  return { type: data[16], seq: getU32LE(data, 17), payload: data.subarray(23, 23 + length) };
+}
+function onNotification(event) {
+  const value = event.target.value;
+  const data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  const frame = parseFrame(data);
+  if (!frame) { log('Geçersiz BLE bildirimi'); return; }
+  if (frame.type === 0x30) {
+    if (frame.payload.length !== 1) return;
+    const names = ['STOP', 'PROGRAMMING', 'RUN'];
+    $('plcStatus').textContent = names[frame.payload[0]] || 'Bilinmiyor';
+    log('PLC durum: ' + $('plcStatus').textContent);
+  } else if (frame.type === 0x02) {
+    log('ACK SEQ=' + frame.seq + ' CRC=OK');
+    if (pending && pending.seq === frame.seq) pending.resolve();
+  } else {
+    log('Gelen paket TYPE=' + frame.type + ' SEQ=' + frame.seq);
+  }
+}
+function onDisconnected() {
+  connected = false; rx = null; tx = null;
+  $('bleStatus').textContent = 'Bağlı değil';
+  $('plcStatus').textContent = 'Bilinmiyor';
+  if (pending) pending.reject(new Error('BLE bağlantısı kesildi'));
+  updateButtons();
+  log('BLE bağlantısı kesildi');
+}
+function ackWaiter(seq) {
+  let resolve, reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  // A rejection can occur while a BLE write is still in progress.
+  promise.catch(() => {});
+  return { seq, promise, resolve, reject };
+}
+function waitForAck(waiter, milliseconds) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('ACK timeout')), milliseconds);
+    waiter.promise.then(
+      () => { clearTimeout(timer); resolve(); },
+      err => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+async function writeFrame(frame) {
+  if (!rx) throw new Error('WRITE karakteristiği yok');
+  if (typeof rx.writeValueWithResponse === 'function') {
+    await rx.writeValueWithResponse(frame);
+  } else {
+    await rx.writeValue(frame);
+  }
+}
+async function sendWithAck(type, payload = new Uint8Array()) {
+  if (!connected || !rx) throw new Error('PLC bağlı değil');
+  if (pending) throw new Error('Başka ACK bekleniyor');
+  const seq = nextSeq++;
+  const frame = buildFrame(type, seq, payload);
+  const waiter = ackWaiter(seq);
+  pending = waiter;
+  try {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (attempt > 1) log(`Tekrar deneme SEQ=${seq} (${attempt}/3)`);
+      if (pending !== waiter) throw new Error('Aktarım iptal edildi');
+      await writeFrame(frame);
+      try {
+        await waitForAck(waiter, 2000);
+        return;
+      } catch (err) {
+        if (err.message !== 'ACK timeout' || attempt === 3) throw err;
+      }
+    }
+  } finally {
+    if (pending === waiter) pending = null;
+  }
+}
+async function connect() {
+  if (!navigator.bluetooth) {
+    message('Web Bluetooth desteklenmiyor. Android Chrome ve HTTPS kullan.');
+    return;
+  }
+  setBusy(true);
+  try {
+    $('bleStatus').textContent = 'Aranıyor...';
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'LynraControl' }], optionalServices: [SERVICE_UUID]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    $('bleStatus').textContent = 'Bağlanıyor...';
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    rx = await service.getCharacteristic(WRITE_UUID);
+    tx = await service.getCharacteristic(NOTIFY_UUID);
+    tx.addEventListener('characteristicvaluechanged', onNotification);
+    await tx.startNotifications();
+    connected = true;
+    nextSeq = 1;
+    $('bleStatus').textContent = 'Bağlı: ' + (device.name || 'LynraControl');
+    message('BLE bağlandı. HELLO gönderiliyor...');
+    await sendWithAck(0x01);
+    message('HELLO → ACK doğrulandı.');
+    await sendWithAck(0x31);
+    log('PLC durum sorgusu gönderildi');
+  } catch (err) {
+    message('Bağlantı/HELLO hatası: ' + err.message);
+    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
+    connected = false; rx = null; tx = null;
+    $('bleStatus').textContent = 'Bağlı değil';
+  } finally {
+    setBusy(false);
+  }
+}
+async function disconnect() {
+  if (busy || !device) return;
+  try { device.gatt.disconnect(); } catch (err) { message(err.message); }
+  onDisconnected();
+}
+async function sendProgram() {
+  if (!connected || busy) return;
+  if (!confirm((sharedProgram ? 'Paylaşılan program' : 'Test programı') + ' PLC’ye yüklensin mi? Mevcut program değişebilir.')) return;
+  setBusy(true);
+  setProgress(0);
+  try {
+    const program = sharedProgram ?? JSON.parse($('testProgram').textContent);
+    const bytes = new TextEncoder().encode(JSON.stringify(program));
+    if (!bytes.length || bytes.length > 32768) throw new Error('Program boyutu geçersiz');
+    const programCRC = calculateCRC32(bytes);
+    const begin = new Uint8Array(8);
+    putU32LE(begin, 0, bytes.length);
+    putU32LE(begin, 4, programCRC);
+    message(`PROGRAM_BEGIN: ${bytes.length} byte, CRC32=0x${programCRC.toString(16)}`);
+    await sendWithAck(0x10, begin);
+    const chunkSize = 200; // Flutter ile aynı; BLE bağlantısında yeterli MTU gerekir.
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
+      await sendWithAck(0x11, chunk);
+      setProgress((offset + chunk.length) * 100 / bytes.length);
+      log(`PROGRAM_DATA: ${offset + chunk.length}/${bytes.length} byte`);
+    }
+    message('PROGRAM_END gönderiliyor...');
+    await sendWithAck(0x12);
+    setProgress(100);
+    message('PROGRAM_END → ACK alındı. Program aktarımı tamamlandı.');
+    await sendWithAck(0x31);
+  } catch (err) {
+    message('Program aktarımı başarısız: ' + err.message);
+    log('Aktarım kesildi; PROGRAM_END gönderilmedi (başarısızlık durumunda).');
+  } finally {
+    setBusy(false);
+  }
+}
+async function plcCommand(type, name) {
+  if (!connected || busy) return;
+  setBusy(true);
+  try {
+    await sendWithAck(type);
+    message(name + ' → ACK alındı.');
+    await sendWithAck(0x31);
+  } catch (err) {
+    message(name + ' hatası: ' + err.message);
+  } finally {
+    setBusy(false);
+  }
+}
+// Flutter link format: #p=<Base64URL(GZIP(UTF-8 JSON))>.
+// The link is only decoded and displayed; it never triggers BLE writes.
+async function loadSharedProgram() {
+  sharedProgram = null;
+  shareInvalid = false;
+  const fragment = window.location.hash.slice(1);
+  const params = new URLSearchParams(fragment);
+  const payload = params.get('p');
+  if (!payload) {
+    if (fragment) {
+      shareInvalid = true;
+      $('programHeading').textContent = 'Geçersiz program bağlantısı';
+      $('programDescription').textContent = 'Linkte geçerli bir program bulunamadı.';
+      message('Geçersiz program bağlantısı.');
+    }
+    updateButtons();
+    return;
+  }
+  shareLoading = true;
+  updateButtons();
+  try {
+    if (!/^[A-Za-z0-9_-]+$/.test(payload) || payload.length > 60000)
+      throw new Error('Link verisi geçersiz veya çok uzun');
+    if (typeof DecompressionStream === 'undefined')
+      throw new Error('Tarayıcı GZIP çözmeyi desteklemiyor; güncel Android Chrome kullanın');
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
+    const compressed = Uint8Array.from(binary, c => c.charCodeAt(0));
+    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const reader = stream.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > 32768) {
+        await reader.cancel();
+        throw new Error('Program 32768 bayt sınırını aşıyor');
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    const program = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes));
+    if (!program || typeof program !== 'object' || Array.isArray(program) ||
+        program.formatVersion !== 2 || !Array.isArray(program.controlBlocks))
+      throw new Error('PLC program formatı geçersiz');
+    sharedProgram = program;
+    $('programHeading').textContent = 'Paylaşılan program';
+    $('programDescription').textContent =
+      'Program: ' + (typeof program.name === 'string' ? program.name : 'Adsız') +
+      ' (' + total + ' bayt). Yükleme mevcut PLC programını değiştirebilir.';
+    $('sendBtn').textContent = 'Paylaşılan Programı Yükle';
+    message('Linkteki program okundu. PLC’ye bağlanıp yüklemeyi onaylayabilirsiniz.');
+  } catch (err) {
+    shareInvalid = true;
+    $('programHeading').textContent = 'Program bağlantısı okunamadı';
+    $('programDescription').textContent = 'Program yükleme kapatıldı. Lütfen geçerli bir link açın.';
+    message('Link çözme hatası: ' + err.message);
+  } finally {
+    shareLoading = false;
+    updateButtons();
+  }
+}
+
+$('connectBtn').addEventListener('click', connect);
+$('disconnectBtn').addEventListener('click', disconnect);
+$('sendBtn').addEventListener('click', sendProgram);
+$('runBtn').addEventListener('click', () => plcCommand(0x20, 'RUN'));
+$('stopBtn').addEventListener('click', () => plcCommand(0x21, 'STOP'));
+updateButtons();
+loadSharedProgram();
+</script>
+</body>
+</html>
