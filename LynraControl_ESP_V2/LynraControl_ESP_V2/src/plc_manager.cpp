@@ -126,6 +126,15 @@ void plcLoop()
         const uint32_t outputMask =
             lynra_plc_get_outputs(nativeEngine);
 
+        static uint32_t lastLog = 0;
+        if (millis() - lastLog >= 1000)
+        {
+            lastLog = millis();
+            Serial.printf("PLC DEBUG: IN=%08lX OUT=%08lX\n",
+                          (unsigned long)inputMask,
+                          (unsigned long)outputMask);
+        }
+
         for (int i = 0; i < 4; ++i)
         {
             digitalWrite(
@@ -149,6 +158,25 @@ uint8_t plcGetStatus()
     }
     return 0;
 }
+// Validate adapter output and C-engine limits without changing the active engine.
+bool plcPreflightProgram(const ControlProgram &program)
+{
+    String error;
+    std::vector<LynraRule> rules;
+    if (!plcConvertProgram(program, rules, error))
+    {
+        Serial.printf("PLC PREFLIGHT FAILED: %s\n", error.c_str());
+        return false;
+    }
+    if (plcMutex == nullptr ||
+        xSemaphoreTake(plcMutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+        return false;
+    const bool ready = nativeEngine != nullptr &&
+                       plcState == PlcState::Programming;
+    xSemaphoreGive(plcMutex);
+    return ready;
+}
+
 bool plcLoadProgram(const ControlProgram &program)
 {
     String error;

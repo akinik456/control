@@ -7,6 +7,7 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include "plc_manager.h"
+#include "plc_program_store.h"
 
 #define SERVICE_UUID "8d21a100-64c2-4c3a-9d1e-123456789abc"
 #define WRITE_UUID "8d21a101-64c2-4c3a-9d1e-123456789abc"
@@ -332,25 +333,47 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                                         Serial.println(
                                             "PROGRAM VALIDATION OK");
 
-                                        if (plcLoadProgram(receivedProgram))
+                                        // Preflight must not mutate the active C engine.
+                                        if (!plcPreflightProgram(receivedProgram))
                                         {
-                                            Serial.println("PROGRAM LOAD SUCCESS");
-
-                                            if (plcFinishProgramming())
-                                            {
-                                                Serial.println("PROGRAM ACTIVATED");
-                                            }
-                                            else
-                                            {
-                                                Serial.println("PROGRAM ACTIVATION FAILED");
-                                                plcAbortProgramming();
-                                            }
+                                            Serial.println("PROGRAM PREFLIGHT FAILED");
+                                            plcAbortProgramming();
+                                        }
+                                        else if (!PlcProgramStore::prepare(
+                                                     programBuffer, receivedProgramSize))
+                                        {
+                                            Serial.println("PROGRAM FLASH PREPARE FAILED");
+                                            plcAbortProgramming();
+                                        }
+                                        else if (!PlcProgramStore::commit())
+                                        {
+                                            // The active RAM program is untouched.
+                                            // In rare post-rename verification failures,
+                                            // reboot may select the new flash record.
+                                            Serial.println("PROGRAM FLASH COMMIT FAILED - STOP");
+                                            plcAbortProgramming();
                                         }
                                         else
                                         {
-                                            Serial.println(
-                                                "PROGRAM LOAD FAILED");
-                                            plcAbortProgramming();
+                                            Serial.println("PROGRAM FLASH COMMIT OK");
+                                            if (plcLoadProgram(receivedProgram))
+                                            {
+                                                Serial.println("PROGRAM LOAD SUCCESS");
+                                                if (plcFinishProgramming())
+                                                    Serial.println("PROGRAM ACTIVATED");
+                                                else
+                                                {
+                                                    Serial.println("PROGRAM ACTIVATION FAILED - STOP");
+                                                    plcAbortProgramming();
+                                                }
+                                            }
+                                            else
+                                            {
+                                                // Persisted program is valid; never RUN
+                                                // if unexpected engine load fails.
+                                                Serial.println("PROGRAM LOAD FAILED AFTER COMMIT - STOP");
+                                                plcAbortProgramming();
+                                            }
                                         }
                                     }
                                 }

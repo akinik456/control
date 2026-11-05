@@ -11,6 +11,7 @@ void plcStop();
 uint8_t plcGetStatus();
 
 bool plcLoadProgram(const ControlProgram &program);
+bool plcPreflightProgram(const ControlProgram &program);
 
 bool plcBeginProgramming();
 void plcAbortProgramming();
