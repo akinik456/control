@@ -223,7 +223,6 @@ void _scan() {
 	if (_autoTesting) return;
     setState(() {
       _inputs[index] = !_inputs[index]!;
-      _nowMs += 1;
       _scan();
     });
   }

@@ -56,7 +56,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       );
 
   Future<int?> _duration(String title, int currentMs) async {
-    var input = (currentMs / 1000).toStringAsFixed(1);
+    var input = (currentMs / 1000).toStringAsFixed(3).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
     return showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -194,7 +194,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     ConditionTrigger.fallingEdge => 'ON → OFF geçişinde (düşen kenar)',
   };
 
-  String _seconds(int ms) => '${(ms / 1000).toStringAsFixed(ms % 1000 == 0 ? 0 : 1)} sn';
+  String _seconds(int ms) => '${(ms / 1000).toStringAsFixed(ms % 1000 == 0 ? 0 : ms % 100 == 0 ? 1 : ms % 10 == 0 ? 2 : 3)} sn';
 
   Widget _groupFrame(Widget child) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),

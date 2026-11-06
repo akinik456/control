@@ -69,4 +69,8 @@ Blink de Tstart ve N eklendi
 Merdiven otomatiği eklendi
 multiswitch eklendi
 stopwatch eklendi
+zaman çözünürlükleri 1 ms. yapıldı
 
+****************
+TEST
+001 - git commit -m "feat(plc): add stopwatch with pause, resume and reset"

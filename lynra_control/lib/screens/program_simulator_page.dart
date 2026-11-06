@@ -55,7 +55,7 @@ void dispose() {
     setState(() {
       final end = _nowMs + durationMs;
       while (_nowMs < end) {
-        _nowMs += (end - _nowMs < 100 ? end - _nowMs : 100);
+        _nowMs += (end - _nowMs < 1 ? end - _nowMs : 1);
         _scan();
       }
     });
@@ -64,8 +64,6 @@ void dispose() {
   void _setInput(int index, bool value) {
     setState(() {
       _inputs[index] = value;
-      // An input change is evaluated on the next 1 ms scan.
-      _nowMs += 1;
       _scan();
     });
   }
@@ -94,6 +92,8 @@ void dispose() {
       ]),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
+        OutlinedButton(onPressed: () => _advance(1), child: const Text('+0.001 sn')),
+        OutlinedButton(onPressed: () => _advance(10), child: const Text('+0.01 sn')),
         OutlinedButton(onPressed: () => _advance(100), child: const Text('+0.1 sn')),
         OutlinedButton(onPressed: () => _advance(1000), child: const Text('+1 sn')),
         FilledButton(onPressed: () => _advance(5000), child: const Text('+5 sn')),
