@@ -60,6 +60,9 @@ final class LynraAction extends Struct {
 
   @Bool()
   external bool stairRetrigger;
+
+  @Uint32()
+  external int multiLongPressMs;
 }
 
 final class LynraRule extends Struct {

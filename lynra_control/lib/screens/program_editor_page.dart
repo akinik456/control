@@ -147,6 +147,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         ControlActionType.toggleOutput => ControlAction.toggle(),
         ControlActionType.blinkOutput => ControlAction.blink(),
         ControlActionType.stairwayOutput => ControlAction.stairway(),
+        ControlActionType.multiSwitchOutput => ControlAction.multiSwitch(),
         _ => ControlAction.output(),
       };
 
@@ -248,6 +249,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       ControlActionType.toggleOutput => 'DEĞİŞ.',
       ControlActionType.blinkOutput => 'AÇ KAPAT',
       ControlActionType.stairwayOutput => 'MERDİVEN',
+      ControlActionType.multiSwitchOutput => 'ÇOK İŞLEVLİ',
       _ => action.outputState ? 'ON' : 'OFF',
     }, () async {
       final v = await _choose<(ControlActionType, bool?)>('Çıkış işlemi', [
@@ -258,6 +260,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         ((ControlActionType.toggleOutput, null), 'DEĞİŞTİR (ON/OFF tersine çevir)'),
         ((ControlActionType.blinkOutput, null), 'AÇ KAPAT (tekrarla)'),
         ((ControlActionType.stairwayOutput, null), 'MERDİVEN OTOMATİĞİ'),
+        ((ControlActionType.multiSwitchOutput, null), 'ÇOK İŞLEVLİ ANAHTAR'),
       ]);
       if (v != null) setState(() {
         action.type = v.$1;
@@ -273,6 +276,12 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           action.stairWarningBeforeMs = 0;
           action.stairWarningOffMs = 0;
           action.stairRetrigger = true;
+        }
+        if (v.$1 == ControlActionType.multiSwitchOutput) {
+          action.durationMs = 60000;
+          action.multiLongPressMs = 2000;
+          action.stairWarningBeforeMs = 0;
+          action.stairWarningOffMs = 0;
         }
         if (v.$1 == ControlActionType.setLatch) action.outputState = true;
         if (v.$1 == ControlActionType.resetLatch) action.outputState = false;
@@ -363,6 +372,29 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   Widget _actionDelayPreview(ControlAction action) {
     if (action.type == ControlActionType.delay) return const SizedBox.shrink();
+    if (action.type == ControlActionType.multiSwitchOutput) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        _delayToken('T ${_seconds(action.durationMs)}', () async {
+          final v = await _duration('Kısa basma çalışma süresi (T)', action.durationMs);
+          if (v != null && v > 0) setState(() => action.durationMs = v);
+        }),
+        const SizedBox(width: 2),
+        _delayToken('Uzun ${_seconds(action.multiLongPressMs)}', () async {
+          final v = await _duration('Uzun basma eşiği (TL)', action.multiLongPressMs);
+          if (v != null && v > 0) setState(() => action.multiLongPressMs = v);
+        }),
+        const SizedBox(width: 2),
+        _delayToken('Uyarı ${_seconds(action.stairWarningBeforeMs)}', () async {
+          final v = await _duration('Kapanmadan önce uyarı (T!)', action.stairWarningBeforeMs);
+          if (v != null) setState(() => action.stairWarningBeforeMs = v);
+        }),
+        const SizedBox(width: 2),
+        _delayToken('Kesinti ${_seconds(action.stairWarningOffMs)}', () async {
+          final v = await _duration('Uyarı OFF süresi (T!L)', action.stairWarningOffMs);
+          if (v != null) setState(() => action.stairWarningOffMs = v);
+        }),
+      ]);
+    }
     if (action.type == ControlActionType.stairwayOutput) {
       return Row(mainAxisSize: MainAxisSize.min, children: [
         _delayToken('T ${_seconds(action.durationMs)}', () async {
@@ -622,6 +654,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
                 (ControlActionType.toggleOutput, 'Çıkış DEĞİŞTİR'),
                 (ControlActionType.blinkOutput, 'Çıkış YANIP SÖN'),
                 (ControlActionType.stairwayOutput, 'Merdiven Otomatiği'),
+                (ControlActionType.multiSwitchOutput, 'Çok İşlevli Anahtar'),
                 (ControlActionType.delay, 'Bekle'),
               ]);
               if (v != null) _addAction(rule, v);
@@ -639,6 +672,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
                     (Icons.power_settings_new, 'ON', ControlActionType.setOutput, Colors.cyan),
                     (Icons.timeline, 'Blink', ControlActionType.blinkOutput, Colors.cyan),
                     (Icons.lightbulb_outline, 'Merdiven', ControlActionType.stairwayOutput, Colors.orange),
+                    (Icons.touch_app_outlined, 'Çok İşlevli', ControlActionType.multiSwitchOutput, Colors.teal),
                     (Icons.timer_outlined, 'SET', ControlActionType.setLatch, Colors.green),
                     (Icons.restart_alt, 'RESET', ControlActionType.resetLatch, Colors.purple),
                     (Icons.hourglass_empty, 'Bekle', ControlActionType.delay, Colors.amber),
@@ -822,6 +856,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               ControlActionType.resetLatch => ' RESET',
               ControlActionType.toggleOutput => ' DEĞİŞTİR',
               ControlActionType.stairwayOutput => ' MERDİVEN (T ${_seconds(action.durationMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)} / Tekrar ${action.stairRetrigger ? 'Açık' : 'Kapalı'})',
+              ControlActionType.multiSwitchOutput => ' ÇOK İŞLEVLİ (T ${_seconds(action.durationMs)} / Uzun ${_seconds(action.multiLongPressMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)})',
               ControlActionType.blinkOutput => ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ON ${action.blinkOnMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}' : _seconds(action.durationMs)} / OFF ${action.blinkOffMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}' : _seconds(action.offDurationMs)} / N=${action.blinkCount})',
               _ => action.outputState ? ' ON' : ' OFF',
             });

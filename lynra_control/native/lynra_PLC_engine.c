@@ -41,6 +41,14 @@ typedef struct
     bool stair_counting[LYNRA_PLC_MAX_ACTIONS];
     uint64_t stair_deadline[LYNRA_PLC_MAX_ACTIONS];
     uint32_t stair_output_version[LYNRA_PLC_MAX_ACTIONS];
+    bool multi_prev_input[LYNRA_PLC_MAX_ACTIONS];
+    bool multi_active[LYNRA_PLC_MAX_ACTIONS];
+    bool multi_pressed[LYNRA_PLC_MAX_ACTIONS];
+    bool multi_permanent[LYNRA_PLC_MAX_ACTIONS];
+    bool multi_counting[LYNRA_PLC_MAX_ACTIONS];
+    uint64_t multi_pressed_at[LYNRA_PLC_MAX_ACTIONS];
+    uint64_t multi_deadline[LYNRA_PLC_MAX_ACTIONS];
+    uint32_t multi_output_version[LYNRA_PLC_MAX_ACTIONS];
 } LynraRuleState;
 
 typedef struct
@@ -179,12 +187,13 @@ bool lynra_plc_load_rules(
             return false;
         for (uint8_t a = 0; a < rules[i].action_count; ++a) {
             const LynraAction *act = &rules[i].actions[a];
-            if (act->type == LYNRA_ACTION_STAIRWAY &&
+            if ((act->type == LYNRA_ACTION_STAIRWAY || act->type == LYNRA_ACTION_MULTI_SWITCH) &&
                 (rules[i].condition_count != 1 ||
                  rules[i].conditions[0].trigger != LYNRA_TRIGGER_HIGH ||
                  act->output_index < 1 || act->output_index > LYNRA_PLC_MAX_OUTPUTS ||
                  act->stair_warning_before_ms > act->duration_ms ||
-                 act->stair_warning_off_ms > act->stair_warning_before_ms))
+                 act->stair_warning_off_ms > act->stair_warning_before_ms ||
+                 (act->type == LYNRA_ACTION_MULTI_SWITCH && act->multi_long_press_ms == 0)))
                 return false;
             if (act->onr_delay_ms != 0 &&
                 (act->type != LYNRA_ACTION_OUTPUT || !act->output_state ||
@@ -897,6 +906,91 @@ bool lynra_plc_scan(
         }
     }
 
+    // MULTI SWITCH: short press = timed ON, long press = permanent ON.
+    // A subsequent press turns an active output OFF. Independent of run policy.
+    for (size_t ri = 0; ri < engine->rule_count; ++ri)
+    {
+        const LynraRule *rule = &engine->rules[ri];
+        LynraRuleState *st = &engine->states[ri];
+        for (uint8_t ai = 0; ai < rule->action_count; ++ai)
+        {
+            const LynraAction *a = &rule->actions[ai];
+            if (a->type != LYNRA_ACTION_MULTI_SWITCH) continue;
+            uint8_t oi = a->output_index - 1;
+            uint32_t bit = 1u << oi;
+            bool pressed = (input_mask & (1u << (rule->conditions[0].input_index - 1))) != 0;
+            bool rising = pressed && !st->multi_prev_input[ai];
+            bool falling = !pressed && st->multi_prev_input[ai];
+            st->multi_prev_input[ai] = pressed;
+
+            if (st->multi_active[ai] && engine->output_versions[oi] != st->multi_output_version[ai])
+            {
+                st->multi_active[ai] = false;
+                st->multi_pressed[ai] = false;
+                st->multi_counting[ai] = false;
+                st->multi_permanent[ai] = false;
+            }
+
+            if (rising)
+            {
+                if (st->multi_active[ai])
+                {
+                    // Next button press cancels both timed and permanent operation.
+                    st->multi_active[ai] = false;
+                    st->multi_pressed[ai] = false;
+                    st->multi_counting[ai] = false;
+                    st->multi_permanent[ai] = false;
+                    lynra_write_output(engine, a->output_index, false, false);
+                    st->multi_output_version[ai] = engine->output_versions[oi];
+                    continue;
+                }
+                st->multi_active[ai] = true;
+                st->multi_pressed[ai] = true;
+                st->multi_permanent[ai] = false;
+                st->multi_counting[ai] = false;
+                st->multi_pressed_at[ai] = now_ms;
+                lynra_write_output(engine, a->output_index, true, false);
+                st->multi_output_version[ai] = engine->output_versions[oi];
+            }
+            if (!st->multi_active[ai]) continue;
+
+            if (st->multi_pressed[ai] && pressed &&
+                now_ms - st->multi_pressed_at[ai] >= a->multi_long_press_ms)
+            {
+                st->multi_permanent[ai] = true;
+            }
+            if (falling && st->multi_pressed[ai])
+            {
+                st->multi_pressed[ai] = false;
+                if (!st->multi_permanent[ai] &&
+                    now_ms - st->multi_pressed_at[ai] >= a->multi_long_press_ms)
+                    st->multi_permanent[ai] = true;
+                if (!st->multi_permanent[ai])
+                {
+                    st->multi_counting[ai] = true;
+                    st->multi_deadline[ai] = now_ms + a->duration_ms;
+                }
+            }
+            if (st->multi_permanent[ai] || !st->multi_counting[ai]) continue;
+            bool desired = true;
+            if (now_ms >= st->multi_deadline[ai])
+            {
+                desired = false;
+                st->multi_active[ai] = false;
+                st->multi_counting[ai] = false;
+            }
+            else if (a->stair_warning_before_ms > 0 && a->stair_warning_off_ms > 0 &&
+                     st->multi_deadline[ai] - now_ms <= a->stair_warning_before_ms &&
+                     st->multi_deadline[ai] - now_ms > a->stair_warning_before_ms - a->stair_warning_off_ms)
+                desired = false;
+            if (((engine->outputs & bit) != 0) != desired)
+            {
+                lynra_write_output(engine, a->output_index, desired, false);
+                st->multi_output_version[ai] = engine->output_versions[oi];
+            }
+        }
+    }
+
     engine->previous_inputs = input_mask;
 
     return true;
@@ -1051,7 +1145,7 @@ static void lynra_advance_rule(
             continue;
         }
         // FLASH is handled separately.
-        if (action->type == LYNRA_ACTION_BLINK || action->type == LYNRA_ACTION_STAIRWAY)
+        if (action->type == LYNRA_ACTION_BLINK || action->type == LYNRA_ACTION_STAIRWAY || action->type == LYNRA_ACTION_MULTI_SWITCH)
         {
             state->action_index++;
             continue;

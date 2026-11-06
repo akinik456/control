@@ -14,7 +14,7 @@ enum LogicOperator {
 
 enum OutputBehavior { followCondition, latch }
 
-enum ControlActionType { setOutput, delay, setLatch, resetLatch, toggleOutput, blinkOutput, stairwayOutput }
+enum ControlActionType { setOutput, delay, setLatch, resetLatch, toggleOutput, blinkOutput, stairwayOutput, multiSwitchOutput }
 
 /// How a rule is evaluated.
 enum RuleRunPolicy { once, repeat }
@@ -85,6 +85,7 @@ class ControlAction {
   int stairWarningBeforeMs = 0;
   int stairWarningOffMs = 0;
   bool stairRetrigger = true;
+  int multiLongPressMs = 2000;
 
   ControlAction.output({this.outputIndex = 1, this.outputState = true, this.onDelayMs = 0, this.offDelayMs = 0, this.onrDelayMs = 0})
       : type = ControlActionType.setOutput,
@@ -121,6 +122,14 @@ class ControlAction {
         offDelayMs = 0,
         onrDelayMs = 0;
 
+  ControlAction.multiSwitch({this.outputIndex = 1, this.durationMs = 60000})
+      : type = ControlActionType.multiSwitchOutput,
+        outputState = true,
+        offDurationMs = 0,
+        onDelayMs = 0,
+        offDelayMs = 0,
+        onrDelayMs = 0;
+
   ControlAction.delay({this.durationMs = 1000, this.onDelayMs = 0, this.offDelayMs = 0, this.onrDelayMs = 0})
       : type = ControlActionType.delay,
         outputIndex = 1,
@@ -133,7 +142,7 @@ class ControlAction {
           'outputIndex': outputIndex,
           'outputState': outputState,
         },
-        if (type == ControlActionType.delay || type == ControlActionType.blinkOutput || type == ControlActionType.stairwayOutput) 'durationMs': durationMs,
+        if (type == ControlActionType.delay || type == ControlActionType.blinkOutput || type == ControlActionType.stairwayOutput || type == ControlActionType.multiSwitchOutput) 'durationMs': durationMs,
         if (type == ControlActionType.blinkOutput) 'offDurationMs': offDurationMs,
         if (type == ControlActionType.blinkOutput) 'blinkStartDelayMs': blinkStartDelayMs,
         if (type == ControlActionType.blinkOutput) 'blinkCount': blinkCount,
@@ -141,9 +150,10 @@ class ControlAction {
         if (type == ControlActionType.blinkOutput) 'blinkOnMaxMs': blinkOnMaxMs,
         if (type == ControlActionType.blinkOutput) 'blinkOffMinMs': blinkOffMinMs,
         if (type == ControlActionType.blinkOutput) 'blinkOffMaxMs': blinkOffMaxMs,
-        if (type == ControlActionType.stairwayOutput) 'stairWarningBeforeMs': stairWarningBeforeMs,
-        if (type == ControlActionType.stairwayOutput) 'stairWarningOffMs': stairWarningOffMs,
+        if (type == ControlActionType.stairwayOutput || type == ControlActionType.multiSwitchOutput) 'stairWarningBeforeMs': stairWarningBeforeMs,
+        if (type == ControlActionType.stairwayOutput || type == ControlActionType.multiSwitchOutput) 'stairWarningOffMs': stairWarningOffMs,
         if (type == ControlActionType.stairwayOutput) 'stairRetrigger': stairRetrigger,
+        if (type == ControlActionType.multiSwitchOutput) 'multiLongPressMs': multiLongPressMs,
         if (type != ControlActionType.delay) ...{
           'onDelayMs': onrDelayMs > 0 ? 0 : onDelayMs,
           'offDelayMs': offDelayMs,
@@ -173,6 +183,12 @@ class ControlAction {
         ..stairWarningBeforeMs = json['stairWarningBeforeMs'] as int? ?? 0
         ..stairWarningOffMs = json['stairWarningOffMs'] as int? ?? 0
         ..stairRetrigger = json['stairRetrigger'] as bool? ?? true;
+    }
+    if (type == ControlActionType.multiSwitchOutput) {
+      return ControlAction.multiSwitch(outputIndex: json['outputIndex'] as int? ?? 1, durationMs: json['durationMs'] as int? ?? 60000)
+        ..multiLongPressMs = json['multiLongPressMs'] as int? ?? 2000
+        ..stairWarningBeforeMs = json['stairWarningBeforeMs'] as int? ?? 0
+        ..stairWarningOffMs = json['stairWarningOffMs'] as int? ?? 0;
     }
     if (type == ControlActionType.toggleOutput) {
       return ControlAction.toggle(outputIndex: json['outputIndex'] as int? ?? 1, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0, onrDelayMs: json['onrDelayMs'] as int? ?? 0);

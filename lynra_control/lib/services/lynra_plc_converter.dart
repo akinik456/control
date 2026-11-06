@@ -81,6 +81,7 @@ final durations = [
   source.blinkOffMaxMs,
   source.stairWarningBeforeMs,
   source.stairWarningOffMs,
+  source.multiLongPressMs,
 ];
 
 if (durations.any((value) =>
@@ -121,6 +122,9 @@ if (source.type == ControlActionType.blinkOutput &&
     case ControlActionType.stairwayOutput:
       target.type = 6;
       break;
+    case ControlActionType.multiSwitchOutput:
+      target.type = 7;
+      break;
   }
 
   target.outputIndex = source.outputIndex;
@@ -149,9 +153,17 @@ if (source.type == ControlActionType.blinkOutput &&
         source.stairWarningOffMs > source.stairWarningBeforeMs)) {
      throw RangeError('Invalid STAIRWAY timing');
    }
-   target.stairWarningBeforeMs = source.type == ControlActionType.stairwayOutput ? source.stairWarningBeforeMs : 0;
-   target.stairWarningOffMs = source.type == ControlActionType.stairwayOutput ? source.stairWarningOffMs : 0;
+   if (source.type == ControlActionType.multiSwitchOutput &&
+       (source.durationMs == 0 || source.multiLongPressMs == 0 ||
+        source.stairWarningBeforeMs > source.durationMs ||
+        source.stairWarningOffMs > source.stairWarningBeforeMs)) {
+     throw RangeError('Invalid MULTI SWITCH timing');
+   }
+   final usesWarning = source.type == ControlActionType.stairwayOutput || source.type == ControlActionType.multiSwitchOutput;
+   target.stairWarningBeforeMs = usesWarning ? source.stairWarningBeforeMs : 0;
+   target.stairWarningOffMs = usesWarning ? source.stairWarningOffMs : 0;
    target.stairRetrigger = source.type == ControlActionType.stairwayOutput && source.stairRetrigger;
+   target.multiLongPressMs = source.type == ControlActionType.multiSwitchOutput ? source.multiLongPressMs : 0;
 }
 
 static void writeRule(
@@ -160,10 +172,10 @@ static void writeRule(
   int ruleId,
 ) {
   target.id = ruleId;
-  if (source.actions.any((a) => a.type == ControlActionType.stairwayOutput) &&
+  if (source.actions.any((a) => a.type == ControlActionType.stairwayOutput || a.type == ControlActionType.multiSwitchOutput) &&
       (source.conditions.length != 1 ||
        source.conditions.first.trigger != ConditionTrigger.highLevel)) {
-    throw StateError('Merdiven Otomatiği için tek bir ON seviye girişi (I1 = ON) kullanılmalı.');
+    throw StateError('Merdiven Otomatiği / Çok İşlevli Anahtar için tek bir ON seviye girişi kullanılmalı.');
   }
 
 
