@@ -125,6 +125,9 @@ if (source.type == ControlActionType.blinkOutput &&
     case ControlActionType.multiSwitchOutput:
       target.type = 7;
       break;
+    case ControlActionType.stopwatchOutput:
+      target.type = 8;
+      break;
   }
 
   target.outputIndex = source.outputIndex;
@@ -159,6 +162,9 @@ if (source.type == ControlActionType.blinkOutput &&
         source.stairWarningOffMs > source.stairWarningBeforeMs)) {
      throw RangeError('Invalid MULTI SWITCH timing');
    }
+   if (source.type == ControlActionType.stopwatchOutput && source.durationMs == 0) {
+     throw RangeError('KRONOMETRE hedef süresi sıfır olamaz');
+   }
    final usesWarning = source.type == ControlActionType.stairwayOutput || source.type == ControlActionType.multiSwitchOutput;
    target.stairWarningBeforeMs = usesWarning ? source.stairWarningBeforeMs : 0;
    target.stairWarningOffMs = usesWarning ? source.stairWarningOffMs : 0;
@@ -172,6 +178,13 @@ static void writeRule(
   int ruleId,
 ) {
   target.id = ruleId;
+  if (source.actions.any((a) => a.type == ControlActionType.stopwatchOutput) &&
+      (source.actions.length != 1 || source.conditions.length != 2 ||
+       source.conditions[0].trigger != ConditionTrigger.highLevel ||
+       source.conditions[1].trigger != ConditionTrigger.highLevel ||
+       source.conditions[0].inputIndex == source.conditions[1].inputIndex)) {
+    throw StateError('KRONOMETRE için iki farklı ON seviye girişi (EN, RESET) ve tek işlem gerekli.');
+  }
   if (source.actions.any((a) => a.type == ControlActionType.stairwayOutput || a.type == ControlActionType.multiSwitchOutput) &&
       (source.conditions.length != 1 ||
        source.conditions.first.trigger != ConditionTrigger.highLevel)) {

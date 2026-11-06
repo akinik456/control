@@ -17,7 +17,7 @@ target_compile_options(lynra_PLC_engine PRIVATE
 
 
 if(NOT ANDROID)
-    add_executable(test_multi_switch test_multi_switch.c)
-    target_link_libraries(test_multi_switch PRIVATE lynra_PLC_engine)
+    add_executable(test_stopwatch test_stopwatch.c)
+    target_link_libraries(test_stopwatch PRIVATE lynra_PLC_engine)
 endif()
 

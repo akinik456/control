@@ -49,6 +49,12 @@ typedef struct
     uint64_t multi_pressed_at[LYNRA_PLC_MAX_ACTIONS];
     uint64_t multi_deadline[LYNRA_PLC_MAX_ACTIONS];
     uint32_t multi_output_version[LYNRA_PLC_MAX_ACTIONS];
+    uint64_t stopwatch_elapsed[LYNRA_PLC_MAX_ACTIONS];
+    uint64_t stopwatch_last_ms[LYNRA_PLC_MAX_ACTIONS];
+    bool stopwatch_initialized[LYNRA_PLC_MAX_ACTIONS];
+    bool stopwatch_prev_en[LYNRA_PLC_MAX_ACTIONS];
+    bool stopwatch_latched[LYNRA_PLC_MAX_ACTIONS];
+    uint32_t stopwatch_output_version[LYNRA_PLC_MAX_ACTIONS];
 } LynraRuleState;
 
 typedef struct
@@ -194,6 +200,21 @@ bool lynra_plc_load_rules(
                  act->stair_warning_before_ms > act->duration_ms ||
                  act->stair_warning_off_ms > act->stair_warning_before_ms ||
                  (act->type == LYNRA_ACTION_MULTI_SWITCH && act->multi_long_press_ms == 0)))
+                return false;
+            // STOPWATCH: conditions[0] = EN, conditions[1] = RESET.
+            // Both are digital HIGH levels; the target is duration_ms.
+            if (act->type == LYNRA_ACTION_STOPWATCH &&
+                (rules[i].condition_count != 2 ||
+                 rules[i].action_count != 1 ||
+                 rules[i].conditions[0].trigger != LYNRA_TRIGGER_HIGH ||
+                 rules[i].conditions[1].trigger != LYNRA_TRIGGER_HIGH ||
+                 rules[i].conditions[0].input_index < 1 ||
+                 rules[i].conditions[0].input_index > LYNRA_PLC_MAX_INPUTS ||
+                 rules[i].conditions[1].input_index < 1 ||
+                 rules[i].conditions[1].input_index > LYNRA_PLC_MAX_INPUTS ||
+                 rules[i].conditions[0].input_index == rules[i].conditions[1].input_index ||
+                 act->output_index < 1 || act->output_index > LYNRA_PLC_MAX_OUTPUTS ||
+                 act->duration_ms == 0))
                 return false;
             if (act->onr_delay_ms != 0 &&
                 (act->type != LYNRA_ACTION_OUTPUT || !act->output_state ||
@@ -991,6 +1012,60 @@ bool lynra_plc_scan(
         }
     }
 
+    // STOPWATCH: EN HIGH accumulates elapsed time; EN LOW freezes it.
+    // RESET HIGH clears elapsed and the latched output (RESET wins).
+    // Unlike Siemens' AQ stopwatch, this is a digital threshold latch.
+    for (size_t ri = 0; ri < engine->rule_count; ++ri)
+    {
+        const LynraRule *rule = &engine->rules[ri];
+        LynraRuleState *st = &engine->states[ri];
+        for (uint8_t ai = 0; ai < rule->action_count; ++ai)
+        {
+            const LynraAction *a = &rule->actions[ai];
+            if (a->type != LYNRA_ACTION_STOPWATCH) continue;
+            uint8_t oi = a->output_index - 1;
+            uint32_t bit = 1u << oi;
+            bool en = (input_mask & (1u << (rule->conditions[0].input_index - 1))) != 0;
+            bool reset = (input_mask & (1u << (rule->conditions[1].input_index - 1))) != 0;
+
+            if (reset)
+            {
+                st->stopwatch_elapsed[ai] = 0;
+                st->stopwatch_latched[ai] = false;
+                st->stopwatch_prev_en[ai] = false;
+                if ((engine->outputs & bit) != 0)
+                    lynra_write_output(engine, a->output_index, false, false);
+                st->stopwatch_output_version[ai] = engine->output_versions[oi];
+            }
+            else
+            {
+                // Another rule can take ownership of this output.
+                if (st->stopwatch_latched[ai] &&
+                    st->stopwatch_output_version[ai] != engine->output_versions[oi])
+                    st->stopwatch_latched[ai] = false;
+
+                if (!st->stopwatch_latched[ai] && en &&
+                    st->stopwatch_initialized[ai] && st->stopwatch_prev_en[ai])
+                {
+                    uint64_t delta = now_ms - st->stopwatch_last_ms[ai];
+                    uint64_t remaining = a->duration_ms -
+                        (st->stopwatch_elapsed[ai] < a->duration_ms ? st->stopwatch_elapsed[ai] : a->duration_ms);
+                    st->stopwatch_elapsed[ai] += delta < remaining ? delta : remaining;
+                }
+                if (!st->stopwatch_latched[ai] && st->stopwatch_elapsed[ai] >= a->duration_ms &&
+                    !(engine->reset_priority_mask & bit))
+                {
+                    st->stopwatch_latched[ai] = true;
+                    lynra_write_output(engine, a->output_index, true, false);
+                    st->stopwatch_output_version[ai] = engine->output_versions[oi];
+                }
+                st->stopwatch_prev_en[ai] = en;
+            }
+            st->stopwatch_last_ms[ai] = now_ms;
+            st->stopwatch_initialized[ai] = true;
+        }
+    }
+
     engine->previous_inputs = input_mask;
 
     return true;
@@ -1145,7 +1220,7 @@ static void lynra_advance_rule(
             continue;
         }
         // FLASH is handled separately.
-        if (action->type == LYNRA_ACTION_BLINK || action->type == LYNRA_ACTION_STAIRWAY || action->type == LYNRA_ACTION_MULTI_SWITCH)
+        if (action->type == LYNRA_ACTION_BLINK || action->type == LYNRA_ACTION_STAIRWAY || action->type == LYNRA_ACTION_MULTI_SWITCH || action->type == LYNRA_ACTION_STOPWATCH)
         {
             state->action_index++;
             continue;

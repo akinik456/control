@@ -148,11 +148,23 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         ControlActionType.blinkOutput => ControlAction.blink(),
         ControlActionType.stairwayOutput => ControlAction.stairway(),
         ControlActionType.multiSwitchOutput => ControlAction.multiSwitch(),
+        ControlActionType.stopwatchOutput => ControlAction.stopwatch(),
         _ => ControlAction.output(),
       };
 
-  void _addAction(ControlConditionGroup rule, ControlActionType type) =>
-      setState(() => rule.actions.add(_makeAction(type)));
+  void _addAction(ControlConditionGroup rule, ControlActionType type) => setState(() {
+    if (type == ControlActionType.stopwatchOutput) {
+      rule.conditions
+        ..clear()
+        ..add(InputCondition(inputIndex: 1))
+        ..add(InputCondition(inputIndex: 2));
+      rule.actions
+        ..clear()
+        ..add(ControlAction.stopwatch());
+    } else {
+      rule.actions.add(_makeAction(type));
+    }
+  });
 
   Widget _quickAction(ControlConditionGroup rule, IconData icon,
       String label, ControlActionType type, Color color) => OutlinedButton(
@@ -250,6 +262,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       ControlActionType.blinkOutput => 'AÇ KAPAT',
       ControlActionType.stairwayOutput => 'MERDİVEN',
       ControlActionType.multiSwitchOutput => 'ÇOK İŞLEVLİ',
+      ControlActionType.stopwatchOutput => 'KRONOMETRE',
       _ => action.outputState ? 'ON' : 'OFF',
     }, () async {
       final v = await _choose<(ControlActionType, bool?)>('Çıkış işlemi', [
@@ -261,6 +274,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         ((ControlActionType.blinkOutput, null), 'AÇ KAPAT (tekrarla)'),
         ((ControlActionType.stairwayOutput, null), 'MERDİVEN OTOMATİĞİ'),
         ((ControlActionType.multiSwitchOutput, null), 'ÇOK İŞLEVLİ ANAHTAR'),
+        ((ControlActionType.stopwatchOutput, null), 'KRONOMETRE'),
       ]);
       if (v != null) setState(() {
         action.type = v.$1;
@@ -282,6 +296,16 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           action.multiLongPressMs = 2000;
           action.stairWarningBeforeMs = 0;
           action.stairWarningOffMs = 0;
+        }
+        if (v.$1 == ControlActionType.stopwatchOutput) {
+          action.durationMs = 30000;
+          rule.conditions
+            ..clear()
+            ..add(InputCondition(inputIndex: 1))
+            ..add(InputCondition(inputIndex: 2));
+          rule.actions
+            ..clear()
+            ..add(action);
         }
         if (v.$1 == ControlActionType.setLatch) action.outputState = true;
         if (v.$1 == ControlActionType.resetLatch) action.outputState = false;
@@ -372,6 +396,12 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   Widget _actionDelayPreview(ControlAction action) {
     if (action.type == ControlActionType.delay) return const SizedBox.shrink();
+    if (action.type == ControlActionType.stopwatchOutput) {
+      return _delayToken('Hedef ${_seconds(action.durationMs)}', () async {
+        final v = await _duration('Kronometre hedef süresi (T)', action.durationMs);
+        if (v != null && v > 0 && mounted) setState(() => action.durationMs = v);
+      });
+    }
     if (action.type == ControlActionType.multiSwitchOutput) {
       return Row(mainAxisSize: MainAxisSize.min, children: [
         _delayToken('T ${_seconds(action.durationMs)}', () async {
@@ -655,6 +685,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
                 (ControlActionType.blinkOutput, 'Çıkış YANIP SÖN'),
                 (ControlActionType.stairwayOutput, 'Merdiven Otomatiği'),
                 (ControlActionType.multiSwitchOutput, 'Çok İşlevli Anahtar'),
+                (ControlActionType.stopwatchOutput, 'Kronometre'),
                 (ControlActionType.delay, 'Bekle'),
               ]);
               if (v != null) _addAction(rule, v);
@@ -673,6 +704,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
                     (Icons.timeline, 'Blink', ControlActionType.blinkOutput, Colors.cyan),
                     (Icons.lightbulb_outline, 'Merdiven', ControlActionType.stairwayOutput, Colors.orange),
                     (Icons.touch_app_outlined, 'Çok İşlevli', ControlActionType.multiSwitchOutput, Colors.teal),
+                    (Icons.timer_outlined, 'Kronometre', ControlActionType.stopwatchOutput, Colors.indigo),
                     (Icons.timer_outlined, 'SET', ControlActionType.setLatch, Colors.green),
                     (Icons.restart_alt, 'RESET', ControlActionType.resetLatch, Colors.purple),
                     (Icons.hourglass_empty, 'Bekle', ControlActionType.delay, Colors.amber),
@@ -857,6 +889,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               ControlActionType.toggleOutput => ' DEĞİŞTİR',
               ControlActionType.stairwayOutput => ' MERDİVEN (T ${_seconds(action.durationMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)} / Tekrar ${action.stairRetrigger ? 'Açık' : 'Kapalı'})',
               ControlActionType.multiSwitchOutput => ' ÇOK İŞLEVLİ (T ${_seconds(action.durationMs)} / Uzun ${_seconds(action.multiLongPressMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)})',
+              ControlActionType.stopwatchOutput => ' KRONOMETRE (EN: I${rule.conditions.isNotEmpty ? rule.conditions[0].inputIndex : 1} / RESET: I${rule.conditions.length > 1 ? rule.conditions[1].inputIndex : 2} / T ${_seconds(action.durationMs)})',
               ControlActionType.blinkOutput => ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ON ${action.blinkOnMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}' : _seconds(action.durationMs)} / OFF ${action.blinkOffMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}' : _seconds(action.offDurationMs)} / N=${action.blinkCount})',
               _ => action.outputState ? ' ON' : ' OFF',
             });

@@ -67,4 +67,6 @@ FLUTTER
 ONR eklendi
 Blink de Tstart ve N eklendi
 Merdiven otomatiği eklendi
+multiswitch eklendi
+stopwatch eklendi
 
