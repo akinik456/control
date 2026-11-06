@@ -28,6 +28,7 @@ typedef struct
     uint32_t output_versions[LYNRA_PLC_MAX_OUTPUTS];
     uint32_t blink_activation_serial;
     bool blink_active;
+    uint64_t blink_started_ms;
     bool priority_rearm;
     uint64_t onr_elapsed_ms[LYNRA_PLC_MAX_ACTIONS];
     uint64_t onr_last_ms[LYNRA_PLC_MAX_ACTIONS];
@@ -357,17 +358,48 @@ bool lynra_plc_scan(
             }
         }
 
+        // BLINK-only rules: N=0 retains the existing LEVEL behavior.
+        // N>0 is a one-shot pulse train, started by a new activation.
         if (blink_only)
         {
-            if (matched && !state->blink_active)
+            bool finite = false;
+            for (uint8_t a = 0; a < rule->action_count; ++a)
+                if (rule->actions[a].blink_count > 0) finite = true;
+
+            if (!finite)
+            {
+                if (matched && !state->blink_active)
+                {
+                    state->blink_active = true;
+                    state->blink_started_ms = now_ms;
+                    state->blink_activation_serial = ++engine->blink_activation_serial;
+                }
+                else if (!matched)
+                    state->blink_active = false;
+            }
+            else if (rising)
+            {
+                // New edge/LEVEL activation retriggers even mid-train.
+                state->blink_active = true;
+                state->blink_started_ms = now_ms;
+                state->blink_activation_serial = ++engine->blink_activation_serial;
+            }
+        }
+
+        if (edge_rule && rule->action_count > 0)
+        {
+            bool all_blink = true;
+            for (uint8_t a = 0; a < rule->action_count; ++a)
+                if (rule->actions[a].type != LYNRA_ACTION_BLINK)
+                    all_blink = false;
+            bool finite_blink = false;
+            for (uint8_t a = 0; a < rule->action_count; ++a)
+                if (rule->actions[a].blink_count > 0) finite_blink = true;
+            if (all_blink && finite_blink && rising)
             {
                 state->blink_active = true;
-                state->blink_activation_serial =
-                    ++engine->blink_activation_serial;
-            }
-            else if (!matched)
-            {
-                state->blink_active = false;
+                state->blink_started_ms = now_ms;
+                state->blink_activation_serial = ++engine->blink_activation_serial;
             }
         }
 
@@ -391,9 +423,23 @@ bool lynra_plc_scan(
                     }
                 }
             }
-            // Edge-triggered rules run independently.
-            if (rising && !state->running)
+            // EDGE: RUN_ONCE ignores triggers during an active sequence.
+            // RUN_REPEAT retriggers: restart the sequence from its first action.
+            if (rising && (!state->running || rule->run_policy == LYNRA_RUN_REPEAT))
+            {
+                if (state->running)
+                {
+                    // Cancel delayed output commands belonging to the old run.
+                    // Do not interfere with other rules' pending commands.
+                    for (uint8_t oi = 0; oi < LYNRA_PLC_MAX_OUTPUTS; ++oi)
+                    {
+                        LynraPendingOutput *pending = &engine->pending_outputs[oi];
+                        if (pending->active && pending->rule_index == i)
+                            pending->active = false;
+                    }
+                }
                 lynra_start_rule(engine, state);
+            }
 
             if (state->running)
                 lynra_advance_rule(engine, (uint16_t)i, now_ms);
@@ -657,21 +703,37 @@ bool lynra_plc_scan(
         }
 
         if (!engine->blink_owner_valid[oi] ||
-            engine->blink_owner[oi] != winner)
+            engine->blink_owner[oi] != winner ||
+            engine->blink_owner_started_ms[oi] != engine->states[winner].blink_started_ms)
         {
             engine->blink_owner_valid[oi] = true;
             engine->blink_owner[oi] = winner;
-            engine->blink_owner_started_ms[oi] = now_ms;
+            engine->blink_owner_started_ms[oi] = engine->states[winner].blink_started_ms;
         }
 
-        uint64_t period =
-            (uint64_t)winner_action->duration_ms +
-            winner_action->off_duration_ms;
+        uint64_t elapsed = now_ms - engine->blink_owner_started_ms[oi];
+        uint64_t start_delay = winner_action->blink_start_delay_ms;
+        uint64_t on_time = winner_action->duration_ms;
+        uint64_t off_time = winner_action->off_duration_ms;
+        uint64_t period = on_time + off_time;
+        uint32_t count = winner_action->blink_count;
+        bool desired = false;
+        bool finished = false;
 
-        uint64_t phase =
-            (now_ms - engine->blink_owner_started_ms[oi]) % period;
-
-        bool desired = phase < winner_action->duration_ms;
+        if (elapsed >= start_delay)
+        {
+            uint64_t active_elapsed = elapsed - start_delay;
+            if (count > 0 &&
+                active_elapsed >= (uint64_t)(count - 1) * period + on_time)
+                finished = true;
+            else
+                desired = (active_elapsed % period) < on_time;
+        }
+        if (finished)
+        {
+            engine->states[winner].blink_active = false;
+            engine->blink_owner_valid[oi] = false;
+        }
 
         if (((engine->outputs & bit) != 0) != desired)
         {

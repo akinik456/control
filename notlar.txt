@@ -63,4 +63,7 @@ Q4	GPIO19	Multimetre
 
 ***************
 
-FLUTTER ONR eklendi
+FLUTTER 
+ONR eklendi
+Blink de Tstart ve N eklendi
+

@@ -33,6 +33,12 @@ final class LynraAction extends Struct {
 
   @Uint32()
   external int onrDelayMs;
+
+  @Uint32()
+  external int blinkStartDelayMs;
+
+  @Uint32()
+  external int blinkCount;
 }
 
 final class LynraRule extends Struct {

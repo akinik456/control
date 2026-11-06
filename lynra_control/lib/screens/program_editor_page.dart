@@ -90,6 +90,33 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     );
   }
 
+  Future<int?> _blinkCountDialog(int current) async {
+    var input = current.toString();
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Darbe sayısı (N)'),
+        content: TextFormField(
+          initialValue: input,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: '0 = sürekli, 1–9 = darbe sayısı',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => input = v,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () {
+            final n = int.tryParse(input.trim());
+            if (n != null && n >= 0 && n <= 9) Navigator.pop(ctx, n);
+          }, child: const Text('Tamam')),
+        ],
+      ),
+    );
+  }
+
   Widget _token(String text, VoidCallback onTap, {Color? color}) =>
       ActionChip(
         backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -295,18 +322,35 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   Widget _actionDelayPreview(ControlAction action) {
     if (action.type == ControlActionType.delay) return const SizedBox.shrink();
     final isBlink = action.type == ControlActionType.blinkOutput;
-    final onMs = isBlink ? action.durationMs : action.onDelayMs;
-    final offMs = isBlink ? action.offDurationMs : action.offDelayMs;
+    if (isBlink) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        _delayToken('Baş. ${_seconds(action.blinkStartDelayMs)}', () async {
+          final v = await _duration('AÇ KAPAT başlangıç gecikmesi', action.blinkStartDelayMs);
+          if (v != null) setState(() => action.blinkStartDelayMs = v);
+        }),
+        const SizedBox(width: 2),
+        _delayToken('ON ${_seconds(action.durationMs)}', () async {
+          final v = await _duration('AÇ KAPAT ON süresi', action.durationMs);
+          if (v != null && v > 0) setState(() => action.durationMs = v);
+        }),
+        const SizedBox(width: 2),
+        _delayToken('OFF ${_seconds(action.offDurationMs)}', () async {
+          final v = await _duration('AÇ KAPAT OFF süresi', action.offDurationMs);
+          if (v != null && v > 0) setState(() => action.offDurationMs = v);
+        }),
+        const SizedBox(width: 2),
+        _delayToken('N=${action.blinkCount}', () async {
+          final v = await _blinkCountDialog(action.blinkCount);
+          if (v != null) setState(() => action.blinkCount = v);
+        }),
+      ]);
+    }
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      _delayToken(onMs > 0 ? 'ON ${_seconds(onMs)}' : 'ON gec.', () async {
-        final v = await _duration(isBlink ? 'AÇ KAPAT ON süresi' : 'Bu işlem için ON gecikmesi', onMs);
-        if (v != null && (!isBlink || v > 0)) setState(() {
-          if (isBlink) {
-            action.durationMs = v;
-          } else {
-            action.onDelayMs = v;
-            if (v > 0) action.onrDelayMs = 0;
-          }
+      _delayToken(action.onDelayMs > 0 ? 'ON ${_seconds(action.onDelayMs)}' : 'ON gec.', () async {
+        final v = await _duration('Bu işlem için ON gecikmesi', action.onDelayMs);
+        if (v != null) setState(() {
+          action.onDelayMs = v;
+          if (v > 0) action.onrDelayMs = 0;
         });
       }),
       const SizedBox(width: 2),
@@ -318,15 +362,9 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         });
       }),
       const SizedBox(width: 2),
-      _delayToken(offMs > 0 ? 'OFF ${_seconds(offMs)}' : 'OFF gec.', () async {
-        final v = await _duration(isBlink ? 'AÇ KAPAT OFF süresi' : 'Bu işlem için OFF gecikmesi', offMs);
-        if (v != null && (!isBlink || v > 0)) setState(() {
-          if (isBlink) {
-            action.offDurationMs = v;
-          } else {
-            action.offDelayMs = v;
-          }
-        });
+      _delayToken(action.offDelayMs > 0 ? 'OFF ${_seconds(action.offDelayMs)}' : 'OFF gec.', () async {
+        final v = await _duration('Bu işlem için OFF gecikmesi', action.offDelayMs);
+        if (v != null) setState(() => action.offDelayMs = v);
       }),
     ]);
   }
@@ -719,7 +757,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               ControlActionType.setLatch => ' SET',
               ControlActionType.resetLatch => ' RESET',
               ControlActionType.toggleOutput => ' DEĞİŞTİR',
-              ControlActionType.blinkOutput => ' YANIP SÖN (${_seconds(action.durationMs)} ON / ${_seconds(action.offDurationMs)} OFF)',
+              ControlActionType.blinkOutput => ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ${_seconds(action.durationMs)} ON / ${_seconds(action.offDurationMs)} OFF / N=${action.blinkCount})',
               _ => action.outputState ? ' ON' : ' OFF',
             });
           }
@@ -750,7 +788,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           }
         }
       } else if (rule.actions.any((a) => a.type == ControlActionType.blinkOutput)) {
-        add('\nKoşul sağlandığı sürece yanıp söner; koşul bittiğinde OFF olur.');
+        add('\nN=0 ise koşul sağlandığı sürece yanıp söner; N>0 ise tetiklemede belirlenen sayıda darbe üretir.');
       } else if (rule.actions.any((a) => a.type == ControlActionType.toggleOutput)) {
         for (final action in rule.actions) {
           if (action.type == ControlActionType.toggleOutput) {

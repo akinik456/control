@@ -76,6 +76,8 @@ class ControlAction {
   int onDelayMs;
   int offDelayMs;
   int onrDelayMs;
+  int blinkStartDelayMs = 0;
+  int blinkCount = 0;
 
   ControlAction.output({this.outputIndex = 1, this.outputState = true, this.onDelayMs = 0, this.offDelayMs = 0, this.onrDelayMs = 0})
       : type = ControlActionType.setOutput,
@@ -118,6 +120,8 @@ class ControlAction {
         },
         if (type == ControlActionType.delay || type == ControlActionType.blinkOutput) 'durationMs': durationMs,
         if (type == ControlActionType.blinkOutput) 'offDurationMs': offDurationMs,
+        if (type == ControlActionType.blinkOutput) 'blinkStartDelayMs': blinkStartDelayMs,
+        if (type == ControlActionType.blinkOutput) 'blinkCount': blinkCount,
         if (type != ControlActionType.delay) ...{
           'onDelayMs': onrDelayMs > 0 ? 0 : onDelayMs,
           'offDelayMs': offDelayMs,
@@ -134,7 +138,9 @@ class ControlAction {
       return ControlAction.reset(outputIndex: json['outputIndex'] as int? ?? 1, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0, onrDelayMs: json['onrDelayMs'] as int? ?? 0);
     }
     if (type == ControlActionType.blinkOutput) {
-      return ControlAction.blink(outputIndex: json['outputIndex'] as int? ?? 1, durationMs: json['durationMs'] as int? ?? 3000, offDurationMs: json['offDurationMs'] as int? ?? 3000, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0, onrDelayMs: json['onrDelayMs'] as int? ?? 0);
+      return ControlAction.blink(outputIndex: json['outputIndex'] as int? ?? 1, durationMs: json['durationMs'] as int? ?? 3000, offDurationMs: json['offDurationMs'] as int? ?? 3000, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0, onrDelayMs: json['onrDelayMs'] as int? ?? 0)
+        ..blinkStartDelayMs = json['blinkStartDelayMs'] as int? ?? 0
+        ..blinkCount = json['blinkCount'] as int? ?? 0;
     }
     if (type == ControlActionType.toggleOutput) {
       return ControlAction.toggle(outputIndex: json['outputIndex'] as int? ?? 1, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0, onrDelayMs: json['onrDelayMs'] as int? ?? 0);
