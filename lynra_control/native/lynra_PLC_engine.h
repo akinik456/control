@@ -40,7 +40,8 @@ typedef enum {
     LYNRA_ACTION_SET,
     LYNRA_ACTION_RESET,
     LYNRA_ACTION_TOGGLE,
-    LYNRA_ACTION_BLINK
+    LYNRA_ACTION_BLINK,
+    LYNRA_ACTION_STAIRWAY
 } LynraActionType;
 
 typedef enum {
@@ -73,6 +74,9 @@ typedef struct {
     uint32_t blink_on_max_ms;
     uint32_t blink_off_min_ms; /* 0/0 means fixed off_duration_ms */
     uint32_t blink_off_max_ms;
+    uint32_t stair_warning_before_ms; /* 0 = no warning */
+    uint32_t stair_warning_off_ms;
+    bool stair_retrigger; /* true: new press restarts countdown */
 } LynraAction;
 
 typedef struct {

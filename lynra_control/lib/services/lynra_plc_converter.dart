@@ -79,6 +79,8 @@ final durations = [
   source.blinkOnMaxMs,
   source.blinkOffMinMs,
   source.blinkOffMaxMs,
+  source.stairWarningBeforeMs,
+  source.stairWarningOffMs,
 ];
 
 if (durations.any((value) =>
@@ -116,6 +118,9 @@ if (source.type == ControlActionType.blinkOutput &&
     case ControlActionType.blinkOutput:
       target.type = 5;
       break;
+    case ControlActionType.stairwayOutput:
+      target.type = 6;
+      break;
   }
 
   target.outputIndex = source.outputIndex;
@@ -139,6 +144,14 @@ if (source.type == ControlActionType.blinkOutput &&
    target.blinkOnMaxMs = source.type == ControlActionType.blinkOutput ? source.blinkOnMaxMs : 0;
    target.blinkOffMinMs = source.type == ControlActionType.blinkOutput ? source.blinkOffMinMs : 0;
    target.blinkOffMaxMs = source.type == ControlActionType.blinkOutput ? source.blinkOffMaxMs : 0;
+   if (source.type == ControlActionType.stairwayOutput &&
+       (source.durationMs == 0 || source.stairWarningBeforeMs > source.durationMs ||
+        source.stairWarningOffMs > source.stairWarningBeforeMs)) {
+     throw RangeError('Invalid STAIRWAY timing');
+   }
+   target.stairWarningBeforeMs = source.type == ControlActionType.stairwayOutput ? source.stairWarningBeforeMs : 0;
+   target.stairWarningOffMs = source.type == ControlActionType.stairwayOutput ? source.stairWarningOffMs : 0;
+   target.stairRetrigger = source.type == ControlActionType.stairwayOutput && source.stairRetrigger;
 }
 
 static void writeRule(
@@ -147,6 +160,12 @@ static void writeRule(
   int ruleId,
 ) {
   target.id = ruleId;
+  if (source.actions.any((a) => a.type == ControlActionType.stairwayOutput) &&
+      (source.conditions.length != 1 ||
+       source.conditions.first.trigger != ConditionTrigger.highLevel)) {
+    throw StateError('Merdiven Otomatiği için tek bir ON seviye girişi (I1 = ON) kullanılmalı.');
+  }
+
 
 const maxDuration = 0xFFFFFFFF;
 

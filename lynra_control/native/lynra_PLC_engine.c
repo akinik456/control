@@ -36,6 +36,11 @@ typedef struct
     bool onr_done[LYNRA_PLC_MAX_ACTIONS];
     bool nor_armed;
     bool not_armed;
+    bool stair_active[LYNRA_PLC_MAX_ACTIONS];
+    bool stair_prev_input[LYNRA_PLC_MAX_ACTIONS];
+    bool stair_counting[LYNRA_PLC_MAX_ACTIONS];
+    uint64_t stair_deadline[LYNRA_PLC_MAX_ACTIONS];
+    uint32_t stair_output_version[LYNRA_PLC_MAX_ACTIONS];
 } LynraRuleState;
 
 typedef struct
@@ -174,6 +179,13 @@ bool lynra_plc_load_rules(
             return false;
         for (uint8_t a = 0; a < rules[i].action_count; ++a) {
             const LynraAction *act = &rules[i].actions[a];
+            if (act->type == LYNRA_ACTION_STAIRWAY &&
+                (rules[i].condition_count != 1 ||
+                 rules[i].conditions[0].trigger != LYNRA_TRIGGER_HIGH ||
+                 act->output_index < 1 || act->output_index > LYNRA_PLC_MAX_OUTPUTS ||
+                 act->stair_warning_before_ms > act->duration_ms ||
+                 act->stair_warning_off_ms > act->stair_warning_before_ms))
+                return false;
             if (act->onr_delay_ms != 0 &&
                 (act->type != LYNRA_ACTION_OUTPUT || !act->output_state ||
                  act->output_index < 1 || act->output_index > LYNRA_PLC_MAX_OUTPUTS ||
@@ -828,6 +840,63 @@ bool lynra_plc_scan(
         }
     }
 
+    // STAIRWAY: one HIGH trigger input per rule. Edge semantics are internal;
+    // the normal rule run policy does not restart its countdown every scan.
+    // Other output commands supersede an active stairway instance.
+    for (size_t ri = 0; ri < engine->rule_count; ++ri)
+    {
+        const LynraRule *rule = &engine->rules[ri];
+        LynraRuleState *st = &engine->states[ri];
+        for (uint8_t ai = 0; ai < rule->action_count; ++ai)
+        {
+            const LynraAction *a = &rule->actions[ai];
+            if (a->type != LYNRA_ACTION_STAIRWAY) continue;
+            uint32_t bit = 1u << (a->output_index - 1);
+            bool pressed = (input_mask & (1u << (rule->conditions[0].input_index - 1))) != 0;
+            bool rising = pressed && !st->stair_prev_input[ai];
+            bool falling = !pressed && st->stair_prev_input[ai];
+            st->stair_prev_input[ai] = pressed;
+
+            if (st->stair_active[ai] &&
+                engine->output_versions[a->output_index - 1] != st->stair_output_version[ai])
+                st->stair_active[ai] = false;
+
+            if (rising && (!st->stair_active[ai] || a->stair_retrigger))
+            {
+                st->stair_active[ai] = true;
+                st->stair_counting[ai] = false;
+                lynra_write_output(engine, a->output_index, true, false);
+                st->stair_output_version[ai] = engine->output_versions[a->output_index - 1];
+            }
+            if (!st->stair_active[ai]) continue;
+
+            if (falling && !st->stair_counting[ai])
+            {
+                st->stair_counting[ai] = true;
+                st->stair_deadline[ai] = now_ms + a->duration_ms;
+            }
+            if (!st->stair_counting[ai]) continue;
+
+            bool desired = true;
+            if (now_ms >= st->stair_deadline[ai])
+            {
+                desired = false;
+                st->stair_active[ai] = false;
+            }
+            else if (a->stair_warning_before_ms > 0 && a->stair_warning_off_ms > 0 &&
+                     st->stair_deadline[ai] - now_ms <= a->stair_warning_before_ms &&
+                     st->stair_deadline[ai] - now_ms >
+                         a->stair_warning_before_ms - a->stair_warning_off_ms)
+                desired = false;
+
+            if (((engine->outputs & bit) != 0) != desired)
+            {
+                lynra_write_output(engine, a->output_index, desired, false);
+                st->stair_output_version[ai] = engine->output_versions[a->output_index - 1];
+            }
+        }
+    }
+
     engine->previous_inputs = input_mask;
 
     return true;
@@ -982,7 +1051,7 @@ static void lynra_advance_rule(
             continue;
         }
         // FLASH is handled separately.
-        if (action->type == LYNRA_ACTION_BLINK)
+        if (action->type == LYNRA_ACTION_BLINK || action->type == LYNRA_ACTION_STAIRWAY)
         {
             state->action_index++;
             continue;

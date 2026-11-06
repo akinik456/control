@@ -51,6 +51,15 @@ final class LynraAction extends Struct {
 
   @Uint32()
   external int blinkOffMaxMs;
+
+  @Uint32()
+  external int stairWarningBeforeMs;
+
+  @Uint32()
+  external int stairWarningOffMs;
+
+  @Bool()
+  external bool stairRetrigger;
 }
 
 final class LynraRule extends Struct {
