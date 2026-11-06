@@ -69,6 +69,10 @@ typedef struct {
     uint32_t onr_delay_ms; /* Retentive ON delay; overrides on_delay_ms when nonzero */
     uint32_t blink_start_delay_ms; /* BLINK: initial pause, 0 = immediate */
     uint32_t blink_count; /* BLINK: 0 = continuous, >0 = finite pulses */
+    uint32_t blink_on_min_ms; /* 0/0 means fixed duration_ms */
+    uint32_t blink_on_max_ms;
+    uint32_t blink_off_min_ms; /* 0/0 means fixed off_duration_ms */
+    uint32_t blink_off_max_ms;
 } LynraAction;
 
 typedef struct {

@@ -75,6 +75,10 @@ final durations = [
   source.onrDelayMs,
   source.blinkStartDelayMs,
   source.blinkCount,
+  source.blinkOnMinMs,
+  source.blinkOnMaxMs,
+  source.blinkOffMinMs,
+  source.blinkOffMaxMs,
 ];
 
 if (durations.any((value) =>
@@ -123,6 +127,18 @@ if (source.type == ControlActionType.blinkOutput &&
   target.onrDelayMs = source.onrDelayMs;
    target.blinkStartDelayMs = source.type == ControlActionType.blinkOutput ? source.blinkStartDelayMs : 0;
    target.blinkCount = source.type == ControlActionType.blinkOutput ? source.blinkCount : 0;
+   if (source.type == ControlActionType.blinkOutput) {
+     if ((source.blinkOnMinMs == 0) != (source.blinkOnMaxMs == 0) ||
+         (source.blinkOffMinMs == 0) != (source.blinkOffMaxMs == 0) ||
+         (source.blinkOnMinMs > 0 && source.blinkOnMinMs > source.blinkOnMaxMs) ||
+         (source.blinkOffMinMs > 0 && source.blinkOffMinMs > source.blinkOffMaxMs)) {
+       throw RangeError('Invalid BLINK RANDOM range');
+     }
+   }
+   target.blinkOnMinMs = source.type == ControlActionType.blinkOutput ? source.blinkOnMinMs : 0;
+   target.blinkOnMaxMs = source.type == ControlActionType.blinkOutput ? source.blinkOnMaxMs : 0;
+   target.blinkOffMinMs = source.type == ControlActionType.blinkOutput ? source.blinkOffMinMs : 0;
+   target.blinkOffMaxMs = source.type == ControlActionType.blinkOutput ? source.blinkOffMaxMs : 0;
 }
 
 static void writeRule(

@@ -319,6 +319,39 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     visualDensity: VisualDensity.compact,
   );
 
+  Future<void> _editBlinkTime(ControlAction action, bool isOn) async {
+    final min = isOn ? action.blinkOnMinMs : action.blinkOffMinMs;
+    final max = isOn ? action.blinkOnMaxMs : action.blinkOffMaxMs;
+    final fixed = isOn ? action.durationMs : action.offDurationMs;
+    final mode = await _choose<String>(isOn ? 'BLINK ON' : 'BLINK OFF', [
+      ('fixed', 'Sabit süre'),
+      ('random', 'RANDOM (min–max)'),
+    ]);
+    if (mode == null || !mounted) return;
+    if (mode == 'fixed') {
+      final v = await _duration('Sabit süre', fixed);
+      if (v != null && v > 0 && mounted) setState(() {
+        if (isOn) { action.durationMs = v; action.blinkOnMinMs = 0; action.blinkOnMaxMs = 0; }
+        else { action.offDurationMs = v; action.blinkOffMinMs = 0; action.blinkOffMaxMs = 0; }
+      });
+      return;
+    }
+    final lower = await _duration('RANDOM minimum süre', min > 0 ? min : fixed);
+    if (lower == null || !mounted) return;
+    final upper = await _duration('RANDOM maksimum süre', max > 0 ? max : fixed);
+    if (upper == null || !mounted) return;
+    if (lower <= 0 || upper < lower) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('RANDOM: 0 < minimum ≤ maksimum olmalı')),
+      );
+      return;
+    }
+    setState(() {
+      if (isOn) { action.blinkOnMinMs = lower; action.blinkOnMaxMs = upper; }
+      else { action.blinkOffMinMs = lower; action.blinkOffMaxMs = upper; }
+    });
+  }
+
   Widget _actionDelayPreview(ControlAction action) {
     if (action.type == ControlActionType.delay) return const SizedBox.shrink();
     final isBlink = action.type == ControlActionType.blinkOutput;
@@ -329,15 +362,13 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           if (v != null) setState(() => action.blinkStartDelayMs = v);
         }),
         const SizedBox(width: 2),
-        _delayToken('ON ${_seconds(action.durationMs)}', () async {
-          final v = await _duration('AÇ KAPAT ON süresi', action.durationMs);
-          if (v != null && v > 0) setState(() => action.durationMs = v);
-        }),
+        _delayToken(action.blinkOnMinMs > 0
+          ? 'ON R ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}'
+          : 'ON ${_seconds(action.durationMs)}', () => _editBlinkTime(action, true)),
         const SizedBox(width: 2),
-        _delayToken('OFF ${_seconds(action.offDurationMs)}', () async {
-          final v = await _duration('AÇ KAPAT OFF süresi', action.offDurationMs);
-          if (v != null && v > 0) setState(() => action.offDurationMs = v);
-        }),
+        _delayToken(action.blinkOffMinMs > 0
+          ? 'OFF R ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}'
+          : 'OFF ${_seconds(action.offDurationMs)}', () => _editBlinkTime(action, false)),
         const SizedBox(width: 2),
         _delayToken('N=${action.blinkCount}', () async {
           final v = await _blinkCountDialog(action.blinkCount);
@@ -757,7 +788,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               ControlActionType.setLatch => ' SET',
               ControlActionType.resetLatch => ' RESET',
               ControlActionType.toggleOutput => ' DEĞİŞTİR',
-              ControlActionType.blinkOutput => ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ${_seconds(action.durationMs)} ON / ${_seconds(action.offDurationMs)} OFF / N=${action.blinkCount})',
+              ControlActionType.blinkOutput => ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ON ${action.blinkOnMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}' : _seconds(action.durationMs)} / OFF ${action.blinkOffMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}' : _seconds(action.offDurationMs)} / N=${action.blinkCount})',
               _ => action.outputState ? ' ON' : ' OFF',
             });
           }

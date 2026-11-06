@@ -74,7 +74,26 @@ struct LynraPlcEngine
     int16_t blink_owner[LYNRA_PLC_MAX_OUTPUTS];
     uint64_t blink_owner_started_ms[LYNRA_PLC_MAX_OUTPUTS];
     bool blink_owner_valid[LYNRA_PLC_MAX_OUTPUTS];
+    uint64_t blink_phase_started_ms[LYNRA_PLC_MAX_OUTPUTS];
+    uint32_t blink_phase_duration_ms[LYNRA_PLC_MAX_OUTPUTS];
+    uint32_t blink_completed_pulses[LYNRA_PLC_MAX_OUTPUTS];
+    bool blink_phase_on[LYNRA_PLC_MAX_OUTPUTS];
+    uint32_t blink_rng;
 };
+
+static uint32_t lynra_blink_random(LynraPlcEngine *engine, uint32_t min_ms, uint32_t max_ms, uint32_t fixed_ms)
+{
+    if (min_ms == 0 && max_ms == 0) return fixed_ms;
+    if (max_ms < min_ms) return fixed_ms;
+    if (min_ms == max_ms) return min_ms;
+    // xorshift32; deterministic per-engine PRNG, not cryptographic.
+    uint32_t x = engine->blink_rng;
+    if (!x) x = 0x9E3779B9u;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    engine->blink_rng = x;
+    uint64_t span = (uint64_t)max_ms - min_ms + 1u;
+    return (uint32_t)(min_ms + (uint64_t)x % span);
+}
 
 static LynraPlcEngine engine_pool[LYNRA_PLC_MAX_INSTANCES];
 static void lynra_write_output(
@@ -126,6 +145,11 @@ void lynra_plc_reset(LynraPlcEngine *engine)
            sizeof(engine->blink_owner_started_ms));
     memset(engine->blink_owner_valid, 0,
            sizeof(engine->blink_owner_valid));
+
+    memset(engine->blink_phase_duration_ms, 0, sizeof(engine->blink_phase_duration_ms));
+    memset(engine->blink_phase_started_ms, 0, sizeof(engine->blink_phase_started_ms));
+    memset(engine->blink_completed_pulses, 0, sizeof(engine->blink_completed_pulses));
+    memset(engine->blink_phase_on, 0, sizeof(engine->blink_phase_on));
 
     engine->reset_priority_mask = 0;
     memset(engine->reset_fired, 0, sizeof(engine->reset_fired));
@@ -278,6 +302,11 @@ bool lynra_plc_scan(
     if (engine->has_last_scan &&
         now_ms < engine->last_now_ms)
         return false;
+    memset(engine->blink_phase_duration_ms, 0, sizeof(engine->blink_phase_duration_ms));
+    memset(engine->blink_phase_started_ms, 0, sizeof(engine->blink_phase_started_ms));
+    memset(engine->blink_completed_pulses, 0, sizeof(engine->blink_completed_pulses));
+    memset(engine->blink_phase_on, 0, sizeof(engine->blink_phase_on));
+
     engine->reset_priority_mask = 0;
     memset(engine->reset_fired, 0, sizeof(engine->reset_fired));
     engine->last_now_ms = now_ms;
@@ -709,30 +738,88 @@ bool lynra_plc_scan(
             engine->blink_owner_valid[oi] = true;
             engine->blink_owner[oi] = winner;
             engine->blink_owner_started_ms[oi] = engine->states[winner].blink_started_ms;
+            engine->blink_phase_duration_ms[oi] = 0;
+            engine->blink_completed_pulses[oi] = 0;
         }
 
-        uint64_t elapsed = now_ms - engine->blink_owner_started_ms[oi];
-        uint64_t start_delay = winner_action->blink_start_delay_ms;
-        uint64_t on_time = winner_action->duration_ms;
-        uint64_t off_time = winner_action->off_duration_ms;
-        uint64_t period = on_time + off_time;
-        uint32_t count = winner_action->blink_count;
         bool desired = false;
         bool finished = false;
-
-        if (elapsed >= start_delay)
+        const bool random_on = winner_action->blink_on_min_ms || winner_action->blink_on_max_ms;
+        const bool random_off = winner_action->blink_off_min_ms || winner_action->blink_off_max_ms;
+        if (!random_on && !random_off)
         {
-            uint64_t active_elapsed = elapsed - start_delay;
-            if (count > 0 &&
-                active_elapsed >= (uint64_t)(count - 1) * period + on_time)
-                finished = true;
-            else
-                desired = (active_elapsed % period) < on_time;
+            uint64_t elapsed = now_ms - engine->blink_owner_started_ms[oi];
+            uint64_t start_delay = winner_action->blink_start_delay_ms;
+            uint64_t on_time = winner_action->duration_ms;
+            uint64_t off_time = winner_action->off_duration_ms;
+            uint64_t period = on_time + off_time;
+            uint32_t count = winner_action->blink_count;
+            if (elapsed >= start_delay)
+            {
+                uint64_t active_elapsed = elapsed - start_delay;
+                if (count > 0 &&
+                    active_elapsed >= (uint64_t)(count - 1) * period + on_time)
+                    finished = true;
+                else
+                    desired = (active_elapsed % period) < on_time;
+            }
+            if (finished)
+            {
+                engine->states[winner].blink_active = false;
+                engine->blink_owner_valid[oi] = false;
+            }
+    
         }
-        if (finished)
+        else
         {
-            engine->states[winner].blink_active = false;
-            engine->blink_owner_valid[oi] = false;
+            uint64_t start_at = engine->blink_owner_started_ms[oi] + winner_action->blink_start_delay_ms;
+            if (now_ms >= start_at)
+            {
+                // Phase is initialized at the actual activation timestamp, not the first scan.
+                // On a delayed scan, advance through elapsed phase boundaries.
+                if (engine->blink_phase_duration_ms[oi] == 0)
+                {
+                    engine->blink_phase_started_ms[oi] = start_at;
+                    engine->blink_phase_on[oi] = true;
+                    engine->blink_completed_pulses[oi] = 0;
+                    engine->blink_phase_duration_ms[oi] = lynra_blink_random(engine,
+                        winner_action->blink_on_min_ms, winner_action->blink_on_max_ms,
+                        winner_action->duration_ms);
+                }
+                for (uint32_t guard = 0; guard < 100000 && !finished; guard++)
+                {
+                    uint64_t boundary = engine->blink_phase_started_ms[oi] + engine->blink_phase_duration_ms[oi];
+                    if (now_ms < boundary) break;
+                    engine->blink_phase_started_ms[oi] = boundary;
+                    if (engine->blink_phase_on[oi])
+                    {
+                        engine->blink_completed_pulses[oi]++;
+                        if (winner_action->blink_count > 0 &&
+                            engine->blink_completed_pulses[oi] >= winner_action->blink_count)
+                        {
+                            finished = true;
+                            break;
+                        }
+                        engine->blink_phase_on[oi] = false;
+                        engine->blink_phase_duration_ms[oi] = lynra_blink_random(engine,
+                            winner_action->blink_off_min_ms, winner_action->blink_off_max_ms,
+                            winner_action->off_duration_ms);
+                    }
+                    else
+                    {
+                        engine->blink_phase_on[oi] = true;
+                        engine->blink_phase_duration_ms[oi] = lynra_blink_random(engine,
+                            winner_action->blink_on_min_ms, winner_action->blink_on_max_ms,
+                            winner_action->duration_ms);
+                    }
+                }
+                desired = !finished && engine->blink_phase_on[oi];
+            }
+            if (finished)
+            {
+                engine->states[winner].blink_active = false;
+                engine->blink_owner_valid[oi] = false;
+            }
         }
 
         if (((engine->outputs & bit) != 0) != desired)

@@ -39,6 +39,18 @@ final class LynraAction extends Struct {
 
   @Uint32()
   external int blinkCount;
+
+  @Uint32()
+  external int blinkOnMinMs;
+
+  @Uint32()
+  external int blinkOnMaxMs;
+
+  @Uint32()
+  external int blinkOffMinMs;
+
+  @Uint32()
+  external int blinkOffMaxMs;
 }
 
 final class LynraRule extends Struct {
