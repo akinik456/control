@@ -22,7 +22,7 @@ typedef enum {
  LYNRA_TIMER_MULTI_FUNCTION, LYNRA_TIMER_STOPWATCH
 } LynraActionType;
 typedef enum { LYNRA_RUN_ONCE, LYNRA_RUN_REPEAT } LynraRunPolicy;
-typedef enum { LYNRA_OUTPUT_FOLLOW, LYNRA_OUTPUT_LATCH } LynraOutputBehavior;
+typedef enum { LYNRA_EXEC_IDLE, LYNRA_EXEC_RUNNING, LYNRA_EXEC_COMPLETED } LynraExecutionState;
 typedef struct { uint8_t input_index; LynraConditionTrigger trigger; } LynraCondition;
 typedef struct {
  LynraActionType type;
@@ -36,9 +36,7 @@ typedef struct {
 typedef struct {
  uint32_t id;
  LynraLogicOperator logic_operator;
- LynraOutputBehavior output_behavior;
  LynraRunPolicy run_policy;
- uint32_t on_delay_ms, off_delay_ms;
  uint8_t condition_count;
  LynraCondition conditions[LYNRA_PLC_MAX_CONDITIONS];
  uint8_t action_count;
@@ -51,6 +49,10 @@ void lynra_plc_reset(LynraPlcEngine *engine);
 bool lynra_plc_load_rules(LynraPlcEngine *engine, const LynraRule *rules, size_t count);
 bool lynra_plc_scan(LynraPlcEngine *engine, uint64_t now_ms, uint32_t inputs);
 uint32_t lynra_plc_get_outputs(const LynraPlcEngine *engine);
+bool lynra_plc_get_action_state(const LynraPlcEngine *engine, size_t rule_index,
+                                size_t action_index, LynraExecutionState *state);
+bool lynra_plc_get_rule_state(const LynraPlcEngine *engine, size_t rule_index,
+                              LynraExecutionState *state);
 bool lynra_plc_get_stopwatch(const LynraPlcEngine *engine, size_t rule_index,
                             size_t action_index, uint64_t *value);
 #ifdef __cplusplus
