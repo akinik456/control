@@ -49,6 +49,11 @@ bool _counterRunning = false;
       for (final condition in conditions) {
         indexes.add(condition.inputIndex);
       }
+      for (final action in rule.actions) {
+        if (action.type == ControlActionType.stopwatchTimer) {
+          indexes.add(action.resetInputIndex);
+        }
+      }
     }
   }
 
@@ -96,6 +101,7 @@ _autoStep = 0;
 _autoStepStartMs = 0;
 _autoCompleted = false;
 _counterMs = 0;
+_counterRunning = false;
     _lastTick = DateTime.now();
 
     for (var i = 1; i <= 4; i++) {
@@ -119,51 +125,46 @@ _counterRunning = true;
   });
 }
 
-void _applyAutoStep() {
+// Insert an all-OFF interval between combinations so edge triggers
+// can be exercised again. This is an input sweep, not a PASS/FAIL test.
+List<int> get _autoMasks {
   final inputs = _usedInputs;
-  final total = 1 << inputs.length;
-
-  if (_autoStep >= total) {
-  _autoStep = 0;
+  final masks = <int>[0];
+  for (var combination = 1; combination < (1 << inputs.length); combination++) {
+    var mask = 0;
+    for (var bit = 0; bit < inputs.length; bit++) {
+      if ((combination & (1 << bit)) != 0) mask |= 1 << (inputs[bit] - 1);
+    }
+    masks.add(mask);
+    masks.add(0);
+  }
+  return masks;
 }
 
+void _applyAutoStep() {
+  final mask = _autoMasks[_autoStep];
   for (var i = 1; i <= 4; i++) {
-    _inputs[i] = false;
+    _inputs[i] = (mask & (1 << (i - 1))) != 0;
   }
-
-  for (var bit = 0; bit < inputs.length; bit++) {
-    _inputs[inputs[bit]] = (_autoStep & (1 << bit)) != 0;
-  }
-
   _scan();
 }
+
 int get _autoStepDurationMs {
   var maxDelay = 0;
-
   for (final block in widget.program.controlBlocks) {
     for (final rule in block.groups) {
-      if (rule.onDelayMs > maxDelay) {
-        maxDelay = rule.onDelayMs;
-      }
-
-      if (rule.offDelayMs > maxDelay) {
-        maxDelay = rule.offDelayMs;
-      }
-
       for (final action in rule.actions) {
-        if (action.onDelayMs > maxDelay) {
-          maxDelay = action.onDelayMs;
-        }
-
-        if (action.offDelayMs > maxDelay) {
-          maxDelay = action.offDelayMs;
-        }
+        // Include the new C engine's timer parameters.
+        final duration = action.timerTMs +
+            action.timerTHMs + action.timerTLMs +
+            action.timerWarningBeforeMs + action.timerWarningOffMs;
+        if (duration > maxDelay) maxDelay = duration;
       }
     }
   }
-
   return maxDelay > 500 ? maxDelay + 500 : 1000;
 }
+
   void _tick() {
     if (!mounted || _engine == null) return;
 
@@ -171,7 +172,7 @@ int get _autoStepDurationMs {
     final elapsed = now.difference(_lastTick!).inMilliseconds;
     _lastTick = now;
 
-    if (elapsed <= 0) return;
+    if (elapsed <= 0 || _paused) return;
 
     setState(() {
 		if (_counterRunning) {
@@ -186,9 +187,15 @@ int get _autoStepDurationMs {
       }		
 			if (_autoTesting &&
     _nowMs - _autoStepStartMs >= _autoStepDurationMs) {
-				_autoStep++;
-				_autoStepStartMs = _nowMs;
-				_applyAutoStep();
+        if (_autoStep + 1 >= _autoMasks.length) {
+          _autoTesting = false;
+          _autoCompleted = true;
+          _counterRunning = false;
+        } else {
+          _autoStep++;
+          _autoStepStartMs = _nowMs;
+          _applyAutoStep();
+        }
 			}
     });
   }
@@ -220,7 +227,7 @@ void _scan() {
   }
 }
   void _setInput(int index) {
-	if (_autoTesting) return;
+    if (_autoTesting) return;
     setState(() {
       _inputs[index] = !_inputs[index]!;
       _scan();
@@ -244,6 +251,7 @@ void _stopAutoTest() {
   setState(() {
     _autoTesting = false;
     _autoCompleted = false;
+    _counterRunning = false;
   });
 }
 void _resumeTest() {
@@ -369,16 +377,36 @@ Row(
   ],
 ),
 
+Row(
+  children: [
+    Expanded(
+      child: OutlinedButton.icon(
+        onPressed: _paused ? _resumeTest : _pauseTest,
+        icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
+        label: Text(_paused ? 'Simülasyonu sürdür' : 'Simülasyonu duraklat'),
+      ),
+    ),
+    const SizedBox(width: 8),
+    IconButton(
+      tooltip: 'Simülasyonu sıfırla',
+      onPressed: () => setState(_restart),
+      icon: const Icon(Icons.restart_alt),
+    ),
+  ],
+),
+
 if (_autoTesting || _autoCompleted) ...[
   Padding(
     padding: const EdgeInsets.symmetric(horizontal: 12),
     child: LinearProgressIndicator(
-      value: (_autoStep + 1) / (1 << _usedInputs.length),
+      value: (_autoStep + 1) / _autoMasks.length,
     ),
   ),
   const SizedBox(height: 4),
   Text(
-  'Test ${_autoStep + 1} / ${1 << _usedInputs.length}',
+  _autoCompleted
+      ? 'Giriş taraması tamamlandı (otomatik doğrulama değildir)'
+      : 'Giriş adımı ${_autoStep + 1} / ${_autoMasks.length}',
 ),
 ],
 
@@ -407,14 +435,17 @@ Expanded(
   }
 	
 	Widget _ruleCard(int ruleNumber, ControlConditionGroup rule) {
-  final inputs = (rule.logicOperator == LogicOperator.not
+  final inputSet = (rule.logicOperator == LogicOperator.not
           ? rule.conditions.take(1)
           : rule.conditions)
       .map((c) => c.inputIndex)
-      .where((i) => i >= 1 && i <= 4)
-      .toSet()
-      .toList()
-    ..sort();
+      .toSet();
+  for (final action in rule.actions) {
+    if (action.type == ControlActionType.stopwatchTimer) {
+      inputSet.add(action.resetInputIndex);
+    }
+  }
+  final inputs = inputSet.where((i) => i >= 1 && i <= 4).toList()..sort();
 
   final outputs = rule.actions
       .where((a) => a.type != ControlActionType.delay)
@@ -450,7 +481,10 @@ Expanded(
                     InkWell(
                       onTap: () => _setInput(i),
                       child: _ioCard(
-                        'I$i',
+                        rule.actions.any((a) =>
+                            a.type == ControlActionType.stopwatchTimer &&
+                            a.resetInputIndex == i)
+                            ? 'I$i RESET' : 'I$i',
                         _inputs[i]!,
                         isInput: true,
                       ),
