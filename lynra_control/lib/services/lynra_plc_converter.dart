@@ -128,6 +128,10 @@ if (source.type == ControlActionType.blinkOutput &&
     case ControlActionType.stopwatchOutput:
       target.type = 8;
       break;
+    default:
+      throw UnsupportedError(
+        'Bu fonksiyon henüz C motoruna aktarılmıyor: ${source.type.name}',
+      );
   }
 
   target.outputIndex = source.outputIndex;

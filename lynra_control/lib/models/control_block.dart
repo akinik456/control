@@ -14,7 +14,13 @@ enum LogicOperator {
 
 enum OutputBehavior { followCondition, latch }
 
-enum ControlActionType { setOutput, delay, setLatch, resetLatch, toggleOutput, blinkOutput, stairwayOutput, multiSwitchOutput, stopwatchOutput }
+enum ControlActionType {
+  setOutput, delay, setLatch, resetLatch, toggleOutput, blinkOutput,
+  stairwayOutput, multiSwitchOutput, stopwatchOutput,
+  onDelay, offDelay, onOffDelay, retentiveOnDelay, wipingRelay,
+  edgeWipingRelay, asynchronousPulse, randomGenerator,
+  stairwayTimer, multipleFunctionTimer, stopwatchTimer,
+}
 
 /// How a rule is evaluated.
 enum RuleRunPolicy { once, repeat }
@@ -87,6 +93,36 @@ class ControlAction {
   bool stairRetrigger = true;
   int multiLongPressMs = 2000;
 
+  // Siemens-style function parameters. Times are stored in milliseconds.
+  // These fields are independent of the legacy ON/ONR/OFF parameters.
+  int timerTMs = 0;
+  int timerTHMs = 0;
+  int timerTLMs = 0;
+  int timerN = 1;
+  int timerWarningBeforeMs = 0;
+  int timerWarningOffMs = 0;
+  String stopwatchTimeBase = 'seconds';
+
+  static const Set<ControlActionType> timerTypes = {
+    ControlActionType.onDelay, ControlActionType.offDelay,
+    ControlActionType.onOffDelay, ControlActionType.retentiveOnDelay,
+    ControlActionType.wipingRelay, ControlActionType.edgeWipingRelay,
+    ControlActionType.asynchronousPulse, ControlActionType.randomGenerator,
+    ControlActionType.stairwayTimer, ControlActionType.multipleFunctionTimer,
+    ControlActionType.stopwatchTimer,
+  };
+
+  ControlAction.timer(ControlActionType timerType, {this.outputIndex = 1})
+      : assert(timerTypes.contains(timerType)),
+        type = timerType,
+        outputState = true,
+        durationMs = 0,
+        offDurationMs = 0,
+        onDelayMs = 0,
+        offDelayMs = 0,
+        onrDelayMs = 0;
+
+
   ControlAction.output({this.outputIndex = 1, this.outputState = true, this.onDelayMs = 0, this.offDelayMs = 0, this.onrDelayMs = 0})
       : type = ControlActionType.setOutput,
         durationMs = 1000,
@@ -146,6 +182,15 @@ class ControlAction {
 
   Map<String, dynamic> toJson() => {
         'type': type.name,
+        if (timerTypes.contains(type)) ...{
+          'timerTMs': timerTMs,
+          'timerTHMs': timerTHMs,
+          'timerTLMs': timerTLMs,
+          'timerN': timerN,
+          'timerWarningBeforeMs': timerWarningBeforeMs,
+          'timerWarningOffMs': timerWarningOffMs,
+          'stopwatchTimeBase': stopwatchTimeBase,
+        },
         if (type != ControlActionType.delay) ...{
           'outputIndex': outputIndex,
           'outputState': outputState,
@@ -171,6 +216,17 @@ class ControlAction {
 
   factory ControlAction.fromJson(Map<String, dynamic> json) {
     final type = ControlActionType.values.byName(json['type'] as String);
+    if (ControlAction.timerTypes.contains(type)) {
+      return ControlAction.timer(type, outputIndex: json['outputIndex'] as int? ?? 1)
+        ..timerTMs = json['timerTMs'] as int? ?? 0
+        ..timerTHMs = json['timerTHMs'] as int? ?? 0
+        ..timerTLMs = json['timerTLMs'] as int? ?? 0
+        ..timerN = json['timerN'] as int? ?? 1
+        ..timerWarningBeforeMs = json['timerWarningBeforeMs'] as int? ?? 0
+        ..timerWarningOffMs = json['timerWarningOffMs'] as int? ?? 0
+        ..stopwatchTimeBase = json['stopwatchTimeBase'] as String? ?? 'seconds';
+    }
+
     if (type == ControlActionType.setLatch) {
       return ControlAction.set(outputIndex: json['outputIndex'] as int? ?? 1, onDelayMs: json['onDelayMs'] as int? ?? 0, offDelayMs: json['offDelayMs'] as int? ?? 0, onrDelayMs: json['onrDelayMs'] as int? ?? 0);
     }

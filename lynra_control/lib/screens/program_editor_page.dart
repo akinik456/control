@@ -25,10 +25,11 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   int _id = 0;
 
 
+
   ControlConditionGroup _makeRule() => ControlConditionGroup(
     id: 'rule_${++_id}',
     conditions: [InputCondition(inputIndex: 1)],
-    actions: [ControlAction.output()],
+    actions: [ControlAction.timer(ControlActionType.onDelay)],
   );
 
   @override
@@ -152,6 +153,140 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         _ => ControlAction.output(),
       };
 
+  // Siemens-style function selection. Unsupported functions remain UI-only
+  // until their distinct data model and runtime behavior are implemented.
+  static const _timerFunctions = <String>[
+    'Açılma Gecikmesi',
+    'Kapanma Gecikmesi',
+    'Açılma / Kapanma Gecikmesi',
+    'Kalıcı Açılma Gecikmesi',
+    'Darbe Rölesi',
+    'Kenar Tetiklemeli Darbe Rölesi',
+    'Asenkron Darbe Üreteci',
+    'Rastgele Zamanlı Darbe Üreteci',
+    'Merdiven Otomatiği',
+    'Çok İşlevli Anahtar',
+    'Kronometre',
+  ];
+
+  ControlActionType _timerType(String name) => switch (name) {
+    'Açılma Gecikmesi' => ControlActionType.onDelay,
+    'Kapanma Gecikmesi' => ControlActionType.offDelay,
+    'Açılma / Kapanma Gecikmesi' => ControlActionType.onOffDelay,
+    'Kalıcı Açılma Gecikmesi' => ControlActionType.retentiveOnDelay,
+    'Darbe Rölesi' => ControlActionType.wipingRelay,
+    'Kenar Tetiklemeli Darbe Rölesi' => ControlActionType.edgeWipingRelay,
+    'Asenkron Darbe Üreteci' => ControlActionType.asynchronousPulse,
+    'Rastgele Zamanlı Darbe Üreteci' => ControlActionType.randomGenerator,
+    'Merdiven Otomatiği' => ControlActionType.stairwayTimer,
+    'Çok İşlevli Anahtar' => ControlActionType.multipleFunctionTimer,
+    'Kronometre' => ControlActionType.stopwatchTimer,
+    _ => ControlActionType.onDelay,
+  };
+
+  void _selectTimer(ControlConditionGroup rule, String name,
+      {ControlAction? replace}) {
+    setState(() {
+      final action = ControlAction.timer(_timerType(name),
+          outputIndex: replace?.outputIndex ?? 1);
+      if (replace == null) {
+        rule.actions.add(action);
+      } else {
+        final index = rule.actions.indexOf(replace);
+        if (index >= 0) rule.actions[index] = action;
+      }
+    });
+  }
+
+  String _timerName(ControlAction action) => switch (action.type) {
+    ControlActionType.onDelay => 'Açılma Gecikmesi',
+    ControlActionType.offDelay => 'Kapanma Gecikmesi',
+    ControlActionType.onOffDelay => 'Açılma / Kapanma Gecikmesi',
+    ControlActionType.retentiveOnDelay => 'Kalıcı Açılma Gecikmesi',
+    ControlActionType.wipingRelay => 'Darbe Rölesi',
+    ControlActionType.edgeWipingRelay => 'Kenar Tetiklemeli Darbe Rölesi',
+    ControlActionType.asynchronousPulse => 'Asenkron Darbe Üreteci',
+    ControlActionType.randomGenerator => 'Rastgele Zamanlı Darbe Üreteci',
+    ControlActionType.stairwayTimer => 'Merdiven Otomatiği',
+    ControlActionType.multipleFunctionTimer => 'Çok İşlevli Anahtar',
+    ControlActionType.stopwatchTimer => 'Kronometre',
+    _ => 'Eski fonksiyon',
+  };
+
+  int _timerValue(ControlAction action, String key) => switch (key) {
+    'T' => action.timerTMs,
+    'TH' => action.timerTHMs,
+    'TL' => action.timerTLMs,
+    'N' => action.timerN,
+    'T!' => action.timerWarningBeforeMs,
+    'T!L' => action.timerWarningOffMs,
+    _ => 0,
+  };
+
+  void _setTimerValue(ControlAction action, String key, int value) {
+    switch (key) {
+      case 'T': action.timerTMs = value;
+      case 'TH': action.timerTHMs = value;
+      case 'TL': action.timerTLMs = value;
+      case 'N': action.timerN = value;
+      case 'T!': action.timerWarningBeforeMs = value;
+      case 'T!L': action.timerWarningOffMs = value;
+    }
+  }
+
+  List<(String, String)> _timerParams(String name) => switch (name) {
+    'Açılma Gecikmesi' => [('T', 'ON gecikmesi')],
+    'Kapanma Gecikmesi' => [('T', 'OFF gecikmesi')],
+    'Açılma / Kapanma Gecikmesi' => [('TH', 'ON gecikmesi'), ('TL', 'OFF gecikmesi')],
+    'Kalıcı Açılma Gecikmesi' => [('T', 'Gecikme')],
+    'Darbe Rölesi' => [('T', 'Darbe süresi')],
+    'Kenar Tetiklemeli Darbe Rölesi' => [('TH', 'Darbe süresi'), ('TL', 'Ara süresi'), ('N', 'Darbe sayısı')],
+    'Asenkron Darbe Üreteci' => [('TH', 'ON süresi'), ('TL', 'OFF süresi')],
+    'Rastgele Zamanlı Darbe Üreteci' => [('TH', 'ON gecikmesi üst sınırı'), ('TL', 'OFF gecikmesi üst sınırı')],
+    'Merdiven Otomatiği' => [('T', 'Kapanma süresi'), ('T!', 'Ön uyarı zamanı'), ('T!L', 'Uyarı kesintisi')],
+    'Çok İşlevli Anahtar' => [('T', 'Kapanma süresi'), ('TL', 'Uzun basma eşiği'), ('T!', 'Ön uyarı zamanı'), ('T!L', 'Uyarı kesintisi')],
+    _ => [],
+  };
+
+  Widget _timerParameterPreview(ControlAction action) {
+    final name = _timerName(action);
+    if (name == 'Kronometre') {
+      return _delayToken('Zaman birimi: ${action.stopwatchTimeBase}', () async {
+        final unit = await _choose<String>('Kronometre zaman birimi', [
+          ('hours', 'Saat'), ('minutes', 'Dakika'), ('seconds', 'Saniye'),
+          ('hundredths', '1/100 saniye'),
+        ]);
+        if (unit != null && mounted) {
+          setState(() => action.stopwatchTimeBase = unit);
+        }
+      });
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final param in _timerParams(name)) ...[
+        _delayToken(param.$1 == 'N'
+            ? 'N=${action.timerN}'
+            : '${param.$1} ${_seconds(_timerValue(action, param.$1))}', () async {
+          final current = _timerValue(action, param.$1);
+          final next = param.$1 == 'N'
+              ? await _blinkCountDialog(current)
+              : await _duration('${param.$1} – ${param.$2}', current);
+          if (next != null && mounted && (param.$1 != 'N' || next >= 1)) {
+            setState(() => _setTimerValue(action, param.$1, next));
+          }
+        }),
+        const SizedBox(width: 3),
+      ],
+    ]);
+  }
+
+  Future<void> _chooseTimer(ControlConditionGroup rule,
+      {ControlAction? replace}) async {
+    final name = await _choose<String>('Zaman fonksiyonu', [
+      for (final name in _timerFunctions) (name, name),
+    ]);
+    if (name != null && mounted) _selectTimer(rule, name, replace: replace);
+  }
+
   void _addAction(ControlConditionGroup rule, ControlActionType type) => setState(() {
     if (type == ControlActionType.stopwatchOutput) {
       rule.conditions
@@ -255,61 +390,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           [for (var i = 1; i <= 4; i++) (i, 'Q$i')]);
       if (v != null) setState(() => action.outputIndex = v);
     }, color: Colors.deepOrange);
-    final operation = _operationToken(switch (action.type) {
-      ControlActionType.setLatch => 'SET',
-      ControlActionType.resetLatch => 'RESET',
-      ControlActionType.toggleOutput => 'DEĞİŞ.',
-      ControlActionType.blinkOutput => 'AÇ KAPAT',
-      ControlActionType.stairwayOutput => 'MERDİVEN',
-      ControlActionType.multiSwitchOutput => 'ÇOK İŞLEVLİ',
-      ControlActionType.stopwatchOutput => 'KRONOMETRE',
-      _ => action.outputState ? 'ON' : 'OFF',
-    }, () async {
-      final v = await _choose<(ControlActionType, bool?)>('Çıkış işlemi', [
-        ((ControlActionType.setOutput, true), 'ON (koşulu takip et)'),
-        ((ControlActionType.setOutput, false), 'OFF (koşulu takip et)'),
-        ((ControlActionType.setLatch, null), 'SET (ON kal)'),
-        ((ControlActionType.resetLatch, null), 'RESET (OFF kal)'),
-        ((ControlActionType.toggleOutput, null), 'DEĞİŞTİR (ON/OFF tersine çevir)'),
-        ((ControlActionType.blinkOutput, null), 'AÇ KAPAT (tekrarla)'),
-        ((ControlActionType.stairwayOutput, null), 'MERDİVEN OTOMATİĞİ'),
-        ((ControlActionType.multiSwitchOutput, null), 'ÇOK İŞLEVLİ ANAHTAR'),
-        ((ControlActionType.stopwatchOutput, null), 'KRONOMETRE'),
-      ]);
-      if (v != null) setState(() {
-        action.type = v.$1;
-        if (v.$1 == ControlActionType.setOutput) {
-          action.outputState = v.$2!;
-        }
-        if (v.$1 == ControlActionType.blinkOutput) {
-          action.durationMs = 3000;
-          action.offDurationMs = 3000;
-        }
-        if (v.$1 == ControlActionType.stairwayOutput) {
-          action.durationMs = 60000;
-          action.stairWarningBeforeMs = 0;
-          action.stairWarningOffMs = 0;
-          action.stairRetrigger = true;
-        }
-        if (v.$1 == ControlActionType.multiSwitchOutput) {
-          action.durationMs = 60000;
-          action.multiLongPressMs = 2000;
-          action.stairWarningBeforeMs = 0;
-          action.stairWarningOffMs = 0;
-        }
-        if (v.$1 == ControlActionType.stopwatchOutput) {
-          action.durationMs = 30000;
-          rule.conditions
-            ..clear()
-            ..add(InputCondition(inputIndex: 1))
-            ..add(InputCondition(inputIndex: 2));
-          rule.actions
-            ..clear()
-            ..add(action);
-        }
-        if (v.$1 == ControlActionType.setLatch) action.outputState = true;
-        if (v.$1 == ControlActionType.resetLatch) action.outputState = false;
-      });
+    final operation = _operationToken(_timerName(action), () async {
+      await _chooseTimer(rule, replace: action);
     });
 
     return Container(
@@ -396,101 +478,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   Widget _actionDelayPreview(ControlAction action) {
     if (action.type == ControlActionType.delay) return const SizedBox.shrink();
-    if (action.type == ControlActionType.stopwatchOutput) {
-      return _delayToken('Hedef ${_seconds(action.durationMs)}', () async {
-        final v = await _duration('Kronometre hedef süresi (T)', action.durationMs);
-        if (v != null && v > 0 && mounted) setState(() => action.durationMs = v);
-      });
-    }
-    if (action.type == ControlActionType.multiSwitchOutput) {
-      return Row(mainAxisSize: MainAxisSize.min, children: [
-        _delayToken('T ${_seconds(action.durationMs)}', () async {
-          final v = await _duration('Kısa basma çalışma süresi (T)', action.durationMs);
-          if (v != null && v > 0) setState(() => action.durationMs = v);
-        }),
-        const SizedBox(width: 2),
-        _delayToken('Uzun ${_seconds(action.multiLongPressMs)}', () async {
-          final v = await _duration('Uzun basma eşiği (TL)', action.multiLongPressMs);
-          if (v != null && v > 0) setState(() => action.multiLongPressMs = v);
-        }),
-        const SizedBox(width: 2),
-        _delayToken('Uyarı ${_seconds(action.stairWarningBeforeMs)}', () async {
-          final v = await _duration('Kapanmadan önce uyarı (T!)', action.stairWarningBeforeMs);
-          if (v != null) setState(() => action.stairWarningBeforeMs = v);
-        }),
-        const SizedBox(width: 2),
-        _delayToken('Kesinti ${_seconds(action.stairWarningOffMs)}', () async {
-          final v = await _duration('Uyarı OFF süresi (T!L)', action.stairWarningOffMs);
-          if (v != null) setState(() => action.stairWarningOffMs = v);
-        }),
-      ]);
-    }
-    if (action.type == ControlActionType.stairwayOutput) {
-      return Row(mainAxisSize: MainAxisSize.min, children: [
-        _delayToken('T ${_seconds(action.durationMs)}', () async {
-          final v = await _duration('Merdiven kapanma süresi (T)', action.durationMs);
-          if (v != null && v > 0) setState(() => action.durationMs = v);
-        }),
-        const SizedBox(width: 2),
-        _delayToken('Uyarı ${_seconds(action.stairWarningBeforeMs)}', () async {
-          final v = await _duration('Kapanmadan önce uyarı (T!)', action.stairWarningBeforeMs);
-          if (v != null) setState(() => action.stairWarningBeforeMs = v);
-        }),
-        const SizedBox(width: 2),
-        _delayToken('Kesinti ${_seconds(action.stairWarningOffMs)}', () async {
-          final v = await _duration('Uyarı OFF süresi (T!L)', action.stairWarningOffMs);
-          if (v != null) setState(() => action.stairWarningOffMs = v);
-        }),
-        const SizedBox(width: 2),
-        _delayToken(action.stairRetrigger ? 'Tekrar: Açık' : 'Tekrar: Kapalı', () async {
-          setState(() => action.stairRetrigger = !action.stairRetrigger);
-        }),
-      ]);
-    }
-    final isBlink = action.type == ControlActionType.blinkOutput;
-    if (isBlink) {
-      return Row(mainAxisSize: MainAxisSize.min, children: [
-        _delayToken('Baş. ${_seconds(action.blinkStartDelayMs)}', () async {
-          final v = await _duration('AÇ KAPAT başlangıç gecikmesi', action.blinkStartDelayMs);
-          if (v != null) setState(() => action.blinkStartDelayMs = v);
-        }),
-        const SizedBox(width: 2),
-        _delayToken(action.blinkOnMinMs > 0
-          ? 'ON R ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}'
-          : 'ON ${_seconds(action.durationMs)}', () => _editBlinkTime(action, true)),
-        const SizedBox(width: 2),
-        _delayToken(action.blinkOffMinMs > 0
-          ? 'OFF R ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}'
-          : 'OFF ${_seconds(action.offDurationMs)}', () => _editBlinkTime(action, false)),
-        const SizedBox(width: 2),
-        _delayToken('N=${action.blinkCount}', () async {
-          final v = await _blinkCountDialog(action.blinkCount);
-          if (v != null) setState(() => action.blinkCount = v);
-        }),
-      ]);
-    }
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      _delayToken(action.onDelayMs > 0 ? 'ON ${_seconds(action.onDelayMs)}' : 'ON gec.', () async {
-        final v = await _duration('Bu işlem için ON gecikmesi', action.onDelayMs);
-        if (v != null) setState(() {
-          action.onDelayMs = v;
-          if (v > 0) action.onrDelayMs = 0;
-        });
-      }),
-      const SizedBox(width: 2),
-      _delayToken(action.onrDelayMs > 0 ? 'ONR ${_seconds(action.onrDelayMs)}' : 'ONR gec.', () async {
-        final v = await _duration('Birikimli ON gecikmesi (ONR)', action.onrDelayMs);
-        if (v != null) setState(() {
-          action.onrDelayMs = v;
-          if (v > 0) action.onDelayMs = 0;
-        });
-      }),
-      const SizedBox(width: 2),
-      _delayToken(action.offDelayMs > 0 ? 'OFF ${_seconds(action.offDelayMs)}' : 'OFF gec.', () async {
-        final v = await _duration('Bu işlem için OFF gecikmesi', action.offDelayMs);
-        if (v != null) setState(() => action.offDelayMs = v);
-      }),
-    ]);
+    return _timerParameterPreview(action);
   }
 
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
@@ -608,6 +596,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
             Divider(height: 1, color: primary.withValues(alpha: 0.7)),
             const SizedBox(height: 12),
             _sectionLabel('İSE'),
+            const Text('Zaman fonksiyonları: arayüz taslağı; henüz cihaza aktarılabilir değil.', style: TextStyle(fontSize: 11)),
             const SizedBox(height: 6),
             // Fixed columns keep every action, delay and arrow aligned.
             for (var i = 0; i < rule.actions.length; i++)
@@ -676,20 +665,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
                   );
                 }),
               ),
-            _token('İşlem ekle', () async {
-              final v = await _choose<ControlActionType>('İşlem ekle', [
-                (ControlActionType.setOutput, 'Çıkış ON / OFF'),
-                (ControlActionType.setLatch, 'Çıkış SET'),
-                (ControlActionType.resetLatch, 'Çıkış RESET'),
-                (ControlActionType.toggleOutput, 'Çıkış DEĞİŞTİR'),
-                (ControlActionType.blinkOutput, 'Çıkış YANIP SÖN'),
-                (ControlActionType.stairwayOutput, 'Merdiven Otomatiği'),
-                (ControlActionType.multiSwitchOutput, 'Çok İşlevli Anahtar'),
-                (ControlActionType.stopwatchOutput, 'Kronometre'),
-                (ControlActionType.delay, 'Bekle'),
-              ]);
-              if (v != null) _addAction(rule, v);
-            }),
+            _token('İşlem ekle', () => _chooseTimer(rule)),
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
@@ -699,19 +675,20 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
               childrenPadding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
               children: [
                 Wrap(spacing: 6, runSpacing: 6, children: [
-                  for (final item in [
-                    (Icons.power_settings_new, 'ON', ControlActionType.setOutput, Colors.cyan),
-                    (Icons.timeline, 'Blink', ControlActionType.blinkOutput, Colors.cyan),
-                    (Icons.lightbulb_outline, 'Merdiven', ControlActionType.stairwayOutput, Colors.orange),
-                    (Icons.touch_app_outlined, 'Çok İşlevli', ControlActionType.multiSwitchOutput, Colors.teal),
-                    (Icons.timer_outlined, 'Kronometre', ControlActionType.stopwatchOutput, Colors.indigo),
-                    (Icons.timer_outlined, 'SET', ControlActionType.setLatch, Colors.green),
-                    (Icons.restart_alt, 'RESET', ControlActionType.resetLatch, Colors.purple),
-                    (Icons.hourglass_empty, 'Bekle', ControlActionType.delay, Colors.amber),
-                    (Icons.swap_horiz, 'Toggle', ControlActionType.toggleOutput, Colors.blue),
-                  ])
-                    SizedBox(width: 94,
-                      child: _quickAction(rule, item.$1, item.$2, item.$3, item.$4)),
+                  for (final name in _timerFunctions)
+                    SizedBox(
+                      width: 142,
+                      child: OutlinedButton(
+                        onPressed: () => _selectTimer(rule, name),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: Text(name, textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 11)),
+                      ),
+                    ),
                 ]),
               ],
               ),
@@ -884,6 +861,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           } else {
             add('Q${action.outputIndex}', output);
             add(switch (action.type) {
+              ControlActionType.onDelay || ControlActionType.offDelay || ControlActionType.onOffDelay || ControlActionType.retentiveOnDelay || ControlActionType.wipingRelay || ControlActionType.edgeWipingRelay || ControlActionType.asynchronousPulse || ControlActionType.randomGenerator || ControlActionType.stairwayTimer || ControlActionType.multipleFunctionTimer || ControlActionType.stopwatchTimer => ' ${_timerName(action)}',
               ControlActionType.setLatch => ' SET',
               ControlActionType.resetLatch => ' RESET',
               ControlActionType.toggleOutput => ' DEĞİŞTİR',
