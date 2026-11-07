@@ -16,53 +16,29 @@ final class LynraAction extends Struct {
   @Uint8()
   external int outputIndex;
 
-  @Bool()
-  external bool outputState;
+  @Uint32()
+  external int tMs;
 
   @Uint32()
-  external int durationMs;
+  external int thMs;
 
   @Uint32()
-  external int offDurationMs;
+  external int tlMs;
 
   @Uint32()
-  external int onDelayMs;
+  external int warningBeforeMs;
 
   @Uint32()
-  external int offDelayMs;
+  external int warningOffMs;
 
-  @Uint32()
-  external int onrDelayMs;
+  @Uint8()
+  external int n;
 
-  @Uint32()
-  external int blinkStartDelayMs;
+  @Uint8()
+  external int stopwatchTimeBase;
 
-  @Uint32()
-  external int blinkCount;
-
-  @Uint32()
-  external int blinkOnMinMs;
-
-  @Uint32()
-  external int blinkOnMaxMs;
-
-  @Uint32()
-  external int blinkOffMinMs;
-
-  @Uint32()
-  external int blinkOffMaxMs;
-
-  @Uint32()
-  external int stairWarningBeforeMs;
-
-  @Uint32()
-  external int stairWarningOffMs;
-
-  @Bool()
-  external bool stairRetrigger;
-
-  @Uint32()
-  external int multiLongPressMs;
+  @Uint8()
+  external int resetInputIndex;
 }
 
 final class LynraRule extends Struct {
@@ -73,16 +49,7 @@ final class LynraRule extends Struct {
   external int logicOperator;
 
   @Int32()
-  external int outputBehavior;
-
-  @Int32()
   external int runPolicy;
-
-  @Uint32()
-  external int onDelayMs;
-
-  @Uint32()
-  external int offDelayMs;
 
   @Uint8()
   external int conditionCount;

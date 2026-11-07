@@ -59,8 +59,8 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
          r->actions[a].warning_before_ms > r->actions[a].t_ms ||
          r->actions[a].warning_off_ms > r->actions[a].warning_before_ms)) ||
        (r->actions[a].type == LYNRA_TIMER_EDGE_WIPING_RELAY &&
-        (r->actions[a].n < 1 || r->actions[a].n > 9 ||
-         r->actions[a].th_ms == 0 || r->actions[a].tl_ms == 0)) ||
+        (r->actions[a].n == 0 || r->actions[a].th_ms == 0 ||
+				 r->actions[a].tl_ms == 0)) ||
        (r->actions[a].type == LYNRA_TIMER_ASYNC_PULSE &&
         (r->actions[a].th_ms == 0 || r->actions[a].tl_ms == 0))) return false;
  }
@@ -119,7 +119,7 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
    if (rs->execution_state != LYNRA_EXEC_RUNNING) continue;
    if (ra->type == LYNRA_TIMER_EDGE_WIPING_RELAY && rs->started) {
     uint64_t period = (uint64_t)ra->th_ms + ra->tl_ms;
-    uint64_t total = (uint64_t)(ra->n - 1) * period + ra->th_ms;
+    uint64_t total = (uint64_t)ra->n * period;
     if (now_ms - rs->started_at < total) rule_running = true;
    } else {
     rule_running = true;
@@ -224,14 +224,14 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
     if (s->started) {
      uint64_t elapsed = now_ms - s->started_at;
      uint64_t period = (uint64_t)a->th_ms + a->tl_ms;
-     uint64_t total = (uint64_t)(a->n - 1) * period + a->th_ms;
+     uint64_t total = (uint64_t)a->n * period;
      if (elapsed >= total) {
       s->started = false;
       s->execution_state = LYNRA_EXEC_COMPLETED;
       on = false;
      } else {
       s->execution_state = LYNRA_EXEC_RUNNING;
-      on = (elapsed % period) < a->th_ms;
+      on = (elapsed % period) >= a->tl_ms;
      }
     }
    }
@@ -317,29 +317,34 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
     bool rising = active && !s->prev_match;
     bool falling = !active && s->prev_match;
     if (rising) {
-     if (s->output_on) {
-      s->output_on = false;
-      s->started = false;
-      s->multi_permanent = false;
-      s->multi_cancel_press = true;
-     } else {
-      s->output_on = true;
-      s->started = false;
-      s->multi_permanent = false;
-      s->multi_cancel_press = false;
-      s->started_at = now_ms; // press timestamp
-     }
-    }
+				if (s->output_on) {
+						s->multi_cancel_press = true;
+				} else {
+						s->output_on = true;
+						s->started = false;
+						s->multi_permanent = false;
+						s->multi_cancel_press = false;
+						s->started_at = now_ms;
+				}
+		}
     if (active && s->output_on && !s->multi_cancel_press &&
-        now_ms - s->started_at >= a->tl_ms && !s->started)
-     s->multi_permanent = true;
-    if (falling) {
-     if (s->multi_cancel_press) s->multi_cancel_press = false;
-     else if (s->output_on && !s->multi_permanent) {
-      if (now_ms - s->started_at >= a->tl_ms) s->multi_permanent = true;
-      else { s->started = true; s->started_at = now_ms; }
-     }
-    }
+						now_ms - s->started_at >= a->tl_ms && !s->started)
+				 s->multi_permanent = true;
+				if (falling) {
+				if (s->multi_cancel_press) {
+						s->output_on = false;
+						s->started = false;
+						s->multi_permanent = false;
+						s->multi_cancel_press = false;
+				} else if (s->output_on && !s->multi_permanent) {
+						if (now_ms - s->started_at >= a->tl_ms) {
+								s->multi_permanent = true;
+						} else {
+								s->started = true;
+								s->started_at = now_ms;
+						}
+				}
+		}
     on = s->output_on;
     if (s->started && s->output_on) {
      uint64_t elapsed = now_ms - s->started_at;
@@ -356,21 +361,49 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
       s->execution_state == LYNRA_EXEC_RUNNING ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE;
    }
    if (a->type == LYNRA_TIMER_STOPWATCH) {
-    // HIGH counts; LOW pauses; reset input clears. Numeric, not digital Q.
     bool reset = a->reset_input_index &&
-      (inputs & (1u << (a->reset_input_index - 1))) != 0;
-    if (reset) { s->started = false; s->elapsed_ms = 0; }
-    else if (active) {
-     if (!s->started) { s->started = true; s->started_at = now_ms; }
-    } else if (s->started) {
-     uint64_t delta = now_ms - s->started_at;
-     s->elapsed_ms = UINT64_MAX - s->elapsed_ms < delta ? UINT64_MAX : s->elapsed_ms + delta;
-     s->started = false;
+        (inputs & (1u << (a->reset_input_index - 1))) != 0;
+
+    if (reset) {
+        s->started = false;
+        s->elapsed_ms = 0;
+        s->output_on = false;
+    } else {
+        if (active) {
+            if (!s->started) {
+                s->started = true;
+                s->started_at = now_ms;
+            }
+        } else if (s->started) {
+            uint64_t delta = now_ms - s->started_at;
+            s->elapsed_ms =
+                UINT64_MAX - s->elapsed_ms < delta
+                    ? UINT64_MAX
+                    : s->elapsed_ms + delta;
+            s->started = false;
+        }
+
+        uint64_t total = s->elapsed_ms;
+
+        if (s->started) {
+            uint64_t delta = now_ms - s->started_at;
+            total = UINT64_MAX - total < delta
+                ? UINT64_MAX
+                : total + delta;
+        }
+
+        if (total >= a->t_ms)
+            s->output_on = true;
     }
-    on = false;
-    s->execution_state = (s->started || s->elapsed_ms > 0) ?
-      LYNRA_EXEC_RUNNING : LYNRA_EXEC_IDLE;
-   }
+
+    on = s->output_on;
+
+    s->execution_state = s->output_on
+        ? LYNRA_EXEC_COMPLETED
+        : (s->started || s->elapsed_ms > 0)
+            ? LYNRA_EXEC_RUNNING
+            : LYNRA_EXEC_IDLE;
+}
    if (on) result |= 1u << (a->output_index - 1);
    s->prev_match = active;
   }

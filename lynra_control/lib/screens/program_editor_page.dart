@@ -56,7 +56,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         ),
       );
 
-  Future<int?> _duration(String title, int currentMs) async {
+  Future<int?> _duration(String title, int currentMs, {int minMs = 0}) async {
     var input = (currentMs / 1000).toStringAsFixed(3).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
     return showDialog<int>(
       context: context,
@@ -80,7 +80,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           FilledButton(
             onPressed: () {
               final value = double.tryParse(input.replaceAll(',', '.'));
-              if (value != null && value.isFinite && value >= 0 && value <= 86400) {
+              if (value != null && value.isFinite && value >= 0 && value <= 86400 &&
+                  (value * 1000).round() >= minMs) {
                 Navigator.pop(ctx, (value * 1000).round());
               }
             },
@@ -102,7 +103,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           autofocus: true,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: '0 = sürekli, 1–9 = darbe sayısı',
+            labelText: '1–255 = darbe sayısı',
             border: OutlineInputBorder(),
           ),
           onChanged: (v) => input = v,
@@ -111,7 +112,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
           FilledButton(onPressed: () {
             final n = int.tryParse(input.trim());
-            if (n != null && n >= 0 && n <= 9) Navigator.pop(ctx, n);
+            if (n != null && n >= 1 && n <= 255) Navigator.pop(ctx, n);
           }, child: const Text('Tamam')),
         ],
       ),
@@ -189,6 +190,30 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     setState(() {
       final action = ControlAction.timer(_timerType(name),
           outputIndex: replace?.outputIndex ?? 1);
+      if (action.type == ControlActionType.edgeWipingRelay) {
+        action.timerTHMs = 1000;
+        action.timerTLMs = 500;
+        action.timerN = 2;
+      }
+			if (action.type == ControlActionType.asynchronousPulse) {
+				action.timerTHMs = 1000;
+				action.timerTLMs = 500;
+			}
+			if (action.type == ControlActionType.stairwayTimer) {
+				action.timerTMs = 10000;
+				action.timerWarningBeforeMs = 3000;
+				action.timerWarningOffMs = 500;
+			}
+			if (action.type == ControlActionType.multipleFunctionTimer) {
+				action.timerTMs = 10000;
+				action.timerTLMs = 2000;
+				action.timerWarningBeforeMs = 3000;
+				action.timerWarningOffMs = 500;
+			}
+			if (action.type == ControlActionType.stopwatchTimer) {
+				action.timerTMs = 10000;
+				action.resetInputIndex = 2;
+			}
       if (replace == null) {
         rule.actions.add(action);
       } else {
@@ -251,16 +276,31 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   Widget _timerParameterPreview(ControlAction action) {
     final name = _timerName(action);
     if (name == 'Kronometre') {
-      return _delayToken('Zaman birimi: ${action.stopwatchTimeBase}', () async {
-        final unit = await _choose<String>('Kronometre zaman birimi', [
-          ('hours', 'Saat'), ('minutes', 'Dakika'), ('seconds', 'Saniye'),
-          ('hundredths', '1/100 saniye'),
-        ]);
-        if (unit != null && mounted) {
-          setState(() => action.stopwatchTimeBase = unit);
-        }
-      });
-    }
+			return Row(
+				mainAxisSize: MainAxisSize.min,
+				children: [
+					_delayToken('RESET: I${action.resetInputIndex}', () async {
+						final v = await _choose<int>('RESET girişi', [
+							for (var i = 1; i <= 4; i++) (i, 'I$i'),
+						]);
+						if (v != null && mounted) {
+							setState(() => action.resetInputIndex = v);
+						}
+					}),
+					const SizedBox(width: 4),
+					_delayToken('T ${_seconds(action.timerTMs)}', () async {
+						final v = await _duration(
+							'Kronometre hedef süresi',
+							action.timerTMs,
+							minMs: 1,
+						);
+						if (v != null && mounted) {
+							setState(() => action.timerTMs = v);
+						}
+					}),
+				],
+			);
+		}
     return Row(mainAxisSize: MainAxisSize.min, children: [
       for (final param in _timerParams(name)) ...[
         _delayToken(param.$1 == 'N'
@@ -269,8 +309,14 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           final current = _timerValue(action, param.$1);
           final next = param.$1 == 'N'
               ? await _blinkCountDialog(current)
-              : await _duration('${param.$1} – ${param.$2}', current);
-          if (next != null && mounted && (param.$1 != 'N' || next >= 1)) {
+              : await _duration('${param.$1} – ${param.$2}', current,
+                  minMs: action.type == ControlActionType.edgeWipingRelay &&
+                          (param.$1 == 'TH' || param.$1 == 'TL') ? 1 : 0);
+          if (next != null && mounted && (param.$1 != 'N' || next >= 1) &&
+    (action.type != ControlActionType.asynchronousPulse ||
+        next > 0)&& (action.type != ControlActionType.stairwayTimer ||
+    param.$1 != 'T' || next > 0)&& (action.type != ControlActionType.multipleFunctionTimer ||
+    (param.$1 != 'T' && param.$1 != 'TL') || next > 0)) {
             setState(() => _setTimerValue(action, param.$1, next));
           }
         }),

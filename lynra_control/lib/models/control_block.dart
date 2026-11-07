@@ -102,6 +102,7 @@ class ControlAction {
   int timerWarningBeforeMs = 0;
   int timerWarningOffMs = 0;
   String stopwatchTimeBase = 'seconds';
+	int resetInputIndex = 2;
 
   static const Set<ControlActionType> timerTypes = {
     ControlActionType.onDelay, ControlActionType.offDelay,
@@ -190,6 +191,8 @@ class ControlAction {
           'timerWarningBeforeMs': timerWarningBeforeMs,
           'timerWarningOffMs': timerWarningOffMs,
           'stopwatchTimeBase': stopwatchTimeBase,
+					if (type == ControlActionType.stopwatchTimer)
+  'resetInputIndex': resetInputIndex,
         },
         if (type != ControlActionType.delay) ...{
           'outputIndex': outputIndex,
@@ -224,7 +227,8 @@ class ControlAction {
         ..timerN = json['timerN'] as int? ?? 1
         ..timerWarningBeforeMs = json['timerWarningBeforeMs'] as int? ?? 0
         ..timerWarningOffMs = json['timerWarningOffMs'] as int? ?? 0
-        ..stopwatchTimeBase = json['stopwatchTimeBase'] as String? ?? 'seconds';
+        ..stopwatchTimeBase = json['stopwatchTimeBase'] as String? ?? 'seconds'
+..resetInputIndex = json['resetInputIndex'] as int? ?? 2;
     }
 
     if (type == ControlActionType.setLatch) {

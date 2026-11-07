@@ -3,291 +3,141 @@ import '../models/control_program.dart';
 import '../models/control_block.dart';
 import 'lynra_plc_ffi.dart';
 
+/// Converter for LynraControl C Engine v1.0 (11 timer functions only).
 class LynraPlcConverter {
-  
-static List<ControlConditionGroup> collectRules(
-  ControlProgram program,
-) {
-  final rules = [
-    for (final block in program.controlBlocks)
-      ...block.groups,
-  ];
+  static List<ControlConditionGroup> collectRules(ControlProgram program) {
+    final rules = [for (final block in program.controlBlocks) ...block.groups];
+    if (rules.length > 64) {
+      throw StateError('Maximum 64 rules supported; found ${rules.length}');
+    }
+    return rules;
+  }
 
-  if (rules.length > 64) {
+  static int _u32(int value, String field) {
+    if (value < 0 || value > 0xFFFFFFFF) {
+      throw RangeError('$field must be in 0..4294967295');
+    }
+    return value;
+  }
+
+  static void writeCondition(InputCondition source, LynraCondition target) {
+    if (source.inputIndex < 1 || source.inputIndex > 32) {
+      throw RangeError('Input index must be 1..32');
+    }
+    target.inputIndex = source.inputIndex;
+    target.trigger = switch (source.trigger) {
+      ConditionTrigger.highLevel => 0,
+      ConditionTrigger.lowLevel => 1,
+      ConditionTrigger.risingEdge => 2,
+      ConditionTrigger.fallingEdge => 3,
+    };
+  }
+
+  static void writeAction(ControlAction source, LynraAction target, {int resetInputIndex = 0}) {
+    if (!ControlAction.timerTypes.contains(source.type)) {
+      throw UnsupportedError('Legacy action not supported by C Engine v1.0: ${source.type.name}');
+    }
+    if (source.outputIndex < 1 || source.outputIndex > 32) {
+      throw RangeError('Output index must be 1..32');
+    }
+    target.type = switch (source.type) {
+      ControlActionType.onDelay => 0,
+      ControlActionType.offDelay => 1,
+      ControlActionType.onOffDelay => 2,
+      ControlActionType.retentiveOnDelay => 3,
+      ControlActionType.wipingRelay => 4,
+      ControlActionType.edgeWipingRelay => 5,
+      ControlActionType.asynchronousPulse => 6,
+      ControlActionType.randomGenerator => 7,
+      ControlActionType.stairwayTimer => 8,
+      ControlActionType.multipleFunctionTimer => 9,
+      ControlActionType.stopwatchTimer => 10,
+      _ => throw UnsupportedError('Unsupported timer: ${source.type.name}'),
+    };
+    target.outputIndex = source.outputIndex;
+    target.tMs = _u32(source.timerTMs, 'timerTMs');
+    target.thMs = _u32(source.timerTHMs, 'timerTHMs');
+    target.tlMs = _u32(source.timerTLMs, 'timerTLMs');
+    target.warningBeforeMs = _u32(source.timerWarningBeforeMs, 'timerWarningBeforeMs');
+    target.warningOffMs = _u32(source.timerWarningOffMs, 'timerWarningOffMs');
+    if (source.timerN < 0 || source.timerN > 255) {
+      throw RangeError('timerN must be 0..255');
+    }
+    target.n = source.timerN;
+    target.stopwatchTimeBase = switch (source.stopwatchTimeBase) {
+      'milliseconds' => 0,
+      'seconds' => 1,
+      'minutes' => 2,
+      _ => throw ArgumentError('Invalid stopwatch time base: ${source.stopwatchTimeBase}'),
+    };
+    target.resetInputIndex =
+    source.type == ControlActionType.stopwatchTimer
+        ? source.resetInputIndex
+        : 0;
+  }
+
+  static void writeRule(ControlConditionGroup source, LynraRule target, int ruleId) {
+    if (source.conditions.isEmpty || source.conditions.length > 8) {
+      throw StateError('Rule ${source.id}: 1..8 conditions required');
+    }
+    if (source.actions.isEmpty || source.actions.length > 16) {
+      throw StateError('Rule ${source.id}: 1..16 actions required');
+    }
+    if (source.outputBehavior != OutputBehavior.followCondition ||
+        source.onDelayMs != 0 || source.offDelayMs != 0) {
+      throw UnsupportedError('Legacy rule output behavior / delays are not supported');
+    }
+    target.id = ruleId;
+    target.logicOperator = switch (source.logicOperator) {
+      LogicOperator.and => 0,
+      LogicOperator.or => 1,
+      LogicOperator.xor => 2,
+      LogicOperator.andEdge => 3,
+      LogicOperator.nand => 4,
+      LogicOperator.nandEdge => 5,
+      LogicOperator.nor => 6,
+      LogicOperator.not => 7,
+    };
+    target.runPolicy = switch (source.runPolicy) {
+      RuleRunPolicy.once => 0,
+      RuleRunPolicy.repeat => 1,
+    };
+
+    final stopwatchActions = source.actions
+    .where((a) => a.type == ControlActionType.stopwatchTimer)
+    .toList();
+
+if (stopwatchActions.isNotEmpty) {
+  if (source.actions.length != 1 ||
+      source.conditions.length != 1 ||
+      source.conditions[0].trigger != ConditionTrigger.highLevel) {
     throw StateError(
-      'PLC supports maximum 64 rules. Found: ${rules.length}',
-    );
+        'Stopwatch requires one HIGH EN condition and one action');
   }
 
-  return rules;
-}
+  final en = source.conditions[0].inputIndex;
+  final reset = stopwatchActions.first.resetInputIndex;
 
-static void writeCondition(
-  InputCondition source,
-  LynraCondition target,
-) {
+  if (reset < 1 || reset > 32 || reset == en) {
+    throw StateError('Stopwatch RESET must differ from EN');
+  }
 
-if (source.inputIndex < 1 || source.inputIndex > 32) {
-  throw RangeError(
-    'Invalid PLC input index: ${source.inputIndex}. '
-    'Valid range: 1..32',
-  );
-}
-
-  target.inputIndex = source.inputIndex;
-
-  switch (source.trigger) {
-    case ConditionTrigger.highLevel:
-      target.trigger = 0;
-      break;
-    case ConditionTrigger.lowLevel:
-      target.trigger = 1;
-      break;
-    case ConditionTrigger.risingEdge:
-      target.trigger = 2;
-      break;
-    case ConditionTrigger.fallingEdge:
-      target.trigger = 3;
-      break;
+  if (stopwatchActions.first.timerTMs <= 0) {
+    throw StateError('Stopwatch T must be greater than zero');
   }
 }
 
-static void writeAction(
-  ControlAction source,
-  LynraAction target,
-) {
+final count = source.logicOperator == LogicOperator.not
+    ? 1
+    : source.conditions.length;
 
-if (source.type != ControlActionType.delay &&
-    (source.outputIndex < 1 || source.outputIndex > 32)) {
-  throw RangeError(
-    'Invalid PLC output index: ${source.outputIndex}. '
-    'Valid range: 1..32',
-  );
-}
-
-const maxDuration = 0xFFFFFFFF;
-
-final durations = [
-  source.durationMs,
-  source.offDurationMs,
-  source.onDelayMs,
-  source.offDelayMs,
-  source.onrDelayMs,
-  source.blinkStartDelayMs,
-  source.blinkCount,
-  source.blinkOnMinMs,
-  source.blinkOnMaxMs,
-  source.blinkOffMinMs,
-  source.blinkOffMaxMs,
-  source.stairWarningBeforeMs,
-  source.stairWarningOffMs,
-  source.multiLongPressMs,
-];
-
-if (durations.any((value) =>
-    value < 0 || value > maxDuration)) {
-  throw RangeError(
-    'Invalid PLC action duration. '
-    'Valid range: 0..$maxDuration ms',
-  );
-}
-
-if (source.type == ControlActionType.blinkOutput &&
-    (source.durationMs == 0 || source.offDurationMs == 0)) {
-  throw RangeError(
-    'FLASH ON and OFF durations must be greater than zero',
-  );
-}
-
-
-  switch (source.type) {
-    case ControlActionType.setOutput:
-      target.type = 0;
-      break;
-    case ControlActionType.delay:
-      target.type = 1;
-      break;
-    case ControlActionType.setLatch:
-      target.type = 2;
-      break;
-    case ControlActionType.resetLatch:
-      target.type = 3;
-      break;
-    case ControlActionType.toggleOutput:
-      target.type = 4;
-      break;
-    case ControlActionType.blinkOutput:
-      target.type = 5;
-      break;
-    case ControlActionType.stairwayOutput:
-      target.type = 6;
-      break;
-    case ControlActionType.multiSwitchOutput:
-      target.type = 7;
-      break;
-    case ControlActionType.stopwatchOutput:
-      target.type = 8;
-      break;
-    default:
-      throw UnsupportedError(
-        'Bu fonksiyon henüz C motoruna aktarılmıyor: ${source.type.name}',
-      );
+target.conditionCount = count;
+    for (var i = 0; i < count; i++) {
+      writeCondition(source.conditions[i], target.conditions.elements[i]);
+    }
+    target.actionCount = source.actions.length;
+    for (var i = 0; i < source.actions.length; i++) {
+      writeAction(source.actions[i], target.actions.elements[i]);
+    }
   }
-
-  target.outputIndex = source.outputIndex;
-  target.outputState = source.outputState;
-  target.durationMs = source.durationMs;
-  target.offDurationMs = source.offDurationMs;
-  target.onDelayMs = source.onrDelayMs > 0 ? 0 : source.onDelayMs;
-  target.offDelayMs = source.offDelayMs;
-  target.onrDelayMs = source.onrDelayMs;
-   target.blinkStartDelayMs = source.type == ControlActionType.blinkOutput ? source.blinkStartDelayMs : 0;
-   target.blinkCount = source.type == ControlActionType.blinkOutput ? source.blinkCount : 0;
-   if (source.type == ControlActionType.blinkOutput) {
-     if ((source.blinkOnMinMs == 0) != (source.blinkOnMaxMs == 0) ||
-         (source.blinkOffMinMs == 0) != (source.blinkOffMaxMs == 0) ||
-         (source.blinkOnMinMs > 0 && source.blinkOnMinMs > source.blinkOnMaxMs) ||
-         (source.blinkOffMinMs > 0 && source.blinkOffMinMs > source.blinkOffMaxMs)) {
-       throw RangeError('Invalid BLINK RANDOM range');
-     }
-   }
-   target.blinkOnMinMs = source.type == ControlActionType.blinkOutput ? source.blinkOnMinMs : 0;
-   target.blinkOnMaxMs = source.type == ControlActionType.blinkOutput ? source.blinkOnMaxMs : 0;
-   target.blinkOffMinMs = source.type == ControlActionType.blinkOutput ? source.blinkOffMinMs : 0;
-   target.blinkOffMaxMs = source.type == ControlActionType.blinkOutput ? source.blinkOffMaxMs : 0;
-   if (source.type == ControlActionType.stairwayOutput &&
-       (source.durationMs == 0 || source.stairWarningBeforeMs > source.durationMs ||
-        source.stairWarningOffMs > source.stairWarningBeforeMs)) {
-     throw RangeError('Invalid STAIRWAY timing');
-   }
-   if (source.type == ControlActionType.multiSwitchOutput &&
-       (source.durationMs == 0 || source.multiLongPressMs == 0 ||
-        source.stairWarningBeforeMs > source.durationMs ||
-        source.stairWarningOffMs > source.stairWarningBeforeMs)) {
-     throw RangeError('Invalid MULTI SWITCH timing');
-   }
-   if (source.type == ControlActionType.stopwatchOutput && source.durationMs == 0) {
-     throw RangeError('KRONOMETRE hedef süresi sıfır olamaz');
-   }
-   final usesWarning = source.type == ControlActionType.stairwayOutput || source.type == ControlActionType.multiSwitchOutput;
-   target.stairWarningBeforeMs = usesWarning ? source.stairWarningBeforeMs : 0;
-   target.stairWarningOffMs = usesWarning ? source.stairWarningOffMs : 0;
-   target.stairRetrigger = source.type == ControlActionType.stairwayOutput && source.stairRetrigger;
-   target.multiLongPressMs = source.type == ControlActionType.multiSwitchOutput ? source.multiLongPressMs : 0;
-}
-
-static void writeRule(
-  ControlConditionGroup source,
-  LynraRule target,
-  int ruleId,
-) {
-  target.id = ruleId;
-  if (source.actions.any((a) => a.type == ControlActionType.stopwatchOutput) &&
-      (source.actions.length != 1 || source.conditions.length != 2 ||
-       source.conditions[0].trigger != ConditionTrigger.highLevel ||
-       source.conditions[1].trigger != ConditionTrigger.highLevel ||
-       source.conditions[0].inputIndex == source.conditions[1].inputIndex)) {
-    throw StateError('KRONOMETRE için iki farklı ON seviye girişi (EN, RESET) ve tek işlem gerekli.');
-  }
-  if (source.actions.any((a) => a.type == ControlActionType.stairwayOutput || a.type == ControlActionType.multiSwitchOutput) &&
-      (source.conditions.length != 1 ||
-       source.conditions.first.trigger != ConditionTrigger.highLevel)) {
-    throw StateError('Merdiven Otomatiği / Çok İşlevli Anahtar için tek bir ON seviye girişi kullanılmalı.');
-  }
-
-
-const maxDuration = 0xFFFFFFFF;
-
-if (source.onDelayMs < 0 ||
-    source.onDelayMs > maxDuration ||
-    source.offDelayMs < 0 ||
-    source.offDelayMs > maxDuration) {
-  throw RangeError(
-    'Invalid rule TON/TOF duration: ${source.id}',
-  );
-}
-
-target.onDelayMs = source.onDelayMs;
-target.offDelayMs = source.offDelayMs;
-
-  switch (source.logicOperator) {
-    case LogicOperator.and:
-      target.logicOperator = 0;
-      break;
-    case LogicOperator.or:
-      target.logicOperator = 1;
-      break;
-    case LogicOperator.xor:
-      target.logicOperator = 2;
-      break;
-		case LogicOperator.andEdge:
-			target.logicOperator = 3;
-			break;
-		case LogicOperator.nand:
-			target.logicOperator = 4;
-			break;
-		case LogicOperator.nandEdge:
-			target.logicOperator = 5;
-			break;
-		case LogicOperator.nor:
-			target.logicOperator = 6;
-			break;
-		case LogicOperator.not:
-			target.logicOperator = 7;
-			break;	
-  }
-
-  switch (source.outputBehavior) {
-    case OutputBehavior.followCondition:
-      target.outputBehavior = 0;
-      break;
-    case OutputBehavior.latch:
-      target.outputBehavior = 1;
-      break;
-  }
-
-  switch (source.runPolicy) {
-    case RuleRunPolicy.once:
-      target.runPolicy = 0;
-      break;
-    case RuleRunPolicy.repeat:
-      target.runPolicy = 1;
-      break;
-  }
-	
-if (source.conditions.length > 8) {
-  throw StateError(
-    'Rule ${source.id}: maximum 8 conditions supported',
-  );
-}
-
-final conditionCount =
-    source.logicOperator == LogicOperator.not
-        ? (source.conditions.isEmpty ? 0 : 1)
-        : source.conditions.length;
-
-target.conditionCount = conditionCount;
-
-for (var i = 0; i < conditionCount; i++) {
-  writeCondition(source.conditions[i], target.conditions.elements[i]);
-}
-
-if (source.actions.length > 16) {
-  throw StateError(
-    'Rule ${source.id}: maximum 16 actions supported',
-  );
-}
-
-target.actionCount = source.actions.length;
-
-for (var i = 0; i < source.actions.length; i++) {
-  writeAction(
-    source.actions[i],
-    target.actions.elements[i],
-  );
-}
-
-}
-
-
 }

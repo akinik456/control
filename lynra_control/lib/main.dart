@@ -1,4 +1,4 @@
-
+import '/services/lynra_plc_ffi.dart';
 import 'package:flutter/material.dart';
 
 import 'core/theme/app_colors.dart';
@@ -10,6 +10,7 @@ import 'screens/ble_connection_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+LynraPlcFfi().printStructSizes();
 
   await AppPreferences.instance.load();
 

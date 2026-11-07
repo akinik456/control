@@ -48,3 +48,4 @@ Yani temel motor ve haberleşme tarafında çok iyi ilerledik. Şimdi sistemi sa
 
 Bence sıradaki en mantıklı iş programın ESP32'de kalıcı saklanması.
 *********************
+buna benzer şu fonk. ekleyecez giriş on ise ON/OFF time ı random sürekli darbe.yani blink - aç kapa
