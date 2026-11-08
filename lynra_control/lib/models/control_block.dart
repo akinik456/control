@@ -103,6 +103,7 @@ class ControlAction {
   int timerWarningOffMs = 0;
   String stopwatchTimeBase = 'seconds';
 	int resetInputIndex = 2;
+	bool timerRepeat = false;
 
   static const Set<ControlActionType> timerTypes = {
     ControlActionType.onDelay, ControlActionType.offDelay,
@@ -191,7 +192,13 @@ class ControlAction {
           'timerWarningBeforeMs': timerWarningBeforeMs,
           'timerWarningOffMs': timerWarningOffMs,
           'stopwatchTimeBase': stopwatchTimeBase,
-					if (type == ControlActionType.stopwatchTimer)
+					if (type == ControlActionType.edgeWipingRelay ||
+    type == ControlActionType.stairwayTimer)
+  'timerRepeat': timerRepeat,
+					if (type == ControlActionType.stopwatchTimer ||
+    type == ControlActionType.retentiveOnDelay ||
+    ((type == ControlActionType.edgeWipingRelay ||
+      type == ControlActionType.stairwayTimer) && timerRepeat))
   'resetInputIndex': resetInputIndex,
         },
         if (type != ControlActionType.delay) ...{
@@ -228,6 +235,7 @@ class ControlAction {
         ..timerWarningBeforeMs = json['timerWarningBeforeMs'] as int? ?? 0
         ..timerWarningOffMs = json['timerWarningOffMs'] as int? ?? 0
         ..stopwatchTimeBase = json['stopwatchTimeBase'] as String? ?? 'seconds'
+				..timerRepeat = json['timerRepeat'] as bool? ?? false
 ..resetInputIndex = json['resetInputIndex'] as int? ?? 2;
     }
 

@@ -210,6 +210,10 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 				action.timerWarningBeforeMs = 3000;
 				action.timerWarningOffMs = 500;
 			}
+			if (action.type == ControlActionType.retentiveOnDelay) {
+				action.timerTMs = 10000;
+				action.resetInputIndex = 2;
+			}
 			if (action.type == ControlActionType.stopwatchTimer) {
 				action.timerTMs = 10000;
 				action.resetInputIndex = 2;
@@ -274,56 +278,115 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   };
 
   Widget _timerParameterPreview(ControlAction action) {
-    final name = _timerName(action);
-    if (name == 'Kronometre') {
-			return Row(
-				mainAxisSize: MainAxisSize.min,
-				children: [
-					_delayToken('RESET: I${action.resetInputIndex}', () async {
-						final v = await _choose<int>('RESET girişi', [
-							for (var i = 1; i <= 4; i++) (i, 'I$i'),
-						]);
-						if (v != null && mounted) {
-							setState(() => action.resetInputIndex = v);
-						}
-					}),
-					const SizedBox(width: 4),
-					_delayToken('T ${_seconds(action.timerTMs)}', () async {
-						final v = await _duration(
-							'Kronometre hedef süresi',
-							action.timerTMs,
-							minMs: 1,
-						);
-						if (v != null && mounted) {
-							setState(() => action.timerTMs = v);
-						}
-					}),
-				],
-			);
-		}
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      for (final param in _timerParams(name)) ...[
-        _delayToken(param.$1 == 'N'
-            ? 'N=${action.timerN}'
-            : '${param.$1} ${_seconds(_timerValue(action, param.$1))}', () async {
-          final current = _timerValue(action, param.$1);
-          final next = param.$1 == 'N'
-              ? await _blinkCountDialog(current)
-              : await _duration('${param.$1} – ${param.$2}', current,
-                  minMs: action.type == ControlActionType.edgeWipingRelay &&
-                          (param.$1 == 'TH' || param.$1 == 'TL') ? 1 : 0);
-          if (next != null && mounted && (param.$1 != 'N' || next >= 1) &&
-    (action.type != ControlActionType.asynchronousPulse ||
-        next > 0)&& (action.type != ControlActionType.stairwayTimer ||
-    param.$1 != 'T' || next > 0)&& (action.type != ControlActionType.multipleFunctionTimer ||
-    (param.$1 != 'T' && param.$1 != 'TL') || next > 0)) {
-            setState(() => _setTimerValue(action, param.$1, next));
+  final name = _timerName(action);
+
+  Widget resetToken() => _delayToken(
+        'RESET: I${action.resetInputIndex}',
+        () async {
+          final v = await _choose<int>('RESET girişi', [
+            for (var i = 1; i <= 4; i++) (i, 'I$i'),
+          ]);
+          if (v != null && mounted) {
+            setState(() => action.resetInputIndex = v);
           }
-        }),
+        },
+      );
+
+  Widget timeToken(String title) => _delayToken(
+        'T ${_seconds(action.timerTMs)}',
+        () async {
+          final v = await _duration(
+            title,
+            action.timerTMs,
+            minMs: 1,
+          );
+          if (v != null && mounted) {
+            setState(() => action.timerTMs = v);
+          }
+        },
+      );
+
+  if (action.type == ControlActionType.retentiveOnDelay) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        resetToken(),
+        const SizedBox(width: 4),
+        timeToken('Kalıcı açılma gecikmesi'),
+      ],
+    );
+  }
+
+  if (name == 'Kronometre') {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        resetToken(),
+        const SizedBox(width: 4),
+        timeToken('Kronometre hedef süresi'),
+      ],
+    );
+  }
+
+  final repeatable =
+      action.type == ControlActionType.edgeWipingRelay;
+
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (repeatable) ...[
+        _delayToken(
+          action.timerRepeat ? 'TEKRARLA: ON' : 'TEKRARLA: OFF',
+          () => setState(
+            () => action.timerRepeat = !action.timerRepeat,
+          ),
+        ),
+        const SizedBox(width: 4),
+        if (action.timerRepeat) ...[
+          resetToken(),
+          const SizedBox(width: 4),
+        ],
+      ],
+      for (final param in _timerParams(name)) ...[
+        _delayToken(
+          param.$1 == 'N'
+              ? 'N=${action.timerN}'
+              : '${param.$1} ${_seconds(_timerValue(action, param.$1))}',
+          () async {
+            final current = _timerValue(action, param.$1);
+            final next = param.$1 == 'N'
+                ? await _blinkCountDialog(current)
+                : await _duration(
+                    '${param.$1} – ${param.$2}',
+                    current,
+                    minMs: action.type ==
+                                ControlActionType.edgeWipingRelay &&
+                            (param.$1 == 'TH' || param.$1 == 'TL')
+                        ? 1
+                        : 0,
+                  );
+
+            if (next != null &&
+                mounted &&
+                (param.$1 != 'N' || next >= 1) &&
+                (action.type != ControlActionType.asynchronousPulse ||
+                    next > 0) &&
+                (action.type != ControlActionType.stairwayTimer ||
+                    param.$1 != 'T' ||
+                    next > 0) &&
+                (action.type !=
+                        ControlActionType.multipleFunctionTimer ||
+                    (param.$1 != 'T' && param.$1 != 'TL') ||
+                    next > 0)) {
+              setState(() => _setTimerValue(action, param.$1, next));
+            }
+          },
+        ),
         const SizedBox(width: 3),
       ],
-    ]);
-  }
+    ],
+  );
+}
 
   Future<void> _chooseTimer(ControlConditionGroup rule,
       {ControlAction? replace}) async {
@@ -742,19 +805,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
             const SizedBox(height: 6),
             Divider(height: 1, color: primary.withValues(alpha: 0.7)),
             const SizedBox(height: 10),
-            Text('Çalışma Şekli', style: Theme.of(context).textTheme.labelMedium),
-            const SizedBox(height: 4),
-            Wrap(spacing: 5, runSpacing: 4, children: [
-              _token(rule.runPolicy == RuleRunPolicy.once
-                  ? '1 kez çalış' : 'Tekrarla (koşullar sağlanıyorsa)', () async {
-                final v = await _choose<RuleRunPolicy>('Çalışma şekli', [
-                  (RuleRunPolicy.once, '1 kez çalış'),
-                  (RuleRunPolicy.repeat, 'Tekrarla (koşullar sağlanıyorsa)'),
-                ]);
-                if (v != null) setState(() => rule.runPolicy = v);
-              }),
-
-            ]),
           ]),
         ),
       ]),
@@ -956,9 +1006,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       } else if (rule.offDelayMs > 0) {
         add('\nOFF gecikmesi: ${_seconds(rule.offDelayMs)}.');
       }
-       add(rule.runPolicy == RuleRunPolicy.once
-           ? '\nÇalışma şekli: 1 kez çalış.'
-           : '\nÇalışma şekli: Tekrarla (koşullar sağlanıyorsa).');
+       
       add('\n');
     }
 

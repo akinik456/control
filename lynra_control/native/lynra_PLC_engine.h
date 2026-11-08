@@ -32,6 +32,7 @@ typedef struct {
  uint8_t n;
  uint8_t stopwatch_time_base; /* 0=ms, 1=seconds, 2=minutes */
  uint8_t reset_input_index; /* Retentive timer R input; 0 = no external reset */
+ uint8_t repeat; /* 0=single cycle, 1=repeat until RESET */
 } LynraAction;
 typedef struct {
  uint32_t id;

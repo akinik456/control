@@ -74,3 +74,19 @@ zaman çözünürlükleri 1 ms. yapıldı
 ****************
 TEST
 001 - git commit -m "feat(plc): add stopwatch with pause, resume and reset"
+
+**************
+
+Kral ❤️ 11 fonksiyon için 1 KEZ ÇALIŞ / TEKRARLA seçiminin anlamlı olup olmadığı:
+Fonksiyon	Anlamlı mı?
+1. Açılma Gecikmesi									Hayır
+2. Kapanma Gecikmesi								Hayır
+3. Açılma / Kapanma Gecikmesi				Hayır
+4. Kalıcı Açılma Gecikmesi					Hayır
+5. Darbe Rölesi											Hayır
+6. Kenar Tetiklemeli Darbe Rölesi		Evet
+7. Asenkron Darbe Üreteci						Hayır
+8. Rastgele Zamanlı Darbe Üreteci		Hayır
+9. Merdiven Otomatiği								Evet
+10. Çok İşlevli Anahtar							Hayır
+11. Kronometre											Hayır

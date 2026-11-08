@@ -39,6 +39,9 @@ final class LynraAction extends Struct {
 
   @Uint8()
   external int resetInputIndex;
+	
+	@Uint8()
+	external int repeat;
 }
 
 final class LynraRule extends Struct {

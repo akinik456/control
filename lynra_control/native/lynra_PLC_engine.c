@@ -48,6 +48,7 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
         r->actions[a].type != LYNRA_TIMER_STOPWATCH) ||
        r->actions[a].output_index < 1 || r->actions[a].output_index > LYNRA_PLC_MAX_OUTPUTS ||
        r->actions[a].reset_input_index > LYNRA_PLC_MAX_INPUTS ||
+			 r->actions[a].repeat > 1 ||
        (r->actions[a].type == LYNRA_TIMER_STOPWATCH &&
         r->actions[a].stopwatch_time_base > 2) ||
        (r->actions[a].type == LYNRA_TIMER_STAIRWAY &&
@@ -109,24 +110,8 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
   /* A trigger is a rule-level event, shared by all actions. */
   bool trigger_event = active && !e->rule_prev_active[i];
   e->rule_prev_active[i] = active;
-  /* One rule owns the admission decision: any active action blocks ONCE.
-     For edge-wiping, determine completion at the current scan timestamp,
-     not solely from the previous scan's cached state. */
-  bool rule_running = false;
-  for (unsigned k = 0; k < r->action_count; ++k) {
-   const LynraAction *ra = &r->actions[k];
-   const TimerState *rs = &e->timers[i][k];
-   if (rs->execution_state != LYNRA_EXEC_RUNNING) continue;
-   if (ra->type == LYNRA_TIMER_EDGE_WIPING_RELAY && rs->started) {
-    uint64_t period = (uint64_t)ra->th_ms + ra->tl_ms;
-    uint64_t total = (uint64_t)ra->n * period;
-    if (now_ms - rs->started_at < total) rule_running = true;
-   } else {
-    rule_running = true;
-   }
-  }
-  bool rule_accept_trigger = trigger_event &&
-    (!rule_running || r->run_policy == LYNRA_RUN_REPEAT);
+
+  bool rule_accept_trigger = trigger_event;
   for (unsigned j = 0; j < r->action_count; ++j) {
    const LynraAction *a = &r->actions[j];
    TimerState *s = &e->timers[i][j];
@@ -135,6 +120,15 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
       A new activation is accepted when idle, or while running in REPEAT.
       LEVEL conditions generate a new event only after deactivation. */
    bool accept_trigger = rule_accept_trigger;
+	 bool reset_rising = false;
+
+if (a->reset_input_index != 0) {
+    uint32_t mask = 1u << (a->reset_input_index - 1);
+
+    reset_rising =
+        (inputs & mask) != 0 &&
+        (e->previous_inputs & mask) == 0;
+}
    if (a->type == LYNRA_TIMER_ON_DELAY) {
     if (!active) { s->started = false; }
     else {
@@ -170,27 +164,35 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
    }
    if (a->type == LYNRA_TIMER_RETENTIVE_ON_DELAY) {
     bool reset = a->reset_input_index != 0 &&
-      (inputs & (1u << (a->reset_input_index - 1))) != 0;
+        (inputs & (1u << (a->reset_input_index - 1))) != 0;
+
     if (reset) {
-     s->started = false; s->elapsed_ms = 0; s->output_on = false;
+        s->started = false;
+        s->elapsed_ms = 0;
+        s->output_on = false;
     } else if (!s->output_on) {
-     if (active) {
-      if (!s->started) { s->started = true; s->started_at = now_ms; }
-      uint64_t total = s->elapsed_ms + (now_ms - s->started_at);
-      if (total >= a->t_ms) {
-       s->output_on = true; s->started = false;
-       s->elapsed_ms = a->t_ms;
-      }
-     } else if (s->started) {
-      s->elapsed_ms += now_ms - s->started_at;
-      s->started = false;
-     }
+        if (accept_trigger && !s->started && s->elapsed_ms == 0) {
+            s->started = true;
+            s->started_at = now_ms;
+        }
+
+        if (s->started) {
+            uint64_t elapsed = now_ms - s->started_at;
+
+            if (elapsed >= a->t_ms) {
+                s->output_on = true;
+                s->started = false;
+                s->elapsed_ms = a->t_ms;
+            }
+        }
     }
+
     on = s->output_on;
+
     s->execution_state = reset ? LYNRA_EXEC_IDLE :
-      s->output_on ? LYNRA_EXEC_COMPLETED :
-      (s->started || s->elapsed_ms > 0) ? LYNRA_EXEC_RUNNING : LYNRA_EXEC_IDLE;
-   }
+        s->output_on ? LYNRA_EXEC_COMPLETED :
+        s->started ? LYNRA_EXEC_RUNNING : LYNRA_EXEC_IDLE;
+}
    if (a->type == LYNRA_TIMER_WIPING_RELAY) {
     // Rising edge starts one pulse; a falling edge ends it immediately.
     // Holding the trigger HIGH cannot restart an expired pulse.
@@ -215,7 +217,10 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
    if (a->type == LYNRA_TIMER_EDGE_WIPING_RELAY) {
     // Each rising edge restarts the complete N-pulse train.
     // The train continues after the trigger falls.
-    if (accept_trigger) {
+    if (reset_rising) {
+    s->started = false;
+    s->execution_state = LYNRA_EXEC_IDLE;
+} else if (trigger_event && !s->started) {
      s->started = true;
      s->started_at = now_ms;
      s->pulse_phase = 0;
@@ -226,10 +231,17 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
      uint64_t period = (uint64_t)a->th_ms + a->tl_ms;
      uint64_t total = (uint64_t)a->n * period;
      if (elapsed >= total) {
-      s->started = false;
-      s->execution_state = LYNRA_EXEC_COMPLETED;
-      on = false;
-     } else {
+    if (a->repeat) {
+        s->started_at = now_ms;
+        s->pulse_phase = 0;
+        s->execution_state = LYNRA_EXEC_RUNNING;
+        on = false;
+    } else {
+        s->started = false;
+        s->execution_state = LYNRA_EXEC_COMPLETED;
+        on = false;
+    }
+} else {
       s->execution_state = LYNRA_EXEC_RUNNING;
       on = (elapsed % period) >= a->tl_ms;
      }
@@ -275,8 +287,15 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
    if (a->type == LYNRA_TIMER_STAIRWAY) {
     // LOGO stairway: rising Trg sets Q; falling Trg starts countdown T.
     // A new rising edge while timing retriggers the stairway cycle.
-    if (active && !s->prev_match) {
-     if (accept_trigger) {
+    if (reset_rising) {
+    s->started = false;
+    s->output_on = false;
+    s->stairway_suppress_release = false;
+    s->execution_state = LYNRA_EXEC_IDLE;
+}
+		
+		if (!reset_rising && active && !s->prev_match) {
+    if (trigger_event) {
       s->output_on = true;
       s->started = false;
       s->stairway_suppress_release = false;
@@ -285,7 +304,7 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
       s->stairway_suppress_release = true;
      }
     }
-    if (!active && s->prev_match) {
+    if (!reset_rising && !active && s->prev_match) {
      if (s->stairway_suppress_release) {
       s->stairway_suppress_release = false;
      } else if (s->output_on) {
@@ -294,13 +313,13 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
      }
     }
     on = s->output_on;
-    if (s->started) {
+    if (s->started && !reset_rising) {
      uint64_t elapsed = now_ms - s->started_at;
      if (elapsed >= a->t_ms) {
-      s->started = false;
-      s->output_on = false;
-      on = false;
-     } else if (a->warning_before_ms && a->warning_off_ms) {
+    s->started = false;
+    s->output_on = false;
+    on = false;
+}else if (a->warning_before_ms && a->warning_off_ms) {
       uint64_t warning_start = (uint64_t)a->t_ms - a->warning_before_ms;
       if (elapsed >= warning_start &&
           elapsed < warning_start + a->warning_off_ms)

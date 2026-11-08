@@ -70,8 +70,15 @@ class LynraPlcConverter {
       'minutes' => 2,
       _ => throw ArgumentError('Invalid stopwatch time base: ${source.stopwatchTimeBase}'),
     };
-    target.resetInputIndex =
-    source.type == ControlActionType.stopwatchTimer
+    final repeatable =
+    source.type == ControlActionType.edgeWipingRelay;
+
+target.repeat = repeatable && source.timerRepeat ? 1 : 0;
+
+target.resetInputIndex =
+    source.type == ControlActionType.stopwatchTimer ||
+    source.type == ControlActionType.retentiveOnDelay ||
+    (repeatable && source.timerRepeat)
         ? source.resetInputIndex
         : 0;
   }
@@ -134,7 +141,22 @@ final count = source.logicOperator == LogicOperator.not
 target.conditionCount = count;
     for (var i = 0; i < count; i++) {
       writeCondition(source.conditions[i], target.conditions.elements[i]);
+    }for (final action in source.actions) {
+  final repeatable =
+      action.type == ControlActionType.edgeWipingRelay ||
+      action.type == ControlActionType.stairwayTimer;
+
+  if (repeatable && action.timerRepeat) {
+    final reset = action.resetInputIndex;
+
+    if (reset < 1 || reset > 32 ||
+        source.conditions.any((c) => c.inputIndex == reset)) {
+      throw StateError(
+        'RESET must be a valid input different from trigger inputs',
+      );
     }
+  }
+}
     target.actionCount = source.actions.length;
     for (var i = 0; i < source.actions.length; i++) {
       writeAction(source.actions[i], target.actions.elements[i]);
