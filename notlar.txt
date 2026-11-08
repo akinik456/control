@@ -90,3 +90,16 @@ Fonksiyon	Anlamlı mı?
 9. Merdiven Otomatiği								Evet
 10. Çok İşlevli Anahtar							Hayır
 11. Kronometre											Hayır
+
+No	Fonksiyon	Yeniden tetikleme ile süre sıfırlama
+1	On Delay	—
+2	Off Delay	—
+3	On/Off Delay	—
+4	Retentive On Delay	✅ ON/OFF
+5	Wiping Relay	—
+6	Edge Wiping Relay	✅ ON/OFF
+7	Asynchronous Pulse	—
+8	Random Generator	—
+9	Stairway Timer	✅ ON/OFF
+10	Multiple Function Timer	⚠️ Değerlendirelim
+11	Stopwatch	—

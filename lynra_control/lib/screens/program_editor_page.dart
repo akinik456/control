@@ -190,6 +190,16 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     setState(() {
       final action = ControlAction.timer(_timerType(name),
           outputIndex: replace?.outputIndex ?? 1);
+					final edgeOnly =
+    action.type == ControlActionType.retentiveOnDelay ||
+    action.type == ControlActionType.edgeWipingRelay;
+
+for (final condition in rule.conditions) {
+  condition.trigger = edgeOnly
+      ? ConditionTrigger.risingEdge
+      : ConditionTrigger.highLevel;
+  condition.expectedState = true;
+}
       if (action.type == ControlActionType.edgeWipingRelay) {
         action.timerTHMs = 1000;
         action.timerTLMs = 500;
@@ -279,6 +289,14 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   Widget _timerParameterPreview(ControlAction action) {
   final name = _timerName(action);
+	Widget retriggerToken() => _delayToken(
+  action.timerRetrigger
+      ? 'YENİDEN TETİKLE: ON'
+      : 'YENİDEN TETİKLE: OFF',
+  () => setState(
+    () => action.timerRetrigger = !action.timerRetrigger,
+  ),
+);
 
   Widget resetToken() => _delayToken(
         'RESET: I${action.resetInputIndex}',
@@ -313,6 +331,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         resetToken(),
         const SizedBox(width: 4),
         timeToken('Kalıcı açılma gecikmesi'),
+				const SizedBox(width: 4),
+retriggerToken(),
       ],
     );
   }
@@ -330,10 +350,18 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   final repeatable =
       action.type == ControlActionType.edgeWipingRelay;
+			
+	final retriggerable =
+    action.type == ControlActionType.edgeWipingRelay ||
+    action.type == ControlActionType.stairwayTimer;
 
   return Row(
     mainAxisSize: MainAxisSize.min,
     children: [
+		if (retriggerable) ...[
+  retriggerToken(),
+  const SizedBox(width: 4),
+],
       if (repeatable) ...[
         _delayToken(
           action.timerRepeat ? 'TEKRARLA: ON' : 'TEKRARLA: OFF',
@@ -459,12 +487,20 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
         if (v != null) setState(() => condition.inputIndex = v);
       }, color: Colors.blue),
       _token(_triggerName(condition.trigger), () async {
-        final v = await _choose<ConditionTrigger>('Giriş koşulu', [
-          (ConditionTrigger.highLevel, 'ON olduğu sürece'),
-          (ConditionTrigger.lowLevel, 'OFF olduğu sürece'),
-          (ConditionTrigger.risingEdge, 'ON olursa (yükselen kenar)'),
-          (ConditionTrigger.fallingEdge, 'OFF olursa (düşen kenar)'),
-        ]);
+        final edgeOnly = rule.actions.any((a) =>
+    a.type == ControlActionType.retentiveOnDelay ||
+    a.type == ControlActionType.edgeWipingRelay);
+
+final v = await _choose<ConditionTrigger>('Giriş koşulu', [
+  if (!edgeOnly) ...[
+    (ConditionTrigger.highLevel, 'ON olduğu sürece'),
+    (ConditionTrigger.lowLevel, 'OFF olduğu sürece'),
+  ],
+  if (edgeOnly) ...[
+    (ConditionTrigger.risingEdge, 'ON olursa (yükselen kenar)'),
+    (ConditionTrigger.fallingEdge, 'OFF olursa (düşen kenar)'),
+  ],
+]);
         if (v != null) setState(() {
           condition.trigger = v;
           condition.expectedState = v == ConditionTrigger.highLevel || v == ConditionTrigger.risingEdge;

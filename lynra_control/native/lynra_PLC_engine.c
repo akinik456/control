@@ -49,6 +49,7 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
        r->actions[a].output_index < 1 || r->actions[a].output_index > LYNRA_PLC_MAX_OUTPUTS ||
        r->actions[a].reset_input_index > LYNRA_PLC_MAX_INPUTS ||
 			 r->actions[a].repeat > 1 ||
+			 r->actions[a].retrigger > 1 ||
        (r->actions[a].type == LYNRA_TIMER_STOPWATCH &&
         r->actions[a].stopwatch_time_base > 2) ||
        (r->actions[a].type == LYNRA_TIMER_STAIRWAY &&
@@ -171,7 +172,9 @@ if (a->reset_input_index != 0) {
         s->elapsed_ms = 0;
         s->output_on = false;
     } else if (!s->output_on) {
-        if (accept_trigger && !s->started && s->elapsed_ms == 0) {
+        if (accept_trigger &&
+    ((a->retrigger && !s->output_on) ||
+     (!s->started && s->elapsed_ms == 0))) {
             s->started = true;
             s->started_at = now_ms;
         }
@@ -220,7 +223,7 @@ if (a->reset_input_index != 0) {
     if (reset_rising) {
     s->started = false;
     s->execution_state = LYNRA_EXEC_IDLE;
-} else if (trigger_event && !s->started) {
+} else if (trigger_event && (!s->started || a->retrigger)) {
      s->started = true;
      s->started_at = now_ms;
      s->pulse_phase = 0;
@@ -295,7 +298,7 @@ if (a->reset_input_index != 0) {
 }
 		
 		if (!reset_rising && active && !s->prev_match) {
-    if (trigger_event) {
+    if (!s->output_on || !s->started || a->retrigger) {
       s->output_on = true;
       s->started = false;
       s->stairway_suppress_release = false;

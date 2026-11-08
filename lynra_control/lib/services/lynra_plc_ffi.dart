@@ -42,6 +42,9 @@ final class LynraAction extends Struct {
 	
 	@Uint8()
 	external int repeat;
+	
+	@Uint8()
+	external int retrigger;
 }
 
 final class LynraRule extends Struct {

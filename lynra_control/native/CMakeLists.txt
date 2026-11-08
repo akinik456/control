@@ -17,7 +17,7 @@ target_compile_options(lynra_PLC_engine PRIVATE
 
 
 if(NOT ANDROID)
-    add_executable(test_api_lifecycle test_api_lifecycle.c)
-    target_link_libraries(test_api_lifecycle PRIVATE lynra_PLC_engine)
+    add_executable(test_retrigger test_retrigger.c)
+    target_link_libraries(test_retrigger PRIVATE lynra_PLC_engine)
 endif()
 
