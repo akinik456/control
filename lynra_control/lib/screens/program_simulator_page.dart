@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/lynra_native_engine.dart';
 import '../models/control_program.dart';
+import '../models/control_block.dart';
 
 class ProgramSimulatorPage extends StatefulWidget {
   final ControlProgram program;
@@ -90,6 +91,22 @@ void dispose() {
           backgroundColor: _engine!.output(i)
               ? Colors.green.withValues(alpha: .2) : null),
       ]),
+			for (var r = 0;
+    r < widget.program.controlBlocks.first.groups.length;
+    r++)
+  for (var a = 0;
+      a < widget.program.controlBlocks.first.groups[r].actions.length;
+      a++)
+    if (widget.program.controlBlocks.first.groups[r].actions[a].type ==
+        ControlActionType.upDownCounter)
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          'Sayaç ${r + 1} — CV: '
+          '${_engine!.counterValue(r, a) ?? "—"}',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+      ),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
         OutlinedButton(onPressed: () => _advance(1), child: const Text('+0.001 sn')),

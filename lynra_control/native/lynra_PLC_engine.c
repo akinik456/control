@@ -1,7 +1,8 @@
 #include "lynra_PLC_engine.h"
 #include <string.h>
 
-typedef struct { bool started; bool prev_match; bool output_on; uint64_t started_at; uint64_t elapsed_ms; uint32_t pulse_phase; uint64_t random_due_ms; bool random_pending; bool random_target; bool multi_permanent; bool multi_cancel_press; bool stairway_suppress_release; LynraExecutionState execution_state; } TimerState;
+typedef struct { bool started; bool prev_match; bool output_on; uint64_t started_at; uint64_t elapsed_ms; uint32_t pulse_phase; uint64_t random_due_ms; bool random_pending; bool random_target; bool multi_permanent; bool multi_cancel_press; bool stairway_suppress_release; int32_t counter_value;
+bool counter_prev_cnt;LynraExecutionState execution_state; } TimerState;
 struct LynraPlcEngine {
  bool in_use, has_last_scan;
  uint64_t last_scan;
@@ -20,6 +21,16 @@ void lynra_plc_destroy(LynraPlcEngine *e) { if (e == &instance) memset(e, 0, siz
 void lynra_plc_reset(LynraPlcEngine *e) {
  if (!e || !e->in_use) return;
  memset(e->timers, 0, sizeof(e->timers));
+ for (size_t i = 0; i < e->count; ++i) {
+    for (unsigned j = 0; j < e->rules[i].action_count; ++j) {
+        const LynraAction *a = &e->rules[i].actions[j];
+
+        if (a->type == LYNRA_COUNTER_UP_DOWN) {
+            e->timers[i][j].counter_value =
+                a->counter_start_value;
+        }
+    }
+}
  memset(e->rule_prev_active, 0, sizeof(e->rule_prev_active));
  e->outputs = 0; e->previous_inputs = 0; e->random_state = 0x9E3779B9u; e->last_scan = 0; e->has_last_scan = false;
 }
@@ -45,9 +56,13 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
         r->actions[a].type != LYNRA_TIMER_RANDOM_GENERATOR &&
         r->actions[a].type != LYNRA_TIMER_STAIRWAY &&
         r->actions[a].type != LYNRA_TIMER_MULTI_FUNCTION &&
-        r->actions[a].type != LYNRA_TIMER_STOPWATCH) ||
-       r->actions[a].output_index < 1 || r->actions[a].output_index > LYNRA_PLC_MAX_OUTPUTS ||
-       r->actions[a].reset_input_index > LYNRA_PLC_MAX_INPUTS ||
+        r->actions[a].type != LYNRA_TIMER_STOPWATCH &&
+				r->actions[a].type != LYNRA_COUNTER_UP_DOWN) ||
+        r->actions[a].output_index < 1 || r->actions[a].output_index > LYNRA_PLC_MAX_OUTPUTS ||
+        r->actions[a].reset_input_index > LYNRA_PLC_MAX_INPUTS ||
+			  r->actions[a].direction_input_index > LYNRA_PLC_MAX_INPUTS ||
+				(r->actions[a].type == LYNRA_COUNTER_UP_DOWN &&
+				r->actions[a].counter_input_index == 0) ||
 			 r->actions[a].repeat > 1 ||
 			 r->actions[a].retrigger > 1 ||
        (r->actions[a].type == LYNRA_TIMER_STOPWATCH &&
@@ -67,7 +82,10 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
         (r->actions[a].th_ms == 0 || r->actions[a].tl_ms == 0))) return false;
  }
  if (count) memcpy(e->rules, rules, count * sizeof(*rules));
- e->count = count; lynra_plc_reset(e); return true;
+ e->count = count;
+lynra_plc_reset(e);
+
+return true;
 }
 /* Deterministic PRNG for repeatable PC tests and embedded behavior. */
 static uint32_t random_delay(LynraPlcEngine *e, uint32_t upper_ms) {
@@ -426,7 +444,51 @@ if (a->reset_input_index != 0) {
             ? LYNRA_EXEC_RUNNING
             : LYNRA_EXEC_IDLE;
 }
-   if (on) result |= 1u << (a->output_index - 1);
+   if (a->type == LYNRA_COUNTER_UP_DOWN) {
+    uint32_t cnt_mask = 1u << (a->counter_input_index - 1);
+    bool cnt = (inputs & cnt_mask) != 0;
+
+    bool reset = a->reset_input_index != 0 &&
+        (inputs & (1u << (a->reset_input_index - 1))) != 0;
+
+    if (reset) {
+        s->counter_value = a->counter_start_value;
+        s->output_on = false;
+    } else if (cnt && !s->counter_prev_cnt) {
+        bool down = a->direction_input_index != 0 &&
+            (inputs & (1u << (a->direction_input_index - 1))) != 0;
+
+        if (down) {
+            if (s->counter_value > INT32_MIN)
+                s->counter_value--;
+        } else {
+            if (s->counter_value < INT32_MAX)
+                s->counter_value++;
+        }
+    }
+
+    if (!reset) {
+    if (a->counter_on >= a->counter_off) {
+        if (s->counter_value >= a->counter_on)
+            s->output_on = true;
+        else if (s->counter_value < a->counter_off)
+            s->output_on = false;
+    } else {
+        if (s->counter_value <= a->counter_on)
+            s->output_on = true;
+        else if (s->counter_value > a->counter_off)
+            s->output_on = false;
+    }
+}
+
+    s->counter_prev_cnt = cnt;
+    on = s->output_on;
+
+    s->execution_state = on
+        ? LYNRA_EXEC_COMPLETED
+        : LYNRA_EXEC_IDLE;
+}
+	 if (on) result |= 1u << (a->output_index - 1);
    s->prev_match = active;
   }
  }
@@ -489,4 +551,26 @@ bool lynra_plc_get_rule_state(const LynraPlcEngine *e, size_t rule_index,
  *state = any_running ? LYNRA_EXEC_RUNNING :
           any_completed ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE;
  return true;
+}
+bool lynra_plc_get_counter(
+    const LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    int32_t *value)
+{
+    if (!e || !e->in_use || !value ||
+        rule_index >= e->count)
+        return false;
+
+    const LynraRule *r = &e->rules[rule_index];
+
+    if (action_index >= r->action_count)
+        return false;
+
+    if (r->actions[action_index].type !=
+        LYNRA_COUNTER_UP_DOWN)
+        return false;
+
+    *value = e->timers[rule_index][action_index].counter_value;
+    return true;
 }

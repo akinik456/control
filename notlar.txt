@@ -103,3 +103,39 @@ No	Fonksiyon	Yeniden tetikleme ile süre sıfırlama
 9	Stairway Timer	✅ ON/OFF
 10	Multiple Function Timer	⚠️ Değerlendirelim
 11	Stopwatch	—
+
+***********
+1. Up/Down Counter — İleri/Geri Sayıcı
+- Cnt: Her yükselen kenarda sayacı 1 artırır veya azaltır.
+- Dir: 0 ise ileri, 1 ise geri sayar.
+- R: Sayacı başlangıç değerine döndürür.
+- StartVal: Başlangıç sayısı.
+- On / Off: Çıkışın açılma ve kapanma eşikleri.
+- Retentivity: Sayaç değerinin kalıcı saklanması.
+Önemli ayrıntı: On ve Off eşikleri farklı seçilerek histerezis oluşturulabiliyor.
+
+Örneğin On=10, Off=5 olduğunda sayaç 10'a ulaşınca Q açılır, 5'in altına düşünce kapanır.
+
+Bence LynraControl için çok değerli. Parça sayma, üretim adedi ve çevrim sayma gibi uygulamalarda doğrudan işe yarar.
+2. Hours Counter — Çalışma Saati Sayacı
+Bu, bizim kronometreden farklı bir fonksiyon.
+- En: Aktif olduğu süre boyunca çalışma saatini toplar.
+- MI: Bakım aralığı.
+- OT: Toplam çalışma süresi.
+- MN: Bir sonraki bakıma kalan süre.
+- R: Bakım süresini yeniden başlatır ama toplam çalışma saatini silmez.
+- Ral: Toplam çalışma saatini de sıfırlar.
+- Q: Bakım zamanı geldiğinde aktif olur.
+Örneğin bir makine 500 saat çalıştığında bakım uyarısı verebilir.
+
+Buradaki en önemli özellik, OT değerinin kalıcı olması. Enerji kesintisinden sonra sayaç kaldığı yerden devam eder.
+3. Threshold Trigger — Frekans Eşik Tetikleyici
+İsmine bakınca şebeke frekansı ölçümü gibi görünüyor ama öyle değil brom.
+
+Bu fonksiyon belirli bir zaman aralığında gelen darbeleri sayarak darbe frekansını ölçüyor.
+- Fre: Darbe girişi.
+- G_T: Ölçüm penceresi.
+- On: Çıkışın açılma eşiği.
+- Off: Çıkışın kapanma eşiği.
+- Q: Ölçülen frekansa göre açılır/kapanır.
+Örneğin dönen bir mil üzerindeki sensörden gelen darbelerle hızın belirli bir eşiği aşıp aşmadığı izlenebilir.

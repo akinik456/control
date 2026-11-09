@@ -1,5 +1,6 @@
 
 import 'dart:ffi';
+import 'package:ffi/ffi.dart';
 
 final class LynraCondition extends Struct {
   @Uint8()
@@ -45,6 +46,21 @@ final class LynraAction extends Struct {
 	
 	@Uint8()
 	external int retrigger;
+	
+	@Uint8()
+	external int counterInputIndex;
+
+	@Uint8()
+	external int directionInputIndex;
+
+	@Int32()
+	external int counterStartValue;
+
+	@Int32()
+	external int counterOn;
+
+	@Int32()
+	external int counterOff;
 }
 
 final class LynraRule extends Struct {
@@ -118,7 +134,31 @@ int getOutputs(Pointer<Void> engine) {
 
   return nativeGetOutputs(engine);
 }
+int? getCounter(
+  Pointer<Void> engine,
+  int ruleIndex,
+  int actionIndex,
+) {
+  final nativeGetCounter = _library.lookupFunction<
+      Uint8 Function(Pointer<Void>, IntPtr, IntPtr, Pointer<Int32>),
+      int Function(Pointer<Void>, int, int, Pointer<Int32>)
+  >('lynra_plc_get_counter');
 
+  final value = calloc<Int32>();
+
+  try {
+    final ok = nativeGetCounter(
+      engine,
+      ruleIndex,
+      actionIndex,
+      value,
+    );
+
+    return ok != 0 ? value.value : null;
+  } finally {
+    calloc.free(value);
+  }
+}
 
 bool loadRules(
   Pointer<Void> engine,

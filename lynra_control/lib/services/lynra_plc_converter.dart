@@ -34,7 +34,34 @@ class LynraPlcConverter {
   }
 
   static void writeAction(ControlAction source, LynraAction target, {int resetInputIndex = 0}) {
-    if (!ControlAction.timerTypes.contains(source.type)) {
+	if (source.type == ControlActionType.upDownCounter) {
+  final cnt = source.counterInputIndex;
+  final dir = source.directionInputIndex;
+  final reset = source.resetInputIndex;
+
+  if (cnt < 1 || cnt > 32 ||
+      dir < 0 || dir > 32 ||
+      reset < 0 || reset > 32) {
+    throw RangeError('Counter input indices must be 0..32; Cnt must be 1..32');
+  }
+
+  if ((dir != 0 && dir == cnt) ||
+      (reset != 0 && (reset == cnt || reset == dir))) {
+    throw StateError('Counter Cnt, Dir and RESET must use different inputs');
+  }
+
+  for (final value in [
+    source.counterStartValue,
+    source.counterOn,
+    source.counterOff,
+  ]) {
+    if (value < -2147483648 || value > 2147483647) {
+      throw RangeError('Counter values must fit int32');
+    }
+  }
+}
+    if (!ControlAction.timerTypes.contains(source.type) &&
+    !ControlAction.counterTypes.contains(source.type)) {
       throw UnsupportedError('Legacy action not supported by C Engine v1.0: ${source.type.name}');
     }
     if (source.outputIndex < 1 || source.outputIndex > 32) {
@@ -52,6 +79,7 @@ class LynraPlcConverter {
       ControlActionType.stairwayTimer => 8,
       ControlActionType.multipleFunctionTimer => 9,
       ControlActionType.stopwatchTimer => 10,
+			ControlActionType.upDownCounter => 11,
       _ => throw UnsupportedError('Unsupported timer: ${source.type.name}'),
     };
     target.outputIndex = source.outputIndex;
@@ -81,11 +109,32 @@ target.retrigger = (
 ) && source.timerRetrigger ? 1 : 0;
 
 target.resetInputIndex =
+		source.type == ControlActionType.upDownCounter ||
     source.type == ControlActionType.stopwatchTimer ||
     source.type == ControlActionType.retentiveOnDelay ||
     (repeatable && source.timerRepeat)
         ? source.resetInputIndex
         : 0;
+				
+target.counterInputIndex =
+    source.type == ControlActionType.upDownCounter
+        ? source.counterInputIndex : 0;
+
+target.directionInputIndex =
+    source.type == ControlActionType.upDownCounter
+        ? source.directionInputIndex : 0;
+
+target.counterStartValue =
+    source.type == ControlActionType.upDownCounter
+        ? source.counterStartValue : 0;
+
+target.counterOn =
+    source.type == ControlActionType.upDownCounter
+        ? source.counterOn : 0;
+
+target.counterOff =
+    source.type == ControlActionType.upDownCounter
+        ? source.counterOff : 0;
   }
 
   static void writeRule(ControlConditionGroup source, LynraRule target, int ruleId) {

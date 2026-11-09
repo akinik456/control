@@ -65,7 +65,17 @@ class LynraNativeEngine {
 
     return (_plc.getOutputs(_engine) & (1 << (index - 1))) != 0;
   }
+int? counterValue(int ruleIndex, int actionIndex) {
+  if (_disposed) {
+    throw StateError('PLC engine disposed');
+  }
 
+  return _plc.getCounter(
+    _engine,
+    ruleIndex,
+    actionIndex,
+  );
+}
   void dispose() {
     if (_disposed) return;
     _disposed = true;

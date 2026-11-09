@@ -249,6 +249,7 @@ for (final condition in rule.conditions) {
     ControlActionType.stairwayTimer => 'Merdiven Otomatiği',
     ControlActionType.multipleFunctionTimer => 'Çok İşlevli Anahtar',
     ControlActionType.stopwatchTimer => 'Kronometre',
+		ControlActionType.upDownCounter => 'İleri / Geri Sayıcı',
     _ => 'Eski fonksiyon',
   };
 
@@ -415,7 +416,44 @@ retriggerToken(),
     ],
   );
 }
+Future<void> _chooseFunction(
+  ControlConditionGroup rule, {
+  ControlAction? replace,
+}) async {
+  final category = await _choose<String>('Fonksiyon grubu', [
+    ('timers', 'ZAMAN FONKSİYONLARI'),
+    ('counters', 'SAYAÇLAR'),
+  ]);
 
+  if (category == null || !mounted) return;
+
+  if (category == 'timers') {
+    await _chooseTimer(rule, replace: replace);
+    return;
+  }
+
+  final selected = await _choose<String>('Sayaç fonksiyonu', [
+    ('upDown', 'İleri / Geri Sayıcı'),
+  ]);
+
+  if (selected == null || !mounted) return;
+
+  if (selected == 'upDown') {
+    setState(() {
+      final action = ControlAction.counter(
+        ControlActionType.upDownCounter,
+        outputIndex: replace?.outputIndex ?? 1,
+      )..resetInputIndex = 3;
+
+      if (replace == null) {
+        rule.actions.add(action);
+      } else {
+        final index = rule.actions.indexOf(replace);
+        if (index >= 0) rule.actions[index] = action;
+      }
+    });
+  }
+}
   Future<void> _chooseTimer(ControlConditionGroup rule,
       {ControlAction? replace}) async {
     final name = await _choose<String>('Zaman fonksiyonu', [
@@ -536,7 +574,7 @@ final v = await _choose<ConditionTrigger>('Giriş koşulu', [
       if (v != null) setState(() => action.outputIndex = v);
     }, color: Colors.deepOrange);
     final operation = _operationToken(_timerName(action), () async {
-      await _chooseTimer(rule, replace: action);
+      await _chooseFunction(rule, replace: action);
     });
 
     return Container(
@@ -620,11 +658,126 @@ final v = await _choose<ConditionTrigger>('Giriş koşulu', [
       else { action.blinkOffMinMs = lower; action.blinkOffMaxMs = upper; }
     });
   }
+Widget _counterInputToken(
+  ControlAction action,
+  String label,
+  int value,
+  void Function(int) update,
+) {
+  return _delayToken('$label: ${value == 0 ? "YOK" : "I$value"}', () async {
+    final selected = await _choose<int>('$label girişi', [
+      if (label != 'CNT') (0, 'YOK'),
+      for (var i = 1; i <= 4; i++) (i, 'I$i'),
+    ]);
 
+    if (selected == null || !mounted) return;
+
+    final cnt = label == 'CNT' ? selected : action.counterInputIndex;
+    final dir = label == 'DIR' ? selected : action.directionInputIndex;
+    final reset = label == 'RESET' ? selected : action.resetInputIndex;
+
+    if ((dir != 0 && dir == cnt) ||
+        (reset != 0 && (reset == cnt || reset == dir))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('CNT, DIR ve RESET girişleri farklı olmalı')),
+      );
+      return;
+    }
+
+    setState(() => update(selected));
+  });
+}
+Widget _counterValueToken(
+  String label,
+  int current,
+  void Function(int) update,
+) {
+  return _delayToken('$label: $current', () async {
+    var input = current.toString();
+
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$label değeri'),
+        content: TextFormField(
+          initialValue: input,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(
+            signed: true,
+          ),
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => input = v,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = int.tryParse(input.trim());
+              if (value != null &&
+                  value >= -2147483648 &&
+                  value <= 2147483647) {
+                Navigator.pop(ctx, value);
+              }
+            },
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != null && mounted) {
+      setState(() => update(selected));
+    }
+  });
+}
   Widget _actionDelayPreview(ControlAction action) {
-    if (action.type == ControlActionType.delay) return const SizedBox.shrink();
-    return _timerParameterPreview(action);
+  if (action.type == ControlActionType.delay) {
+    return const SizedBox.shrink();
   }
+
+  if (action.type == ControlActionType.upDownCounter) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _counterInputToken(
+  action, 'CNT', action.counterInputIndex,
+  (v) => action.counterInputIndex = v,
+),
+const SizedBox(width: 4),
+_counterInputToken(
+  action, 'DIR', action.directionInputIndex,
+  (v) => action.directionInputIndex = v,
+),
+const SizedBox(width: 4),
+_counterInputToken(
+  action, 'RESET', action.resetInputIndex,
+  (v) => action.resetInputIndex = v,
+),
+        _counterValueToken(
+  'START', action.counterStartValue,
+  (v) => action.counterStartValue = v,
+),
+        const SizedBox(width: 4),
+        _counterValueToken(
+  'ON', action.counterOn,
+  (v) => action.counterOn = v,
+),
+        const SizedBox(width: 4),
+        _counterValueToken(
+  'OFF', action.counterOff,
+  (v) => action.counterOff = v,
+),
+      ],
+    );
+  }
+
+  return _timerParameterPreview(action);
+}
 
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
     final primary = Theme.of(context).colorScheme.primary;
@@ -810,7 +963,7 @@ final v = await _choose<ConditionTrigger>('Giriş koşulu', [
                   );
                 }),
               ),
-            _token('İşlem ekle', () => _chooseTimer(rule)),
+            _token('İşlem ekle', () => _chooseFunction(rule)),
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(

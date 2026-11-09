@@ -19,7 +19,8 @@ typedef enum {
  LYNRA_TIMER_RETENTIVE_ON_DELAY, LYNRA_TIMER_WIPING_RELAY,
  LYNRA_TIMER_EDGE_WIPING_RELAY, LYNRA_TIMER_ASYNC_PULSE,
  LYNRA_TIMER_RANDOM_GENERATOR, LYNRA_TIMER_STAIRWAY,
- LYNRA_TIMER_MULTI_FUNCTION, LYNRA_TIMER_STOPWATCH
+ LYNRA_TIMER_MULTI_FUNCTION, LYNRA_TIMER_STOPWATCH,
+ LYNRA_COUNTER_UP_DOWN
 } LynraActionType;
 typedef enum { LYNRA_RUN_ONCE, LYNRA_RUN_REPEAT } LynraRunPolicy;
 typedef enum { LYNRA_EXEC_IDLE, LYNRA_EXEC_RUNNING, LYNRA_EXEC_COMPLETED } LynraExecutionState;
@@ -34,6 +35,11 @@ typedef struct {
  uint8_t reset_input_index; /* Retentive timer R input; 0 = no external reset */
  uint8_t repeat; /* 0=single cycle, 1=repeat until RESET */
  uint8_t retrigger; /* 0=ignore new trigger, 1=restart from beginning */
+ uint8_t counter_input_index;   /* Cnt */
+ uint8_t direction_input_index; /* Dir: 0=UP, 1=DOWN */
+ int32_t counter_start_value;
+ int32_t counter_on;
+ int32_t counter_off;
 } LynraAction;
 typedef struct {
  uint32_t id;
@@ -57,6 +63,11 @@ bool lynra_plc_get_rule_state(const LynraPlcEngine *engine, size_t rule_index,
                               LynraExecutionState *state);
 bool lynra_plc_get_stopwatch(const LynraPlcEngine *engine, size_t rule_index,
                             size_t action_index, uint64_t *value);
+bool lynra_plc_get_counter(
+    const LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    int32_t *value);
 #ifdef __cplusplus
 }
 #endif

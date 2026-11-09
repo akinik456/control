@@ -19,7 +19,7 @@ enum ControlActionType {
   stairwayOutput, multiSwitchOutput, stopwatchOutput,
   onDelay, offDelay, onOffDelay, retentiveOnDelay, wipingRelay,
   edgeWipingRelay, asynchronousPulse, randomGenerator,
-  stairwayTimer, multipleFunctionTimer, stopwatchTimer,
+  stairwayTimer, multipleFunctionTimer, stopwatchTimer,upDownCounter,
 }
 
 /// How a rule is evaluated.
@@ -105,6 +105,13 @@ class ControlAction {
 	int resetInputIndex = 2;
 	bool timerRepeat = false;
 	bool timerRetrigger = false;
+	
+	// Counter parameters
+	int counterInputIndex = 1;
+	int directionInputIndex = 2;
+	int counterStartValue = 0;
+	int counterOn = 10;
+	int counterOff = 5;
 
   static const Set<ControlActionType> timerTypes = {
     ControlActionType.onDelay, ControlActionType.offDelay,
@@ -114,7 +121,9 @@ class ControlAction {
     ControlActionType.stairwayTimer, ControlActionType.multipleFunctionTimer,
     ControlActionType.stopwatchTimer,
   };
-
+static const Set<ControlActionType> counterTypes = {
+  ControlActionType.upDownCounter,
+};
   ControlAction.timer(ControlActionType timerType, {this.outputIndex = 1})
       : assert(timerTypes.contains(timerType)),
         type = timerType,
@@ -125,7 +134,16 @@ class ControlAction {
         offDelayMs = 0,
         onrDelayMs = 0;
 
-
+	ControlAction.counter(ControlActionType counterType, {this.outputIndex = 1})
+    : assert(counterTypes.contains(counterType)),
+      type = counterType,
+      outputState = true,
+      durationMs = 0,
+      offDurationMs = 0,
+      onDelayMs = 0,
+      offDelayMs = 0,
+      onrDelayMs = 0;
+			
   ControlAction.output({this.outputIndex = 1, this.outputState = true, this.onDelayMs = 0, this.offDelayMs = 0, this.onrDelayMs = 0})
       : type = ControlActionType.setOutput,
         durationMs = 1000,
@@ -185,6 +203,14 @@ class ControlAction {
 
   Map<String, dynamic> toJson() => {
         'type': type.name,
+				if (counterTypes.contains(type)) ...{
+					'counterInputIndex': counterInputIndex,
+					'directionInputIndex': directionInputIndex,
+					'resetInputIndex': resetInputIndex,
+					'counterStartValue': counterStartValue,
+					'counterOn': counterOn,
+					'counterOff': counterOff,
+				},
         if (timerTypes.contains(type)) ...{
           'timerTMs': timerTMs,
           'timerTHMs': timerTHMs,
@@ -231,6 +257,18 @@ class ControlAction {
 
   factory ControlAction.fromJson(Map<String, dynamic> json) {
     final type = ControlActionType.values.byName(json['type'] as String);
+		if (ControlAction.counterTypes.contains(type)) {
+  return ControlAction.counter(
+    type,
+    outputIndex: json['outputIndex'] as int? ?? 1,
+  )
+    ..counterInputIndex = json['counterInputIndex'] as int? ?? 1
+    ..directionInputIndex = json['directionInputIndex'] as int? ?? 2
+    ..resetInputIndex = json['resetInputIndex'] as int? ?? 3
+    ..counterStartValue = json['counterStartValue'] as int? ?? 0
+    ..counterOn = json['counterOn'] as int? ?? 10
+    ..counterOff = json['counterOff'] as int? ?? 5;
+}
     if (ControlAction.timerTypes.contains(type)) {
       return ControlAction.timer(type, outputIndex: json['outputIndex'] as int? ?? 1)
         ..timerTMs = json['timerTMs'] as int? ?? 0
