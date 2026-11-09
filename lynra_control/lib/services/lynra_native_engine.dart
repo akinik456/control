@@ -76,6 +76,20 @@ int? counterValue(int ruleIndex, int actionIndex) {
     actionIndex,
   );
 }
+({int cv, int total})? hoursValue(
+  int ruleIndex,
+  int actionIndex,
+) {
+  if (_disposed) {
+    throw StateError('PLC engine disposed');
+  }
+
+  return _plc.getHours(
+    _engine,
+    ruleIndex,
+    actionIndex,
+  );
+}
   void dispose() {
     if (_disposed) return;
     _disposed = true;

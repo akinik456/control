@@ -61,6 +61,15 @@ final class LynraAction extends Struct {
 
 	@Int32()
 	external int counterOff;
+	
+	@Uint8()
+	external int hoursEnableInputIndex;
+
+	@Uint8()
+	external int hoursResetAllInputIndex;
+
+	@Uint64()
+	external int hoursTargetMs;
 }
 
 final class LynraRule extends Struct {
@@ -159,7 +168,36 @@ int? getCounter(
     calloc.free(value);
   }
 }
+({int cv, int total})? getHours(
+  Pointer<Void> engine,
+  int ruleIndex,
+  int actionIndex,
+) {
+  final nativeGetHours = _library.lookupFunction<
+      Uint8 Function(
+        Pointer<Void>, IntPtr, IntPtr,
+        Pointer<Uint64>, Pointer<Uint64>),
+      int Function(
+        Pointer<Void>, int, int,
+        Pointer<Uint64>, Pointer<Uint64>)
+  >('lynra_plc_get_hours');
 
+  final cv = calloc<Uint64>();
+  final total = calloc<Uint64>();
+
+  try {
+    final ok = nativeGetHours(
+      engine, ruleIndex, actionIndex, cv, total,
+    );
+
+    return ok != 0
+        ? (cv: cv.value, total: total.value)
+        : null;
+  } finally {
+    calloc.free(cv);
+    calloc.free(total);
+  }
+}
 bool loadRules(
   Pointer<Void> engine,
   Pointer<LynraRule> rules,

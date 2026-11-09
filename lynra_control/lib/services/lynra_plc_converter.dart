@@ -2,7 +2,7 @@ import 'dart:ffi';
 import '../models/control_program.dart';
 import '../models/control_block.dart';
 import 'lynra_plc_ffi.dart';
-
+import 'package:flutter/foundation.dart';
 /// Converter for LynraControl C Engine v1.0 (11 timer functions only).
 class LynraPlcConverter {
   static List<ControlConditionGroup> collectRules(ControlProgram program) {
@@ -60,6 +60,26 @@ class LynraPlcConverter {
     }
   }
 }
+if (source.type == ControlActionType.hoursCounter) {
+  final en = source.hoursEnableInputIndex;
+  final r = source.resetInputIndex;
+  final ral = source.hoursResetAllInputIndex;
+
+  if (en < 1 || en > 32 ||
+      r < 0 || r > 32 ||
+      ral < 0 || ral > 32) {
+    throw RangeError('Hours Counter inputs must be 0..32; EN must be 1..32');
+  }
+
+  if ((r != 0 && r == en) ||
+      (ral != 0 && (ral == en || ral == r))) {
+    throw StateError('Hours Counter EN, R and Ral must use different inputs');
+  }
+debugPrint('CONVERTER HOURS TARGET: ${source.hoursTargetMs}');
+  if (source.hoursTargetMs <= 0) {
+    throw RangeError('Hours Counter target must be positive uint64');
+  }
+}
     if (!ControlAction.timerTypes.contains(source.type) &&
     !ControlAction.counterTypes.contains(source.type)) {
       throw UnsupportedError('Legacy action not supported by C Engine v1.0: ${source.type.name}');
@@ -80,6 +100,7 @@ class LynraPlcConverter {
       ControlActionType.multipleFunctionTimer => 9,
       ControlActionType.stopwatchTimer => 10,
 			ControlActionType.upDownCounter => 11,
+			ControlActionType.hoursCounter => 12,
       _ => throw UnsupportedError('Unsupported timer: ${source.type.name}'),
     };
     target.outputIndex = source.outputIndex;
@@ -110,6 +131,7 @@ target.retrigger = (
 
 target.resetInputIndex =
 		source.type == ControlActionType.upDownCounter ||
+		source.type == ControlActionType.hoursCounter ||
     source.type == ControlActionType.stopwatchTimer ||
     source.type == ControlActionType.retentiveOnDelay ||
     (repeatable && source.timerRepeat)
@@ -135,6 +157,19 @@ target.counterOn =
 target.counterOff =
     source.type == ControlActionType.upDownCounter
         ? source.counterOff : 0;
+
+target.hoursEnableInputIndex =
+    source.type == ControlActionType.hoursCounter
+        ? source.hoursEnableInputIndex : 0;
+
+target.hoursResetAllInputIndex =
+    source.type == ControlActionType.hoursCounter
+        ? source.hoursResetAllInputIndex : 0;
+
+target.hoursTargetMs =
+    source.type == ControlActionType.hoursCounter
+        ? source.hoursTargetMs : 0;				
+				
   }
 
   static void writeRule(ControlConditionGroup source, LynraRule target, int ruleId) {

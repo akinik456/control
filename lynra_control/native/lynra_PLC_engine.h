@@ -20,7 +20,8 @@ typedef enum {
  LYNRA_TIMER_EDGE_WIPING_RELAY, LYNRA_TIMER_ASYNC_PULSE,
  LYNRA_TIMER_RANDOM_GENERATOR, LYNRA_TIMER_STAIRWAY,
  LYNRA_TIMER_MULTI_FUNCTION, LYNRA_TIMER_STOPWATCH,
- LYNRA_COUNTER_UP_DOWN
+ LYNRA_COUNTER_UP_DOWN,
+ LYNRA_COUNTER_HOURS
 } LynraActionType;
 typedef enum { LYNRA_RUN_ONCE, LYNRA_RUN_REPEAT } LynraRunPolicy;
 typedef enum { LYNRA_EXEC_IDLE, LYNRA_EXEC_RUNNING, LYNRA_EXEC_COMPLETED } LynraExecutionState;
@@ -40,6 +41,9 @@ typedef struct {
  int32_t counter_start_value;
  int32_t counter_on;
  int32_t counter_off;
+ uint8_t hours_enable_input_index;  /* EN */
+ uint8_t hours_reset_all_input_index; /* Ral */
+ uint64_t hours_target_ms;          /* Target */
 } LynraAction;
 typedef struct {
  uint32_t id;
@@ -68,6 +72,12 @@ bool lynra_plc_get_counter(
     size_t rule_index,
     size_t action_index,
     int32_t *value);
+bool lynra_plc_get_hours(
+    const LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    uint64_t *elapsed_ms,
+    uint64_t *total_ms);
 #ifdef __cplusplus
 }
 #endif

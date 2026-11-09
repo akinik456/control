@@ -250,6 +250,7 @@ for (final condition in rule.conditions) {
     ControlActionType.multipleFunctionTimer => 'Çok İşlevli Anahtar',
     ControlActionType.stopwatchTimer => 'Kronometre',
 		ControlActionType.upDownCounter => 'İleri / Geri Sayıcı',
+		ControlActionType.hoursCounter => 'Çalışma Saati Sayacı',
     _ => 'Eski fonksiyon',
   };
 
@@ -434,6 +435,7 @@ Future<void> _chooseFunction(
 
   final selected = await _choose<String>('Sayaç fonksiyonu', [
     ('upDown', 'İleri / Geri Sayıcı'),
+		('hours', 'Çalışma Saati Sayacı'),
   ]);
 
   if (selected == null || !mounted) return;
@@ -453,6 +455,25 @@ Future<void> _chooseFunction(
       }
     });
   }
+	if (selected == 'hours') {
+  setState(() {
+    final action = ControlAction.counter(
+      ControlActionType.hoursCounter,
+      outputIndex: replace?.outputIndex ?? 1,
+    )
+      ..hoursEnableInputIndex = 1
+      ..resetInputIndex = 2
+      ..hoursResetAllInputIndex = 3
+      ..hoursTargetMs = 3600000;
+
+    if (replace == null) {
+      rule.actions.add(action);
+    } else {
+      final index = rule.actions.indexOf(replace);
+      if (index >= 0) rule.actions[index] = action;
+    }
+  });
+}
 }
   Future<void> _chooseTimer(ControlConditionGroup rule,
       {ControlAction? replace}) async {
@@ -658,6 +679,105 @@ final v = await _choose<ConditionTrigger>('Giriş koşulu', [
       else { action.blinkOffMinMs = lower; action.blinkOffMaxMs = upper; }
     });
   }
+	Widget _hoursTargetToken(ControlAction action) {
+  final hours = action.hoursTargetMs ~/ 3600000;
+  final minutes = (action.hoursTargetMs % 3600000) ~/ 60000;
+
+  return _delayToken('T: ${hours}sa ${minutes}dk', () async {
+    var h = hours.toString();
+    var m = minutes.toString();
+
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hedef çalışma süresi'),
+        content: Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                initialValue: h,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Saat'),
+                onChanged: (v) => h = v,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextFormField(
+                initialValue: m,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Dakika'),
+                onChanged: (v) => m = v,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final hh = int.tryParse(h.trim());
+              final mm = int.tryParse(m.trim());
+
+              if (hh != null && hh >= 0 &&
+                  hh <= 1000000 &&
+                  mm != null && mm >= 0 && mm < 60 &&
+                  (hh > 0 || mm > 0)) {
+                Navigator.pop(ctx, hh * 3600000 + mm * 60000);
+              }
+            },
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != null && mounted) {
+		debugPrint('HOURS TARGET MS: $selected');
+      setState(() => action.hoursTargetMs = selected);
+    }
+  });
+}
+Widget _hoursInputToken(
+  ControlAction action,
+  String label,
+  int value,
+  void Function(int) update,
+) {
+  return _delayToken(
+    '$label: ${value == 0 ? "YOK" : "I$value"}',
+    () async {
+      final selected = await _choose<int>('$label girişi', [
+        if (label != 'EN') (0, 'YOK'),
+        for (var i = 1; i <= 4; i++) (i, 'I$i'),
+      ]);
+
+      if (selected == null || !mounted) return;
+
+      final en = label == 'EN'
+          ? selected : action.hoursEnableInputIndex;
+      final r = label == 'R'
+          ? selected : action.resetInputIndex;
+      final ral = label == 'Ral'
+          ? selected : action.hoursResetAllInputIndex;
+
+      if ((r != 0 && r == en) ||
+          (ral != 0 && (ral == en || ral == r))) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('EN, R ve Ral girişleri farklı olmalı'),
+          ),
+        );
+        return;
+      }
+
+      setState(() => update(selected));
+    },
+  );
+}	
 Widget _counterInputToken(
   ControlAction action,
   String label,
@@ -739,7 +859,29 @@ Widget _counterValueToken(
   if (action.type == ControlActionType.delay) {
     return const SizedBox.shrink();
   }
-
+if (action.type == ControlActionType.hoursCounter) {
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _hoursInputToken(
+        action, 'EN', action.hoursEnableInputIndex,
+        (v) => action.hoursEnableInputIndex = v,
+      ),
+      const SizedBox(width: 4),
+      _hoursInputToken(
+        action, 'R', action.resetInputIndex,
+        (v) => action.resetInputIndex = v,
+      ),
+      const SizedBox(width: 4),
+      _hoursInputToken(
+        action, 'Ral', action.hoursResetAllInputIndex,
+        (v) => action.hoursResetAllInputIndex = v,
+      ),
+			const SizedBox(width: 4),
+_hoursTargetToken(action),
+    ],
+  );
+}
   if (action.type == ControlActionType.upDownCounter) {
     return Row(
       mainAxisSize: MainAxisSize.min,

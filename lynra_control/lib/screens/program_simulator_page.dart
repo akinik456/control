@@ -107,6 +107,36 @@ void dispose() {
           style: Theme.of(context).textTheme.titleMedium,
         ),
       ),
+			for (var r = 0;
+    r < widget.program.controlBlocks.first.groups.length;
+    r++)
+  for (var a = 0;
+      a < widget.program.controlBlocks.first.groups[r].actions.length;
+      a++)
+    if (widget.program.controlBlocks.first.groups[r].actions[a].type ==
+        ControlActionType.hoursCounter)
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Builder(
+          builder: (context) {
+            final value = _engine!.hoursValue(r, a);
+
+            String format(int ms) {
+              final h = ms ~/ 3600000;
+              final m = (ms % 3600000) ~/ 60000;
+              final s = (ms % 60000) ~/ 1000;
+              return '${h}sa ${m}dk ${s}sn';
+            }
+
+            return Text(
+              'Çalışma Saati Sayacı ${r + 1} — '
+              'CV: ${value == null ? "—" : format(value.cv)}  '
+              'Total: ${value == null ? "—" : format(value.total)}',
+              style: Theme.of(context).textTheme.titleMedium,
+            );
+          },
+        ),
+      ),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
         OutlinedButton(onPressed: () => _advance(1), child: const Text('+0.001 sn')),

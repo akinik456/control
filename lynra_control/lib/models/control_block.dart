@@ -19,7 +19,7 @@ enum ControlActionType {
   stairwayOutput, multiSwitchOutput, stopwatchOutput,
   onDelay, offDelay, onOffDelay, retentiveOnDelay, wipingRelay,
   edgeWipingRelay, asynchronousPulse, randomGenerator,
-  stairwayTimer, multipleFunctionTimer, stopwatchTimer,upDownCounter,
+  stairwayTimer, multipleFunctionTimer, stopwatchTimer, upDownCounter, hoursCounter,
 }
 
 /// How a rule is evaluated.
@@ -112,6 +112,11 @@ class ControlAction {
 	int counterStartValue = 0;
 	int counterOn = 10;
 	int counterOff = 5;
+	
+	// Hours Counter
+  int hoursEnableInputIndex = 1;
+  int hoursResetAllInputIndex = 3;
+  int hoursTargetMs = 3600000; // 1 saat
 
   static const Set<ControlActionType> timerTypes = {
     ControlActionType.onDelay, ControlActionType.offDelay,
@@ -123,6 +128,7 @@ class ControlAction {
   };
 static const Set<ControlActionType> counterTypes = {
   ControlActionType.upDownCounter,
+  ControlActionType.hoursCounter,
 };
   ControlAction.timer(ControlActionType timerType, {this.outputIndex = 1})
       : assert(timerTypes.contains(timerType)),
@@ -211,6 +217,11 @@ static const Set<ControlActionType> counterTypes = {
 					'counterOn': counterOn,
 					'counterOff': counterOff,
 				},
+				if (type == ControlActionType.hoursCounter) ...{
+  'hoursEnableInputIndex': hoursEnableInputIndex,
+  'hoursResetAllInputIndex': hoursResetAllInputIndex,
+  'hoursTargetMs': hoursTargetMs,
+},
         if (timerTypes.contains(type)) ...{
           'timerTMs': timerTMs,
           'timerTHMs': timerTHMs,
@@ -267,7 +278,13 @@ static const Set<ControlActionType> counterTypes = {
     ..resetInputIndex = json['resetInputIndex'] as int? ?? 3
     ..counterStartValue = json['counterStartValue'] as int? ?? 0
     ..counterOn = json['counterOn'] as int? ?? 10
-    ..counterOff = json['counterOff'] as int? ?? 5;
+    ..counterOff = json['counterOff'] as int? ?? 5
+..hoursEnableInputIndex =
+    json['hoursEnableInputIndex'] as int? ?? 1
+..hoursResetAllInputIndex =
+    json['hoursResetAllInputIndex'] as int? ?? 3
+..hoursTargetMs =
+    json['hoursTargetMs'] as int? ?? 3600000;
 }
     if (ControlAction.timerTypes.contains(type)) {
       return ControlAction.timer(type, outputIndex: json['outputIndex'] as int? ?? 1)

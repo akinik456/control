@@ -1,8 +1,25 @@
 #include "lynra_PLC_engine.h"
 #include <string.h>
 
-typedef struct { bool started; bool prev_match; bool output_on; uint64_t started_at; uint64_t elapsed_ms; uint32_t pulse_phase; uint64_t random_due_ms; bool random_pending; bool random_target; bool multi_permanent; bool multi_cancel_press; bool stairway_suppress_release; int32_t counter_value;
-bool counter_prev_cnt;LynraExecutionState execution_state; } TimerState;
+typedef struct { 
+bool started; 
+bool prev_match; 
+bool output_on; 
+uint64_t started_at; 
+uint64_t elapsed_ms; 
+uint32_t pulse_phase; 
+uint64_t random_due_ms; 
+bool random_pending; 
+bool random_target; 
+bool multi_permanent; 
+bool multi_cancel_press; 
+bool stairway_suppress_release; 
+int32_t counter_value;
+bool counter_prev_cnt;
+uint64_t hours_elapsed_ms;       /* Güncel çalışma süresi */
+uint64_t hours_total_ms;         /* Kümülatif çalışma süresi */
+uint64_t hours_last_update_ms;   /* Son güncelleme zamanı */LynraExecutionState execution_state; 
+} TimerState;
 struct LynraPlcEngine {
  bool in_use, has_last_scan;
  uint64_t last_scan;
@@ -57,7 +74,8 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
         r->actions[a].type != LYNRA_TIMER_STAIRWAY &&
         r->actions[a].type != LYNRA_TIMER_MULTI_FUNCTION &&
         r->actions[a].type != LYNRA_TIMER_STOPWATCH &&
-				r->actions[a].type != LYNRA_COUNTER_UP_DOWN) ||
+				r->actions[a].type != LYNRA_COUNTER_UP_DOWN &&
+				r->actions[a].type != LYNRA_COUNTER_HOURS) ||
         r->actions[a].output_index < 1 || r->actions[a].output_index > LYNRA_PLC_MAX_OUTPUTS ||
         r->actions[a].reset_input_index > LYNRA_PLC_MAX_INPUTS ||
 			  r->actions[a].direction_input_index > LYNRA_PLC_MAX_INPUTS ||
@@ -488,6 +506,54 @@ if (a->reset_input_index != 0) {
         ? LYNRA_EXEC_COMPLETED
         : LYNRA_EXEC_IDLE;
 }
+if (a->type == LYNRA_COUNTER_HOURS) {
+    bool en = a->hours_enable_input_index != 0 &&
+        (inputs & (1u << (a->hours_enable_input_index - 1))) != 0;
+
+    bool reset = a->reset_input_index != 0 &&
+        (inputs & (1u << (a->reset_input_index - 1))) != 0;
+
+    bool reset_all = a->hours_reset_all_input_index != 0 &&
+        (inputs & (1u << (a->hours_reset_all_input_index - 1))) != 0;
+
+    uint64_t delta = e->has_last_scan
+        ? now_ms - e->last_scan : 0;
+
+    if (reset_all) {
+        s->hours_elapsed_ms = 0;
+        s->hours_total_ms = 0;
+        s->output_on = false;
+    } else {
+        bool previous_en = a->hours_enable_input_index != 0 &&
+    (e->previous_inputs &
+     (1u << (a->hours_enable_input_index - 1))) != 0;
+
+if (en && previous_en) {
+    if (!reset) {
+        s->hours_elapsed_ms =
+            UINT64_MAX - s->hours_elapsed_ms < delta
+                ? UINT64_MAX : s->hours_elapsed_ms + delta;
+    }
+
+    s->hours_total_ms =
+        UINT64_MAX - s->hours_total_ms < delta
+            ? UINT64_MAX : s->hours_total_ms + delta;
+}
+
+        if (reset) {
+            s->hours_elapsed_ms = 0;
+            s->output_on = false;
+        } else if (s->hours_elapsed_ms >= a->hours_target_ms) {
+            s->output_on = true;
+        }
+    }
+
+    on = s->output_on;
+
+    s->execution_state = on
+        ? LYNRA_EXEC_COMPLETED
+        : en ? LYNRA_EXEC_RUNNING : LYNRA_EXEC_IDLE;
+}
 	 if (on) result |= 1u << (a->output_index - 1);
    s->prev_match = active;
   }
@@ -572,5 +638,29 @@ bool lynra_plc_get_counter(
         return false;
 
     *value = e->timers[rule_index][action_index].counter_value;
+    return true;
+}
+bool lynra_plc_get_hours(
+    const LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    uint64_t *elapsed_ms,
+    uint64_t *total_ms)
+{
+    if (!e || !e->in_use || !elapsed_ms || !total_ms ||
+        rule_index >= e->count)
+        return false;
+
+    const LynraRule *r = &e->rules[rule_index];
+
+    if (action_index >= r->action_count ||
+        r->actions[action_index].type != LYNRA_COUNTER_HOURS)
+        return false;
+
+    const TimerState *s = &e->timers[rule_index][action_index];
+
+    *elapsed_ms = s->hours_elapsed_ms;
+    *total_ms = s->hours_total_ms;
+
     return true;
 }
