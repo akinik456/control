@@ -80,6 +80,25 @@ debugPrint('CONVERTER HOURS TARGET: ${source.hoursTargetMs}');
     throw RangeError('Hours Counter target must be positive uint64');
   }
 }
+if (source.type == ControlActionType.thresholdTrigger) {
+  if (source.thresholdInputIndex < 1 ||
+      source.thresholdInputIndex > 32) {
+    throw RangeError('Threshold Fre input must be 1..32');
+  }
+
+  if (source.thresholdGateMs < 1000 ||
+      source.thresholdGateMs > 100000 ||
+      source.thresholdGateMs % 1000 != 0) {
+    throw RangeError('Threshold gate must be 1..100 seconds');
+  }
+
+  if (source.thresholdOn < 0 ||
+      source.thresholdOn > 9999 ||
+      source.thresholdOff < 0 ||
+      source.thresholdOff > 9999) {
+    throw RangeError('Threshold On/Off must be 0..9999');
+  }
+}
     if (!ControlAction.timerTypes.contains(source.type) &&
     !ControlAction.counterTypes.contains(source.type)) {
       throw UnsupportedError('Legacy action not supported by C Engine v1.0: ${source.type.name}');
@@ -101,6 +120,7 @@ debugPrint('CONVERTER HOURS TARGET: ${source.hoursTargetMs}');
       ControlActionType.stopwatchTimer => 10,
 			ControlActionType.upDownCounter => 11,
 			ControlActionType.hoursCounter => 12,
+			ControlActionType.thresholdTrigger => 13,
       _ => throw UnsupportedError('Unsupported timer: ${source.type.name}'),
     };
     target.outputIndex = source.outputIndex;
@@ -169,6 +189,22 @@ target.hoursResetAllInputIndex =
 target.hoursTargetMs =
     source.type == ControlActionType.hoursCounter
         ? source.hoursTargetMs : 0;				
+				
+target.thresholdInputIndex =
+    source.type == ControlActionType.thresholdTrigger
+        ? source.thresholdInputIndex : 0;
+
+target.thresholdGateMs =
+    source.type == ControlActionType.thresholdTrigger
+        ? source.thresholdGateMs : 0;
+
+target.thresholdOn =
+    source.type == ControlActionType.thresholdTrigger
+        ? source.thresholdOn : 0;
+
+target.thresholdOff =
+    source.type == ControlActionType.thresholdTrigger
+        ? source.thresholdOff : 0;
 				
   }
 

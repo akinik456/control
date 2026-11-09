@@ -90,6 +90,17 @@ int? counterValue(int ruleIndex, int actionIndex) {
     actionIndex,
   );
 }
+int? thresholdValue(int ruleIndex, int actionIndex) {
+  if (_disposed) {
+    throw StateError('PLC engine disposed');
+  }
+
+  return _plc.getThreshold(
+    _engine,
+    ruleIndex,
+    actionIndex,
+  );
+}
   void dispose() {
     if (_disposed) return;
     _disposed = true;

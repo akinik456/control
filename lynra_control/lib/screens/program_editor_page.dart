@@ -251,6 +251,7 @@ for (final condition in rule.conditions) {
     ControlActionType.stopwatchTimer => 'Kronometre',
 		ControlActionType.upDownCounter => 'İleri / Geri Sayıcı',
 		ControlActionType.hoursCounter => 'Çalışma Saati Sayacı',
+		ControlActionType.thresholdTrigger => 'Frekans Eşik Tetikleyici',
     _ => 'Eski fonksiyon',
   };
 
@@ -436,6 +437,7 @@ Future<void> _chooseFunction(
   final selected = await _choose<String>('Sayaç fonksiyonu', [
     ('upDown', 'İleri / Geri Sayıcı'),
 		('hours', 'Çalışma Saati Sayacı'),
+		('threshold', 'Frekans Eşik Tetikleyici'),
   ]);
 
   if (selected == null || !mounted) return;
@@ -465,6 +467,25 @@ Future<void> _chooseFunction(
       ..resetInputIndex = 2
       ..hoursResetAllInputIndex = 3
       ..hoursTargetMs = 3600000;
+
+    if (replace == null) {
+      rule.actions.add(action);
+    } else {
+      final index = rule.actions.indexOf(replace);
+      if (index >= 0) rule.actions[index] = action;
+    }
+  });
+}
+if (selected == 'threshold') {
+  setState(() {
+    final action = ControlAction.counter(
+      ControlActionType.thresholdTrigger,
+      outputIndex: replace?.outputIndex ?? 1,
+    )
+      ..thresholdInputIndex = 1
+      ..thresholdGateMs = 1000
+      ..thresholdOn = 10
+      ..thresholdOff = 5;
 
     if (replace == null) {
       rule.actions.add(action);
@@ -810,8 +831,10 @@ Widget _counterInputToken(
 Widget _counterValueToken(
   String label,
   int current,
-  void Function(int) update,
-) {
+ void Function(int) update, {
+  int min = -2147483648,
+  int max = 2147483647,
+}) {
   return _delayToken('$label: $current', () async {
     var input = current.toString();
 
@@ -839,8 +862,8 @@ Widget _counterValueToken(
             onPressed: () {
               final value = int.tryParse(input.trim());
               if (value != null &&
-                  value >= -2147483648 &&
-                  value <= 2147483647) {
+                  value >= min &&
+                  value <= max) {
                 Navigator.pop(ctx, value);
               }
             },
@@ -859,6 +882,44 @@ Widget _counterValueToken(
   if (action.type == ControlActionType.delay) {
     return const SizedBox.shrink();
   }
+if (action.type == ControlActionType.thresholdTrigger) {
+  return Wrap(
+    spacing: 4,
+    runSpacing: 4,
+    children: [
+      _counterInputToken(
+        action, 'Fre', action.thresholdInputIndex,
+        (v) => action.thresholdInputIndex = v,
+      ),
+      _delayToken(
+        'G_T ${action.thresholdGateMs ~/ 1000} sn',
+        () async {
+          final v = await _duration(
+            'Ölçüm penceresi (1–100 sn)',
+            action.thresholdGateMs,
+            minMs: 1000,
+          );
+          if (v != null && mounted &&
+              v <= 100000 && v % 1000 == 0) {
+            setState(() => action.thresholdGateMs = v);
+          }
+        },
+      ),
+      _counterValueToken(
+  'ON', action.thresholdOn,
+  (v) => action.thresholdOn = v,
+  min: 0,
+  max: 9999,
+),
+_counterValueToken(
+  'OFF', action.thresholdOff,
+  (v) => action.thresholdOff = v,
+  min: 0,
+  max: 9999,
+),
+    ],
+  );
+}
 if (action.type == ControlActionType.hoursCounter) {
   return Row(
     mainAxisSize: MainAxisSize.min,

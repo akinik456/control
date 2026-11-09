@@ -137,6 +137,35 @@ void dispose() {
           },
         ),
       ),
+			for (var r = 0;
+    r < widget.program.controlBlocks.first.groups.length;
+    r++)
+  for (var a = 0;
+      a < widget.program.controlBlocks.first.groups[r].actions.length;
+      a++)
+    if (widget.program.controlBlocks.first.groups[r].actions[a].type ==
+        ControlActionType.thresholdTrigger)
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Builder(
+          builder: (context) {
+            final action =
+                widget.program.controlBlocks.first.groups[r].actions[a];
+
+            final pulses = _engine!.thresholdValue(r, a);
+            final hz = pulses == null
+                ? null
+                : pulses * 1000 / action.thresholdGateMs;
+
+            return Text(
+              'Frekans Eşik Tetikleyici ${r + 1} — '
+              'Darbe: ${pulses ?? "—"}  '
+              'Frekans: ${hz == null ? "—" : hz.toStringAsFixed(2)} Hz',
+              style: Theme.of(context).textTheme.titleMedium,
+            );
+          },
+        ),
+      ),
       const SizedBox(height: 12),
       Wrap(spacing: 8, runSpacing: 8, children: [
         OutlinedButton(onPressed: () => _advance(1), child: const Text('+0.001 sn')),

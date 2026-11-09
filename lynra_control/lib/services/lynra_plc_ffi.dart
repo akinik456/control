@@ -70,6 +70,18 @@ final class LynraAction extends Struct {
 
 	@Uint64()
 	external int hoursTargetMs;
+	
+	@Uint8()
+external int thresholdInputIndex;
+
+@Uint32()
+external int thresholdGateMs;
+
+@Uint32()
+external int thresholdOn;
+
+@Uint32()
+external int thresholdOff;
 }
 
 final class LynraRule extends Struct {
@@ -196,6 +208,27 @@ int? getCounter(
   } finally {
     calloc.free(cv);
     calloc.free(total);
+  }
+}
+int? getThreshold(
+  Pointer<Void> engine,
+  int ruleIndex,
+  int actionIndex,
+) {
+  final nativeGetThreshold = _library.lookupFunction<
+      Uint8 Function(Pointer<Void>, IntPtr, IntPtr, Pointer<Uint32>),
+      int Function(Pointer<Void>, int, int, Pointer<Uint32>)
+  >('lynra_plc_get_threshold');
+
+  final count = calloc<Uint32>();
+
+  try {
+    final ok = nativeGetThreshold(
+      engine, ruleIndex, actionIndex, count,
+    );
+    return ok != 0 ? count.value : null;
+  } finally {
+    calloc.free(count);
   }
 }
 bool loadRules(

@@ -19,6 +19,10 @@ bool counter_prev_cnt;
 uint64_t hours_elapsed_ms;       /* Güncel çalışma süresi */
 uint64_t hours_total_ms;         /* Kümülatif çalışma süresi */
 uint64_t hours_last_update_ms;   /* Son güncelleme zamanı */LynraExecutionState execution_state; 
+uint32_t threshold_count;
+uint32_t threshold_last_count;
+uint64_t threshold_window_start_ms;
+bool threshold_prev_input;
 } TimerState;
 struct LynraPlcEngine {
  bool in_use, has_last_scan;
@@ -75,12 +79,20 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
         r->actions[a].type != LYNRA_TIMER_MULTI_FUNCTION &&
         r->actions[a].type != LYNRA_TIMER_STOPWATCH &&
 				r->actions[a].type != LYNRA_COUNTER_UP_DOWN &&
-				r->actions[a].type != LYNRA_COUNTER_HOURS) ||
+				r->actions[a].type != LYNRA_COUNTER_HOURS &&
+				r->actions[a].type != LYNRA_THRESHOLD_TRIGGER) ||
         r->actions[a].output_index < 1 || r->actions[a].output_index > LYNRA_PLC_MAX_OUTPUTS ||
         r->actions[a].reset_input_index > LYNRA_PLC_MAX_INPUTS ||
 			  r->actions[a].direction_input_index > LYNRA_PLC_MAX_INPUTS ||
 				(r->actions[a].type == LYNRA_COUNTER_UP_DOWN &&
 				r->actions[a].counter_input_index == 0) ||
+				(r->actions[a].type == LYNRA_THRESHOLD_TRIGGER &&
+			  (r->actions[a].threshold_input_index < 1 ||
+				r->actions[a].threshold_input_index > LYNRA_PLC_MAX_INPUTS ||
+				r->actions[a].threshold_gate_ms < 1000 ||
+				r->actions[a].threshold_gate_ms > 100000 ||
+				r->actions[a].threshold_on > 9999 ||
+				r->actions[a].threshold_off > 9999)) ||
 			 r->actions[a].repeat > 1 ||
 			 r->actions[a].retrigger > 1 ||
        (r->actions[a].type == LYNRA_TIMER_STOPWATCH &&
@@ -554,6 +566,67 @@ if (en && previous_en) {
         ? LYNRA_EXEC_COMPLETED
         : en ? LYNRA_EXEC_RUNNING : LYNRA_EXEC_IDLE;
 }
+	 if (a->type == LYNRA_THRESHOLD_TRIGGER) {
+    uint32_t mask = 1u << (a->threshold_input_index - 1);
+    bool fre = (inputs & mask) != 0;
+
+    uint64_t gate_ms = a->threshold_gate_ms;
+
+    if (!s->started) {
+        s->started = true;
+        s->threshold_window_start_ms += now_ms;
+    }
+
+    // Yalnızca yükselen kenarları say.
+    if (fre && !s->threshold_prev_input) {
+        if (s->threshold_count < UINT32_MAX)
+            s->threshold_count++;
+    }
+    s->threshold_prev_input = fre;
+
+    // Ölçüm penceresi tamamlandı.
+    if (now_ms - s->threshold_window_start_ms >= gate_ms) {
+			// Birden fazla ölçüm penceresi kaçırılmışsa
+// ölçümü geçersiz say, Q durumunu koru.
+if (now_ms - s->threshold_window_start_ms >= 2 * gate_ms) {
+    s->threshold_count = 0;
+    s->threshold_last_count = 0;
+    s->threshold_window_start_ms = now_ms;
+    s->threshold_prev_input = fre;
+
+    on = s->output_on;
+    s->execution_state = on
+        ? LYNRA_EXEC_COMPLETED
+        : LYNRA_EXEC_RUNNING;
+
+    goto threshold_done;
+}
+        uint32_t fa = s->threshold_count;
+        s->threshold_last_count = fa;
+        s->threshold_count = 0;
+        s->threshold_window_start_ms = now_ms;
+
+        if (a->threshold_on >= a->threshold_off) {
+            // Histerezisli kontrol
+            if (fa > a->threshold_on)
+                s->output_on = true;
+            else if (fa <= a->threshold_off)
+                s->output_on = false;
+        } else {
+            // Frekans aralığı kontrolü
+            s->output_on =
+                fa >= a->threshold_on &&
+                fa < a->threshold_off;
+        }
+				threshold_done:;
+    }
+
+    on = s->output_on;
+
+    s->execution_state = on
+        ? LYNRA_EXEC_COMPLETED
+        : LYNRA_EXEC_RUNNING;
+}
 	 if (on) result |= 1u << (a->output_index - 1);
    s->prev_match = active;
   }
@@ -661,6 +734,27 @@ bool lynra_plc_get_hours(
 
     *elapsed_ms = s->hours_elapsed_ms;
     *total_ms = s->hours_total_ms;
+
+    return true;
+}
+bool lynra_plc_get_threshold(
+    const LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    uint32_t *pulse_count)
+{
+    if (!e || !e->in_use || !pulse_count ||
+        rule_index >= e->count)
+        return false;
+
+    const LynraRule *r = &e->rules[rule_index];
+
+    if (action_index >= r->action_count ||
+        r->actions[action_index].type != LYNRA_THRESHOLD_TRIGGER)
+        return false;
+
+    *pulse_count =
+        e->timers[rule_index][action_index].threshold_last_count;
 
     return true;
 }

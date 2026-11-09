@@ -19,7 +19,7 @@ enum ControlActionType {
   stairwayOutput, multiSwitchOutput, stopwatchOutput,
   onDelay, offDelay, onOffDelay, retentiveOnDelay, wipingRelay,
   edgeWipingRelay, asynchronousPulse, randomGenerator,
-  stairwayTimer, multipleFunctionTimer, stopwatchTimer, upDownCounter, hoursCounter,
+  stairwayTimer, multipleFunctionTimer, stopwatchTimer, upDownCounter, hoursCounter, thresholdTrigger,
 }
 
 /// How a rule is evaluated.
@@ -117,6 +117,12 @@ class ControlAction {
   int hoursEnableInputIndex = 1;
   int hoursResetAllInputIndex = 3;
   int hoursTargetMs = 3600000; // 1 saat
+	
+	// Threshold Trigger
+	int thresholdInputIndex = 1;
+	int thresholdGateMs = 1000;
+	int thresholdOn = 10;
+	int thresholdOff = 5;
 
   static const Set<ControlActionType> timerTypes = {
     ControlActionType.onDelay, ControlActionType.offDelay,
@@ -129,6 +135,7 @@ class ControlAction {
 static const Set<ControlActionType> counterTypes = {
   ControlActionType.upDownCounter,
   ControlActionType.hoursCounter,
+	ControlActionType.thresholdTrigger,
 };
   ControlAction.timer(ControlActionType timerType, {this.outputIndex = 1})
       : assert(timerTypes.contains(timerType)),
@@ -222,6 +229,12 @@ static const Set<ControlActionType> counterTypes = {
   'hoursResetAllInputIndex': hoursResetAllInputIndex,
   'hoursTargetMs': hoursTargetMs,
 },
+if (type == ControlActionType.thresholdTrigger) ...{
+  'thresholdInputIndex': thresholdInputIndex,
+  'thresholdGateMs': thresholdGateMs,
+  'thresholdOn': thresholdOn,
+  'thresholdOff': thresholdOff,
+},
         if (timerTypes.contains(type)) ...{
           'timerTMs': timerTMs,
           'timerTHMs': timerTHMs,
@@ -284,7 +297,16 @@ static const Set<ControlActionType> counterTypes = {
 ..hoursResetAllInputIndex =
     json['hoursResetAllInputIndex'] as int? ?? 3
 ..hoursTargetMs =
-    json['hoursTargetMs'] as int? ?? 3600000;
+    json['hoursTargetMs'] as int? ?? 3600000
+		
+		..thresholdInputIndex =
+    json['thresholdInputIndex'] as int? ?? 1
+..thresholdGateMs =
+    json['thresholdGateMs'] as int? ?? 1000
+..thresholdOn =
+    json['thresholdOn'] as int? ?? 10
+..thresholdOff =
+    json['thresholdOff'] as int? ?? 5;
 }
     if (ControlAction.timerTypes.contains(type)) {
       return ControlAction.timer(type, outputIndex: json['outputIndex'] as int? ?? 1)
