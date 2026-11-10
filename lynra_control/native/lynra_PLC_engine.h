@@ -79,12 +79,33 @@ typedef enum {
 
 /* Ortak API değer tipi */
 typedef int64_t LynraFieldValue;
+#define LYNRA_MAX_PARAMETERS 32
+
+typedef struct {
+    LynraFieldId id;
+    LynraFieldValue value;
+} LynraParameter;
+typedef struct {
+    size_t count;
+    LynraParameter items[LYNRA_MAX_PARAMETERS];
+} LynraValues;
+typedef struct {
+    size_t count;
+    LynraParameter items[LYNRA_MAX_PARAMETERS];
+} LynraParameters;
 typedef struct LynraPlcEngine LynraPlcEngine;
 LynraPlcEngine *lynra_plc_create(void);
 void lynra_plc_destroy(LynraPlcEngine *engine);
 void lynra_plc_reset(LynraPlcEngine *engine);
 bool lynra_plc_load_rules(LynraPlcEngine *engine, const LynraRule *rules, size_t count);
 bool lynra_plc_scan(LynraPlcEngine *engine, uint64_t now_ms, uint32_t inputs);
+size_t lynra_plc_get_rule_count(const LynraPlcEngine *engine);
+bool lynra_plc_get_action_info(
+    const LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    LynraActionType *type,
+    size_t *action_count);
 uint32_t lynra_plc_get_inputs(const LynraPlcEngine *engine);
 uint32_t lynra_plc_get_outputs(const LynraPlcEngine *engine);
 bool lynra_plc_get_action_state(const LynraPlcEngine *engine, size_t rule_index,
@@ -115,6 +136,22 @@ bool lynra_plc_get_on_delay_counters(
     size_t action_index,
     uint32_t *trigger_count,
     uint32_t *completion_count);
+bool lynra_plc_get_parameters(
+    const LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    LynraParameters *parameters);
+bool lynra_plc_get_values(
+    const LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    LynraValues *values);		
+bool lynra_plc_set_parameter(
+    LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    LynraFieldId parameter,
+    LynraFieldValue value);
 bool lynra_plc_get_field(
     const LynraPlcEngine *engine,
     size_t rule_index,

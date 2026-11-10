@@ -17,7 +17,7 @@ target_compile_options(lynra_PLC_engine PRIVATE
 
 
 if(NOT ANDROID)
-    add_executable(test_on_delay_api test_on_delay_api.c)
-    target_link_libraries(test_on_delay_api PRIVATE lynra_PLC_engine)
+    add_executable(test_diagnostic_api test_diagnostic_api.c)
+    target_link_libraries(test_diagnostic_api PRIVATE lynra_PLC_engine)
 endif()
 

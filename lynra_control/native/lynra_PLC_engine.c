@@ -647,6 +647,34 @@ if (now_ms - s->threshold_window_start_ms >= 2 * gate_ms) {
  e->outputs = result; e->previous_inputs = inputs; e->last_scan = now_ms; e->has_last_scan = true;
  return true;
 }
+size_t lynra_plc_get_rule_count(const LynraPlcEngine *e)
+{
+    return e && e->in_use ? e->count : 0;
+}
+bool lynra_plc_get_action_info(
+    const LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    LynraActionType *type,
+    size_t *action_count)
+{
+    if (!e || !e->in_use || rule_index >= e->count)
+        return false;
+
+    const LynraRule *r = &e->rules[rule_index];
+
+    if (action_count)
+        *action_count = r->action_count;
+
+    if (type) {
+        if (action_index >= r->action_count)
+            return false;
+
+        *type = r->actions[action_index].type;
+    }
+
+    return true;
+}
 uint32_t lynra_plc_get_inputs(const LynraPlcEngine *e)
 {
     return e && e->in_use ? e->previous_inputs : 0;
@@ -775,6 +803,87 @@ bool lynra_plc_get_threshold(
 
     return true;
 }
+bool lynra_plc_get_parameters(
+    const LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    LynraParameters *parameters)
+{
+    if (!e || !e->in_use || !parameters ||
+        rule_index >= e->count)
+        return false;
+
+    const LynraRule *r = &e->rules[rule_index];
+
+    if (action_index >= r->action_count)
+        return false;
+
+    const LynraAction *a = &r->actions[action_index];
+
+    parameters->count = 0;
+
+    switch (a->type) {
+        case LYNRA_TIMER_ON_DELAY:
+            parameters->items[0].id = LYNRA_FIELD_TON_MS;
+            parameters->items[0].value = a->t_ms;
+            parameters->count = 1;
+            return true;
+
+        default:
+            return false;
+    }
+}
+bool lynra_plc_get_values(
+    const LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    LynraValues *values)
+{
+    if (!e || !e->in_use || !values ||
+        rule_index >= e->count)
+        return false;
+
+    const LynraRule *r = &e->rules[rule_index];
+
+    if (action_index >= r->action_count)
+        return false;
+
+    const LynraAction *a = &r->actions[action_index];
+    const TimerState *s = &e->timers[rule_index][action_index];
+
+    values->count = 0;
+
+    switch (a->type) {
+        case LYNRA_TIMER_ON_DELAY: {
+            uint64_t elapsed = 0;
+
+            if (s->started && e->has_last_scan) {
+                elapsed = e->last_scan - s->started_at;
+
+                if (elapsed > a->t_ms)
+                    elapsed = a->t_ms;
+            }
+
+            values->items[0] = (LynraParameter){
+                LYNRA_FIELD_ELAPSED_MS, (LynraFieldValue)elapsed
+            };
+
+            values->items[1] = (LynraParameter){
+                LYNRA_FIELD_TRIGGER_COUNT, s->trigger_count
+            };
+
+            values->items[2] = (LynraParameter){
+                LYNRA_FIELD_COMPLETION_COUNT, s->completion_count
+            };
+
+            values->count = 3;
+            return true;
+        }
+
+        default:
+            return false;
+    }
+}
 bool lynra_plc_get_field(
     const LynraPlcEngine *e,
     size_t rule_index,
@@ -878,4 +987,14 @@ bool lynra_plc_set_field(
         default:
             return false;
     }
+}
+bool lynra_plc_set_parameter(
+    LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    LynraFieldId parameter,
+    LynraFieldValue value)
+{
+    return lynra_plc_set_field(
+        e, rule_index, action_index, parameter, value);
 }
