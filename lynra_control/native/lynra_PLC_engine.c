@@ -199,19 +199,39 @@ if (on && s->execution_state != LYNRA_EXEC_COMPLETED) {
     }
     s->execution_state = !active ? LYNRA_EXEC_IDLE :
       on ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
-   } else if (a->type == LYNRA_TIMER_OFF_DELAY) {
-    if (active) { s->started = false; on = true; }
-    else if (s->prev_match) { s->started = true; s->started_at = now_ms; }
-    if (!active && s->started) {
-     on = now_ms - s->started_at < a->t_ms;
-     if (!on) s->started = false;
+   
+} else if (a->type == LYNRA_TIMER_OFF_DELAY) {
+    if (active) {
+        s->started = false;
+        on = true;
     }
+    else if (s->prev_match) {
+        s->started = true;
+        s->started_at = now_ms;
+
+        if (s->trigger_count < UINT32_MAX)
+            s->trigger_count++;
+    }
+
+    if (!active && s->started) {
+        on = now_ms - s->started_at < a->t_ms;
+
+        if (!on) {
+            s->started = false;
+
+            if (s->completion_count < UINT32_MAX)
+                s->completion_count++;
+        }
+    }
+
     s->execution_state = active ? LYNRA_EXEC_IDLE :
-      s->started ? LYNRA_EXEC_RUNNING :
-      (s->prev_match || s->execution_state == LYNRA_EXEC_RUNNING ||
-       s->execution_state == LYNRA_EXEC_COMPLETED) ?
-       LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE;
-   }
+        s->started ? LYNRA_EXEC_RUNNING :
+        (s->prev_match ||
+         s->execution_state == LYNRA_EXEC_RUNNING ||
+         s->execution_state == LYNRA_EXEC_COMPLETED) ?
+        LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE;
+}
+
    if (a->type == LYNRA_TIMER_ON_OFF_DELAY) {
     // Each input transition restarts its own delay; opposite transitions cancel it.
     if (active != s->prev_match || !s->started) {
@@ -828,6 +848,11 @@ bool lynra_plc_get_parameters(
             parameters->items[0].value = a->t_ms;
             parameters->count = 1;
             return true;
+				case LYNRA_TIMER_OFF_DELAY:
+						parameters->items[0].id = LYNRA_FIELD_TOFF_MS;
+						parameters->items[0].value = a->t_ms;
+						parameters->count = 1;
+						return true;
 
         default:
             return false;
@@ -879,6 +904,32 @@ bool lynra_plc_get_values(
             values->count = 3;
             return true;
         }
+				case LYNRA_TIMER_OFF_DELAY: {
+						uint64_t elapsed = 0;
+
+						if (s->started && e->has_last_scan) {
+								elapsed = e->last_scan - s->started_at;
+
+								if (elapsed > a->t_ms)
+										elapsed = a->t_ms;
+						}
+
+						values->items[0] = (LynraParameter){
+								LYNRA_FIELD_ELAPSED_MS,
+								(LynraFieldValue)elapsed
+						};
+
+						values->items[1] = (LynraParameter){
+    LYNRA_FIELD_TRIGGER_COUNT, s->trigger_count
+};
+
+values->items[2] = (LynraParameter){
+    LYNRA_FIELD_COMPLETION_COUNT, s->completion_count
+};
+
+values->count = 3;
+return true;
+				}
 
         default:
             return false;
@@ -983,7 +1034,13 @@ bool lynra_plc_set_field(
 
             a->t_ms = (uint32_t)value;
             return true;
+				case LYNRA_FIELD_TOFF_MS:
+						if (a->type != LYNRA_TIMER_OFF_DELAY ||
+								value < 0 || value > UINT32_MAX)
+								return false;
 
+						a->t_ms = (uint32_t)value;
+						return true;
         default:
             return false;
     }

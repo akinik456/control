@@ -210,12 +210,87 @@ check("TON 2000 completed",
 // Program bağlantılarını değiştirmeye izin yok
 check("Reject input modification",
       !lynra_plc_set_parameter(
-          e, 0, 0, LYNRA_FIELD_INPUT, 2));			
+          e, 0, 0, LYNRA_FIELD_INPUT, 2));
+check("OffDelay get_parameters",
+      lynra_plc_get_parameters(e, 0, 1, &params));
 
-    lynra_plc_destroy(e);
+check("OffDelay parameter count = 1",
+      params.count == 1);
 
-    printf("\nRESULT: %s (%d failures)\n",
-           failures == 0 ? "PASS" : "FAIL", failures);
+check("OffDelay parameter = TOFF",
+      params.items[0].id == LYNRA_FIELD_TOFF_MS);
 
-    return failures ? 1 : 0;
+check("OffDelay TOFF = 2000",
+      params.items[0].value == 2000);
+
+// OffDelay: TOFF = 2000 ms
+// Önceki test sonunda I1 = HIGH, zaman = 5500 ms
+
+check("OffDelay deactivate I1",
+      lynra_plc_scan(e, 6000, 0));
+
+check("OffDelay elapsed = 0",
+      lynra_plc_get_values(e, 0, 1, &values) &&
+      values.count == 3 &&
+      values.items[0].id == LYNRA_FIELD_ELAPSED_MS &&
+      values.items[0].value == 0);
+
+
+check("OffDelay scan at 7000",
+      lynra_plc_scan(e, 7000, 0));
+
+check("OffDelay elapsed = 1000",
+      lynra_plc_get_values(e, 0, 1, &values) &&
+      values.items[0].value == 1000);
+
+check("OffDelay scan at 8000",
+      lynra_plc_scan(e, 8000, 0));
+
+check("OffDelay elapsed reset after completion",
+      lynra_plc_get_values(e, 0, 1, &values) &&
+      values.items[0].value == 0);
+
+// First OffDelay cycle
+check("OffDelay counters after first cycle",
+      lynra_plc_get_values(e, 0, 1, &values) &&
+      values.count == 3 &&
+      values.items[1].id == LYNRA_FIELD_TRIGGER_COUNT &&
+      values.items[1].value == 2 &&
+      values.items[2].id == LYNRA_FIELD_COMPLETION_COUNT &&
+      values.items[2].value == 1);
+
+// Second OffDelay cycle
+check("OffDelay reactivate",
+      lynra_plc_scan(e, 9000, 1));
+
+check("OffDelay second trigger",
+      lynra_plc_scan(e, 10000, 0));
+
+check("OffDelay counters during timing",
+      lynra_plc_get_values(e, 0, 1, &values) &&
+      values.items[1].value == 3 &&
+      values.items[2].value == 1);
+
+check("OffDelay second completion scan",
+      lynra_plc_scan(e, 12000, 0));
+
+check("OffDelay counters after second cycle",
+      lynra_plc_get_values(e, 0, 1, &values) &&
+      values.items[1].value == 3 &&
+      values.items[2].value == 2);
+check("OffDelay set TOFF = 3000",
+      lynra_plc_set_parameter(e, 0, 1,
+                              LYNRA_FIELD_TOFF_MS, 3000));
+check("OffDelay read updated TOFF",
+      lynra_plc_get_parameters(e, 0, 1, &params) &&
+      params.count == 1 &&
+      params.items[0].id == LYNRA_FIELD_TOFF_MS &&
+      params.items[0].value == 3000);
+
+lynra_plc_destroy(e);
+
+printf("\nRESULT: %s (%d failures)\n",
+       failures == 0 ? "PASS" : "FAIL", failures);
+
+return failures ? 1 : 0;
 }
