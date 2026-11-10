@@ -823,118 +823,162 @@ bool lynra_plc_get_threshold(
 
     return true;
 }
-bool lynra_plc_get_parameters(
-    const LynraPlcEngine *e,
-    size_t rule_index,
-    size_t action_index,
-    LynraParameters *parameters)
-{
-    if (!e || !e->in_use || !parameters ||
-        rule_index >= e->count)
-        return false;
+/* Diagnostic fields: transport-independent and read-only until explicitly written. */
+static LynraFieldValue diag_u64(uint64_t n) {
+    return n > INT64_MAX ? INT64_MAX : (LynraFieldValue)n;
+}
+#define DIAG_ADD(out, field, val) do { \
+    if ((out)->count >= LYNRA_MAX_PARAMETERS) return false; \
+    (out)->items[(out)->count++] = (LynraParameter){LYNRA_FIELD_##field, (LynraFieldValue)(val)}; \
+} while (0)
 
-    const LynraRule *r = &e->rules[rule_index];
-
-    if (action_index >= r->action_count)
-        return false;
-
-    const LynraAction *a = &r->actions[action_index];
-
+bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
+                              LynraParameters *parameters) {
+    if (!e || !e->in_use || !parameters || ri >= e->count ||
+        ai >= e->rules[ri].action_count) return false;
+    const LynraAction *a = &e->rules[ri].actions[ai];
     parameters->count = 0;
-
     switch (a->type) {
-        case LYNRA_TIMER_ON_DELAY:
-            parameters->items[0].id = LYNRA_FIELD_TON_MS;
-            parameters->items[0].value = a->t_ms;
-            parameters->count = 1;
-            return true;
-				case LYNRA_TIMER_OFF_DELAY:
-						parameters->items[0].id = LYNRA_FIELD_TOFF_MS;
-						parameters->items[0].value = a->t_ms;
-						parameters->count = 1;
-						return true;
-
-        default:
-            return false;
+    case LYNRA_TIMER_ON_DELAY:
+        DIAG_ADD(parameters, TON_MS, a->t_ms);
+        return true;
+    case LYNRA_TIMER_OFF_DELAY:
+        DIAG_ADD(parameters, TOFF_MS, a->t_ms);
+        return true;
+    case LYNRA_TIMER_ON_OFF_DELAY:
+        DIAG_ADD(parameters, TH_MS, a->th_ms);
+        DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        return true;
+    case LYNRA_TIMER_RETENTIVE_ON_DELAY:
+        DIAG_ADD(parameters, TON_MS, a->t_ms);
+        DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
+        DIAG_ADD(parameters, RETRIGGER, a->retrigger);
+        return true;
+    case LYNRA_TIMER_WIPING_RELAY:
+        DIAG_ADD(parameters, TON_MS, a->t_ms);
+        return true;
+    case LYNRA_TIMER_EDGE_WIPING_RELAY:
+        DIAG_ADD(parameters, TH_MS, a->th_ms);
+        DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        DIAG_ADD(parameters, PULSE_COUNT, a->n);
+        DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
+        DIAG_ADD(parameters, REPEAT, a->repeat);
+        DIAG_ADD(parameters, RETRIGGER, a->retrigger);
+        return true;
+    case LYNRA_TIMER_ASYNC_PULSE:
+        DIAG_ADD(parameters, TH_MS, a->th_ms);
+        DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        return true;
+    case LYNRA_TIMER_RANDOM_GENERATOR:
+        DIAG_ADD(parameters, TH_MS, a->th_ms);
+        DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        return true;
+    case LYNRA_TIMER_STAIRWAY:
+        DIAG_ADD(parameters, TON_MS, a->t_ms);
+        DIAG_ADD(parameters, WARNING_BEFORE_MS, a->warning_before_ms);
+        DIAG_ADD(parameters, WARNING_OFF_MS, a->warning_off_ms);
+        DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
+        DIAG_ADD(parameters, RETRIGGER, a->retrigger);
+        return true;
+    case LYNRA_TIMER_MULTI_FUNCTION:
+        DIAG_ADD(parameters, TON_MS, a->t_ms);
+        DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        DIAG_ADD(parameters, WARNING_BEFORE_MS, a->warning_before_ms);
+        DIAG_ADD(parameters, WARNING_OFF_MS, a->warning_off_ms);
+        return true;
+    case LYNRA_TIMER_STOPWATCH:
+        DIAG_ADD(parameters, TON_MS, a->t_ms);
+        DIAG_ADD(parameters, STOPWATCH_TIME_BASE, a->stopwatch_time_base);
+        DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
+        return true;
+    case LYNRA_COUNTER_UP_DOWN:
+        DIAG_ADD(parameters, COUNTER_INPUT_INDEX, a->counter_input_index);
+        DIAG_ADD(parameters, DIRECTION_INPUT_INDEX, a->direction_input_index);
+        DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
+        DIAG_ADD(parameters, COUNTER_START_VALUE, a->counter_start_value);
+        DIAG_ADD(parameters, COUNTER_ON, a->counter_on);
+        DIAG_ADD(parameters, COUNTER_OFF, a->counter_off);
+        return true;
+    case LYNRA_COUNTER_HOURS:
+        DIAG_ADD(parameters, HOURS_ENABLE_INPUT_INDEX, a->hours_enable_input_index);
+        DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
+        DIAG_ADD(parameters, HOURS_RESET_ALL_INPUT_INDEX, a->hours_reset_all_input_index);
+        DIAG_ADD(parameters, HOURS_TARGET_MS, diag_u64(a->hours_target_ms));
+        return true;
+    case LYNRA_THRESHOLD_TRIGGER:
+        DIAG_ADD(parameters, THRESHOLD_INPUT_INDEX, a->threshold_input_index);
+        DIAG_ADD(parameters, THRESHOLD_GATE_MS, a->threshold_gate_ms);
+        DIAG_ADD(parameters, THRESHOLD_ON, a->threshold_on);
+        DIAG_ADD(parameters, THRESHOLD_OFF, a->threshold_off);
+        return true;
+    default: return false;
     }
 }
-bool lynra_plc_get_values(
-    const LynraPlcEngine *e,
-    size_t rule_index,
-    size_t action_index,
-    LynraValues *values)
-{
-    if (!e || !e->in_use || !values ||
-        rule_index >= e->count)
-        return false;
 
-    const LynraRule *r = &e->rules[rule_index];
-
-    if (action_index >= r->action_count)
-        return false;
-
-    const LynraAction *a = &r->actions[action_index];
-    const TimerState *s = &e->timers[rule_index][action_index];
-
+bool lynra_plc_get_values(const LynraPlcEngine *e, size_t ri, size_t ai,
+                          LynraValues *values) {
+    if (!e || !e->in_use || !values || ri >= e->count ||
+        ai >= e->rules[ri].action_count) return false;
+    const LynraAction *a = &e->rules[ri].actions[ai];
+    const TimerState *s = &e->timers[ri][ai];
+    uint64_t elapsed = 0;
     values->count = 0;
-
+    if (s->started && e->has_last_scan && e->last_scan >= s->started_at)
+        elapsed = e->last_scan - s->started_at;
     switch (a->type) {
-        case LYNRA_TIMER_ON_DELAY: {
-            uint64_t elapsed = 0;
-
-            if (s->started && e->has_last_scan) {
-                elapsed = e->last_scan - s->started_at;
-
-                if (elapsed > a->t_ms)
-                    elapsed = a->t_ms;
-            }
-
-            values->items[0] = (LynraParameter){
-                LYNRA_FIELD_ELAPSED_MS, (LynraFieldValue)elapsed
-            };
-
-            values->items[1] = (LynraParameter){
-                LYNRA_FIELD_TRIGGER_COUNT, s->trigger_count
-            };
-
-            values->items[2] = (LynraParameter){
-                LYNRA_FIELD_COMPLETION_COUNT, s->completion_count
-            };
-
-            values->count = 3;
-            return true;
-        }
-				case LYNRA_TIMER_OFF_DELAY: {
-						uint64_t elapsed = 0;
-
-						if (s->started && e->has_last_scan) {
-								elapsed = e->last_scan - s->started_at;
-
-								if (elapsed > a->t_ms)
-										elapsed = a->t_ms;
-						}
-
-						values->items[0] = (LynraParameter){
-								LYNRA_FIELD_ELAPSED_MS,
-								(LynraFieldValue)elapsed
-						};
-
-						values->items[1] = (LynraParameter){
-    LYNRA_FIELD_TRIGGER_COUNT, s->trigger_count
-};
-
-values->items[2] = (LynraParameter){
-    LYNRA_FIELD_COMPLETION_COUNT, s->completion_count
-};
-
-values->count = 3;
-return true;
-				}
-
-        default:
-            return false;
+    case LYNRA_TIMER_ON_DELAY:
+    case LYNRA_TIMER_OFF_DELAY:
+        if (elapsed > a->t_ms) elapsed = a->t_ms;
+        DIAG_ADD(values, ELAPSED_MS, diag_u64(elapsed));
+        DIAG_ADD(values, TRIGGER_COUNT, s->trigger_count);
+        DIAG_ADD(values, COMPLETION_COUNT, s->completion_count);
+        return true;
+    case LYNRA_TIMER_ON_OFF_DELAY:
+        DIAG_ADD(values, ELAPSED_MS, diag_u64(elapsed));
+        break;
+    case LYNRA_TIMER_RETENTIVE_ON_DELAY:
+    case LYNRA_TIMER_STOPWATCH: {
+        uint64_t total = s->elapsed_ms;
+        if (s->started && e->has_last_scan)
+            total = UINT64_MAX - total < elapsed ? UINT64_MAX : total + elapsed;
+        DIAG_ADD(values, ELAPSED_MS, diag_u64(total));
+        break;
     }
+    case LYNRA_TIMER_WIPING_RELAY:
+    case LYNRA_TIMER_EDGE_WIPING_RELAY:
+    case LYNRA_TIMER_ASYNC_PULSE:
+    case LYNRA_TIMER_STAIRWAY:
+    case LYNRA_TIMER_MULTI_FUNCTION:
+        DIAG_ADD(values, ELAPSED_MS, diag_u64(elapsed));
+        break;
+    case LYNRA_TIMER_RANDOM_GENERATOR:
+        DIAG_ADD(values, RANDOM_PENDING, s->random_pending);
+        DIAG_ADD(values, REMAINING_MS,
+                 s->random_pending && e->has_last_scan && s->random_due_ms > e->last_scan
+                 ? diag_u64(s->random_due_ms - e->last_scan) : 0);
+        break;
+    case LYNRA_COUNTER_UP_DOWN:
+        DIAG_ADD(values, COUNTER_VALUE, s->counter_value);
+        break;
+    case LYNRA_COUNTER_HOURS:
+        DIAG_ADD(values, HOURS_ELAPSED_MS, diag_u64(s->hours_elapsed_ms));
+        DIAG_ADD(values, HOURS_TOTAL_MS, diag_u64(s->hours_total_ms));
+        break;
+    case LYNRA_THRESHOLD_TRIGGER:
+        DIAG_ADD(values, THRESHOLD_LAST_COUNT, s->threshold_last_count);
+        DIAG_ADD(values, PULSE_COUNT, s->threshold_count);
+        break;
+    default: return false;
+    }
+    DIAG_ADD(values, EXECUTION_STATE, s->execution_state);
+    /* This is the aggregate physical output bit, not a per-action arbitration result. */
+    DIAG_ADD(values, OUTPUT_STATE, (e->outputs >> (a->output_index - 1)) & 1u);
+    if (a->type == LYNRA_TIMER_MULTI_FUNCTION)
+        DIAG_ADD(values, MULTI_PERMANENT, s->multi_permanent);
+    return true;
 }
+#undef DIAG_ADD
+
 bool lynra_plc_get_field(
     const LynraPlcEngine *e,
     size_t rule_index,
@@ -1009,41 +1053,113 @@ case LYNRA_FIELD_TRIGGER_MODE:
             return false;
     }
 }
-bool lynra_plc_set_field(
-    LynraPlcEngine *e,
-    size_t rule_index,
-    size_t action_index,
-    LynraFieldId field,
-    LynraFieldValue value)
-{
-    if (!e || !e->in_use || rule_index >= e->count)
+bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
+                         LynraFieldId field, LynraFieldValue value) {
+    if (!e || !e->in_use || ri >= e->count || ai >= e->rules[ri].action_count)
         return false;
-
-    LynraRule *r = &e->rules[rule_index];
-
-    if (action_index >= r->action_count)
-        return false;
-
-    LynraAction *a = &r->actions[action_index];
-
+    LynraAction *a = &e->rules[ri].actions[ai];
+    LynraAction next = *a;
     switch (field) {
-        case LYNRA_FIELD_TON_MS:
-            if (a->type != LYNRA_TIMER_ON_DELAY ||
-                value < 0 || value > UINT32_MAX)
-                return false;
-
-            a->t_ms = (uint32_t)value;
-            return true;
-				case LYNRA_FIELD_TOFF_MS:
-						if (a->type != LYNRA_TIMER_OFF_DELAY ||
-								value < 0 || value > UINT32_MAX)
-								return false;
-
-						a->t_ms = (uint32_t)value;
-						return true;
-        default:
-            return false;
+    case LYNRA_FIELD_TON_MS:
+        if ((a->type != LYNRA_TIMER_ON_DELAY && a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION && a->type != LYNRA_TIMER_STOPWATCH) || value < 0 || value > UINT32_MAX) return false;
+        next.t_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_TOFF_MS:
+        if ((a->type != LYNRA_TIMER_OFF_DELAY) || value < 0 || value > UINT32_MAX) return false;
+        next.t_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_TH_MS:
+        if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_ASYNC_PULSE && a->type != LYNRA_TIMER_RANDOM_GENERATOR) || value < 0 || value > UINT32_MAX) return false;
+        next.th_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_TL_MS:
+        if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_ASYNC_PULSE && a->type != LYNRA_TIMER_RANDOM_GENERATOR && a->type != LYNRA_TIMER_MULTI_FUNCTION) || value < 0 || value > UINT32_MAX) return false;
+        next.tl_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_PULSE_COUNT:
+        if ((a->type != LYNRA_TIMER_EDGE_WIPING_RELAY) || value < 0 || value > 255) return false;
+        next.n = (uint8_t)value;
+        break;
+    case LYNRA_FIELD_WARNING_BEFORE_MS:
+        if ((a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION) || value < 0 || value > UINT32_MAX) return false;
+        next.warning_before_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_WARNING_OFF_MS:
+        if ((a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION) || value < 0 || value > UINT32_MAX) return false;
+        next.warning_off_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_REPEAT:
+        if ((a->type != LYNRA_TIMER_EDGE_WIPING_RELAY) || value < 0 || value > 255) return false;
+        next.repeat = (uint8_t)value;
+        break;
+    case LYNRA_FIELD_RETRIGGER:
+        if ((a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY) || value < 0 || value > 255) return false;
+        next.retrigger = (uint8_t)value;
+        break;
+    case LYNRA_FIELD_STOPWATCH_TIME_BASE:
+        if ((a->type != LYNRA_TIMER_STOPWATCH) || value < 0 || value > 255) return false;
+        next.stopwatch_time_base = (uint8_t)value;
+        break;
+    case LYNRA_FIELD_COUNTER_START_VALUE:
+        if ((a->type != LYNRA_COUNTER_UP_DOWN) || value < INT32_MIN || value > INT32_MAX) return false;
+        next.counter_start_value = (int32_t)value;
+        break;
+    case LYNRA_FIELD_COUNTER_ON:
+        if ((a->type != LYNRA_COUNTER_UP_DOWN) || value < INT32_MIN || value > INT32_MAX) return false;
+        next.counter_on = (int32_t)value;
+        break;
+    case LYNRA_FIELD_COUNTER_OFF:
+        if ((a->type != LYNRA_COUNTER_UP_DOWN) || value < INT32_MIN || value > INT32_MAX) return false;
+        next.counter_off = (int32_t)value;
+        break;
+    case LYNRA_FIELD_HOURS_TARGET_MS:
+        if ((a->type != LYNRA_COUNTER_HOURS) || value < 0 || value > INT64_MAX) return false;
+        next.hours_target_ms = (uint64_t)value;
+        break;
+    case LYNRA_FIELD_THRESHOLD_GATE_MS:
+        if ((a->type != LYNRA_THRESHOLD_TRIGGER) || value < 0 || value > UINT32_MAX) return false;
+        next.threshold_gate_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_THRESHOLD_ON:
+        if ((a->type != LYNRA_THRESHOLD_TRIGGER) || value < 0 || value > UINT32_MAX) return false;
+        next.threshold_on = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_THRESHOLD_OFF:
+        if ((a->type != LYNRA_THRESHOLD_TRIGGER) || value < 0 || value > UINT32_MAX) return false;
+        next.threshold_off = (uint32_t)value;
+        break;
+    default: return false; /* Wiring, live values and unknown IDs are immutable. */
     }
+    /* Validate cross-parameter constraints before committing the update. */
+    switch (next.type) {
+    case LYNRA_TIMER_EDGE_WIPING_RELAY:
+        if (!next.n || !next.th_ms || !next.tl_ms || next.repeat > 1 || next.retrigger > 1) return false;
+        break;
+    case LYNRA_TIMER_ASYNC_PULSE:
+        if (!next.th_ms || !next.tl_ms) return false;
+        break;
+    case LYNRA_TIMER_STAIRWAY:
+        if (!next.t_ms || next.warning_before_ms > next.t_ms ||
+            next.warning_off_ms > next.warning_before_ms || next.retrigger > 1) return false;
+        break;
+    case LYNRA_TIMER_MULTI_FUNCTION:
+        if (!next.t_ms || !next.tl_ms || next.warning_before_ms > next.t_ms ||
+            next.warning_off_ms > next.warning_before_ms) return false;
+        break;
+    case LYNRA_TIMER_STOPWATCH:
+        if (next.stopwatch_time_base > 2) return false;
+        break;
+    case LYNRA_TIMER_RETENTIVE_ON_DELAY:
+        if (next.retrigger > 1) return false;
+        break;
+    case LYNRA_THRESHOLD_TRIGGER:
+        if (next.threshold_gate_ms < 1000 || next.threshold_gate_ms > 100000 ||
+            next.threshold_on > 9999 || next.threshold_off > 9999) return false;
+        break;
+    default: break;
+    }
+    *a = next;
+    return true;
 }
 bool lynra_plc_set_parameter(
     LynraPlcEngine *e,
