@@ -5,6 +5,8 @@ typedef struct {
 bool started; 
 bool prev_match; 
 bool output_on; 
+uint32_t trigger_count;
+uint32_t completion_count;
 uint64_t started_at; 
 uint64_t elapsed_ms; 
 uint32_t pulse_phase; 
@@ -181,8 +183,19 @@ if (a->reset_input_index != 0) {
    if (a->type == LYNRA_TIMER_ON_DELAY) {
     if (!active) { s->started = false; }
     else {
-     if (!s->started) { s->started = true; s->started_at = now_ms; }
+     if (!s->started) {
+    s->started = true;
+    s->started_at = now_ms;
+
+    if (s->trigger_count < UINT32_MAX)
+        s->trigger_count++;
+}
      on = now_ms - s->started_at >= a->t_ms;
+
+if (on && s->execution_state != LYNRA_EXEC_COMPLETED) {
+    if (s->completion_count < UINT32_MAX)
+        s->completion_count++;
+}
     }
     s->execution_state = !active ? LYNRA_EXEC_IDLE :
       on ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
@@ -634,6 +647,10 @@ if (now_ms - s->threshold_window_start_ms >= 2 * gate_ms) {
  e->outputs = result; e->previous_inputs = inputs; e->last_scan = now_ms; e->has_last_scan = true;
  return true;
 }
+uint32_t lynra_plc_get_inputs(const LynraPlcEngine *e)
+{
+    return e && e->in_use ? e->previous_inputs : 0;
+}
 uint32_t lynra_plc_get_outputs(const LynraPlcEngine *e) { return e && e->in_use ? e->outputs : 0; }
 
 bool lynra_plc_get_stopwatch(const LynraPlcEngine *e, size_t rule_index,
@@ -757,4 +774,108 @@ bool lynra_plc_get_threshold(
         e->timers[rule_index][action_index].threshold_last_count;
 
     return true;
+}
+bool lynra_plc_get_field(
+    const LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    LynraFieldId field,
+    LynraFieldValue *value)
+{
+    if (!e || !e->in_use || !value ||
+        rule_index >= e->count)
+        return false;
+
+    const LynraRule *r = &e->rules[rule_index];
+
+    if (action_index >= r->action_count)
+        return false;
+
+    const LynraAction *a = &r->actions[action_index];
+    const TimerState *s = &e->timers[rule_index][action_index];
+
+    switch (field) {
+			case LYNRA_FIELD_ELAPSED_MS:
+    if (a->type != LYNRA_TIMER_ON_DELAY)
+        return false;
+
+    if (!s->started) {
+        *value = 0;
+    } else {
+        uint64_t elapsed = e->last_scan - s->started_at;
+
+        if (elapsed > a->t_ms)
+            elapsed = a->t_ms;
+
+        *value = (LynraFieldValue)elapsed;
+    }
+    return true;
+			case LYNRA_FIELD_INPUT:
+    if (r->condition_count != 1)
+        return false;
+
+    *value = r->conditions[0].input_index;
+    return true;
+
+case LYNRA_FIELD_TRIGGER_MODE:
+    if (r->condition_count != 1)
+        return false;
+
+    *value = r->conditions[0].trigger;
+    return true;
+        case LYNRA_FIELD_OUTPUT:
+            *value = (e->outputs >> (a->output_index - 1)) & 1u;
+            return true;
+
+        case LYNRA_FIELD_TON_MS:
+            if (a->type != LYNRA_TIMER_ON_DELAY)
+                return false;
+            *value = a->t_ms;
+            return true;
+
+        case LYNRA_FIELD_TRIGGER_COUNT:
+            if (a->type != LYNRA_TIMER_ON_DELAY)
+                return false;
+            *value = s->trigger_count;
+            return true;
+
+        case LYNRA_FIELD_COMPLETION_COUNT:
+            if (a->type != LYNRA_TIMER_ON_DELAY)
+                return false;
+            *value = s->completion_count;
+            return true;
+
+        default:
+            return false;
+    }
+}
+bool lynra_plc_set_field(
+    LynraPlcEngine *e,
+    size_t rule_index,
+    size_t action_index,
+    LynraFieldId field,
+    LynraFieldValue value)
+{
+    if (!e || !e->in_use || rule_index >= e->count)
+        return false;
+
+    LynraRule *r = &e->rules[rule_index];
+
+    if (action_index >= r->action_count)
+        return false;
+
+    LynraAction *a = &r->actions[action_index];
+
+    switch (field) {
+        case LYNRA_FIELD_TON_MS:
+            if (a->type != LYNRA_TIMER_ON_DELAY ||
+                value < 0 || value > UINT32_MAX)
+                return false;
+
+            a->t_ms = (uint32_t)value;
+            return true;
+
+        default:
+            return false;
+    }
 }

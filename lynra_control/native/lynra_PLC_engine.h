@@ -59,12 +59,33 @@ typedef struct {
  uint8_t action_count;
  LynraAction actions[LYNRA_PLC_MAX_ACTIONS];
 } LynraRule;
+/* Ortak API alan kimlikleri */
+typedef enum {
+    LYNRA_FIELD_INPUT,
+    LYNRA_FIELD_OUTPUT,
+    LYNRA_FIELD_TRIGGER_MODE,
+
+    LYNRA_FIELD_TON_MS,
+    LYNRA_FIELD_TOFF_MS,
+
+    LYNRA_FIELD_TRIGGER_COUNT,
+    LYNRA_FIELD_COMPLETION_COUNT,
+
+    LYNRA_FIELD_COUNTER_VALUE,
+    LYNRA_FIELD_COUNTER_PRESET,
+
+    LYNRA_FIELD_ELAPSED_MS
+} LynraFieldId;
+
+/* Ortak API değer tipi */
+typedef int64_t LynraFieldValue;
 typedef struct LynraPlcEngine LynraPlcEngine;
 LynraPlcEngine *lynra_plc_create(void);
 void lynra_plc_destroy(LynraPlcEngine *engine);
 void lynra_plc_reset(LynraPlcEngine *engine);
 bool lynra_plc_load_rules(LynraPlcEngine *engine, const LynraRule *rules, size_t count);
 bool lynra_plc_scan(LynraPlcEngine *engine, uint64_t now_ms, uint32_t inputs);
+uint32_t lynra_plc_get_inputs(const LynraPlcEngine *engine);
 uint32_t lynra_plc_get_outputs(const LynraPlcEngine *engine);
 bool lynra_plc_get_action_state(const LynraPlcEngine *engine, size_t rule_index,
                                 size_t action_index, LynraExecutionState *state);
@@ -88,6 +109,25 @@ bool lynra_plc_get_threshold(
     size_t rule_index,
     size_t action_index,
     uint32_t *pulse_count);
+bool lynra_plc_get_on_delay_counters(
+    const LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    uint32_t *trigger_count,
+    uint32_t *completion_count);
+bool lynra_plc_get_field(
+    const LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    LynraFieldId field,
+    LynraFieldValue *value);	
+bool lynra_plc_set_field(
+    LynraPlcEngine *engine,
+    size_t rule_index,
+    size_t action_index,
+    LynraFieldId field,
+    LynraFieldValue value);		
+		
 #ifdef __cplusplus
 }
 #endif
