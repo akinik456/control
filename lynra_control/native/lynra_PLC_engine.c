@@ -33,6 +33,13 @@ struct LynraPlcEngine {
  size_t count;
  LynraRule rules[LYNRA_PLC_MAX_RULES];
  bool rule_prev_active[LYNRA_PLC_MAX_RULES];
+  uint8_t cmd_pc[LYNRA_PLC_MAX_RULES];
+  bool cmd_running[LYNRA_PLC_MAX_RULES];
+  bool cmd_waiting[LYNRA_PLC_MAX_RULES];
+  uint64_t cmd_wait_at[LYNRA_PLC_MAX_RULES];
+  uint32_t cmd_latch_mask[LYNRA_PLC_MAX_RULES];
+  uint32_t cmd_latch_values[LYNRA_PLC_MAX_RULES];
+  uint32_t cmd_follow_mask[LYNRA_PLC_MAX_RULES];
  TimerState timers[LYNRA_PLC_MAX_RULES][LYNRA_PLC_MAX_ACTIONS];
 };
 static LynraPlcEngine instance;
@@ -55,6 +62,13 @@ void lynra_plc_reset(LynraPlcEngine *e) {
     }
 }
  memset(e->rule_prev_active, 0, sizeof(e->rule_prev_active));
+ memset(e->cmd_pc, 0, sizeof(e->cmd_pc));
+ memset(e->cmd_running, 0, sizeof(e->cmd_running));
+ memset(e->cmd_waiting, 0, sizeof(e->cmd_waiting));
+ memset(e->cmd_wait_at, 0, sizeof(e->cmd_wait_at));
+ memset(e->cmd_latch_mask, 0, sizeof(e->cmd_latch_mask));
+ memset(e->cmd_latch_values, 0, sizeof(e->cmd_latch_values));
+ memset(e->cmd_follow_mask, 0, sizeof(e->cmd_follow_mask));
  e->outputs = 0; e->previous_inputs = 0; e->random_state = 0x9E3779B9u; e->last_scan = 0; e->has_last_scan = false;
 }
 bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t count) {
@@ -68,8 +82,29 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
   for (unsigned c = 0; c < r->condition_count; ++c)
    if (r->conditions[c].input_index < 1 || r->conditions[c].input_index > LYNRA_PLC_MAX_INPUTS ||
        r->conditions[c].trigger > LYNRA_TRIGGER_FALLING) return false;
-  for (unsigned a = 0; a < r->action_count; ++a)
-   if ((r->actions[a].type != LYNRA_TIMER_ON_DELAY &&
+   /* Command sequences cannot mix with predefined function blocks. */
+   bool commands = r->actions[0].type >= LYNRA_CMD_WAIT;
+   uint32_t used_outputs = 0;
+   for (unsigned a = 0; a < r->action_count; ++a) {
+       const LynraAction *act = &r->actions[a];
+       if ((act->type >= LYNRA_CMD_WAIT) != commands) return false;
+       if (commands) {
+           if (act->type > LYNRA_CMD_RESET) return false;
+           if (act->type == LYNRA_CMD_WAIT) {
+               if (act->output_index != 0) return false;
+           } else {
+               if (act->output_index < 1 || act->output_index > LYNRA_PLC_MAX_OUTPUTS) return false;
+               uint32_t bit = 1u << (act->output_index - 1);
+               if (used_outputs & bit) return false;
+               used_outputs |= bit;
+               if (act->type == LYNRA_CMD_FOLLOW &&
+                   (act->follow_input_index < 1 || act->follow_input_index > LYNRA_PLC_MAX_INPUTS)) return false;
+           }
+       }
+   }
+   if (commands) continue;
+   for (unsigned a = 0; a < r->action_count; ++a)
+    if ((r->actions[a].type != LYNRA_TIMER_ON_DELAY &&
         r->actions[a].type != LYNRA_TIMER_OFF_DELAY &&
         r->actions[a].type != LYNRA_TIMER_ON_OFF_DELAY &&
         r->actions[a].type != LYNRA_TIMER_RETENTIVE_ON_DELAY &&
@@ -162,6 +197,52 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
   bool trigger_event = active && !e->rule_prev_active[i];
   e->rule_prev_active[i] = active;
 
+   if (r->actions[0].type >= LYNRA_CMD_WAIT) {
+       if (trigger_event && (!e->cmd_running[i] || r->run_policy == LYNRA_RUN_REPEAT)) {
+           e->cmd_pc[i] = 0;
+           e->cmd_running[i] = true;
+           e->cmd_waiting[i] = false;
+           e->cmd_follow_mask[i] = 0;
+       }
+       /* Execute immediate commands in one scan; WAIT yields to the next scan. */
+       while (e->cmd_running[i] && e->cmd_pc[i] < r->action_count) {
+           const LynraAction *a = &r->actions[e->cmd_pc[i]];
+           if (a->type == LYNRA_CMD_WAIT) {
+               if (!e->cmd_waiting[i]) {
+                   e->cmd_waiting[i] = true;
+                   e->cmd_wait_at[i] = now_ms;
+               }
+               if (now_ms - e->cmd_wait_at[i] < a->t_ms) break;
+               e->cmd_waiting[i] = false;
+           } else {
+               uint32_t bit = 1u << (a->output_index - 1);
+               if (a->type == LYNRA_CMD_FOLLOW) {
+                   e->cmd_follow_mask[i] |= bit;
+               } else {
+                   e->cmd_latch_mask[i] |= bit;
+                   if (a->type == LYNRA_CMD_SET) e->cmd_latch_values[i] |= bit;
+                   else e->cmd_latch_values[i] &= ~bit;
+               }
+           }
+           e->cmd_pc[i]++;
+       }
+       if (e->cmd_pc[i] >= r->action_count) e->cmd_running[i] = false;
+  /* Command output arbitration: later command rules take precedence. */
+      uint32_t mask = e->cmd_latch_mask[i];
+      uint32_t bits = e->cmd_latch_values[i];
+      for (unsigned j = 0; j < e->rules[i].action_count; ++j) {
+          const LynraAction *a = &e->rules[i].actions[j];
+          if (a->type != LYNRA_CMD_FOLLOW) continue;
+          uint32_t bit = 1u << (a->output_index - 1);
+          if (!(e->cmd_follow_mask[i] & bit)) continue;
+          mask |= bit;
+          if (inputs & (1u << (a->follow_input_index - 1))) bits |= bit;
+          else bits &= ~bit;
+      }
+      result = (result & ~mask) | (bits & mask);
+
+       continue;
+   }
   bool rule_accept_trigger = trigger_event;
   for (unsigned j = 0; j < r->action_count; ++j) {
    const LynraAction *a = &r->actions[j];
@@ -727,6 +808,11 @@ bool lynra_plc_get_action_state(const LynraPlcEngine *e, size_t rule_index,
  const LynraRule *r = &e->rules[rule_index];
  if (action_index >= r->action_count) return false;
  LynraActionType type = r->actions[action_index].type;
+ if (type >= LYNRA_CMD_WAIT && type <= LYNRA_CMD_RESET) {
+     *state = e->cmd_running[rule_index] ? LYNRA_EXEC_RUNNING :
+         e->cmd_pc[rule_index] >= r->action_count ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE;
+     return true;
+ }
  if (type != LYNRA_TIMER_STAIRWAY &&
      type != LYNRA_TIMER_MULTI_FUNCTION &&
      type != LYNRA_TIMER_STOPWATCH &&
@@ -911,6 +997,13 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
         DIAG_ADD(parameters, THRESHOLD_ON, a->threshold_on);
         DIAG_ADD(parameters, THRESHOLD_OFF, a->threshold_off);
         return true;
+    case LYNRA_CMD_WAIT:
+        DIAG_ADD(parameters, TON_MS, a->t_ms);
+        return true;
+    case LYNRA_CMD_FOLLOW:
+    case LYNRA_CMD_SET:
+    case LYNRA_CMD_RESET:
+        return true;
     default: return false;
     }
 }
@@ -968,6 +1061,13 @@ bool lynra_plc_get_values(const LynraPlcEngine *e, size_t ri, size_t ai,
         DIAG_ADD(values, THRESHOLD_LAST_COUNT, s->threshold_last_count);
         DIAG_ADD(values, PULSE_COUNT, s->threshold_count);
         break;
+    case LYNRA_CMD_WAIT:
+    case LYNRA_CMD_FOLLOW:
+    case LYNRA_CMD_SET:
+    case LYNRA_CMD_RESET:
+        DIAG_ADD(values, EXECUTION_STATE, e->cmd_running[ri] ? LYNRA_EXEC_RUNNING :
+                 e->cmd_pc[ri] >= e->rules[ri].action_count ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE);
+        return true;
     default: return false;
     }
     DIAG_ADD(values, EXECUTION_STATE, s->execution_state);

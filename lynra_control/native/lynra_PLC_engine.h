@@ -22,7 +22,8 @@ typedef enum {
  LYNRA_TIMER_MULTI_FUNCTION, LYNRA_TIMER_STOPWATCH,
  LYNRA_COUNTER_UP_DOWN,
  LYNRA_COUNTER_HOURS,
- LYNRA_THRESHOLD_TRIGGER
+ LYNRA_THRESHOLD_TRIGGER,
+ LYNRA_CMD_WAIT, LYNRA_CMD_FOLLOW, LYNRA_CMD_SET, LYNRA_CMD_RESET
 } LynraActionType;
 typedef enum { LYNRA_RUN_ONCE, LYNRA_RUN_REPEAT } LynraRunPolicy;
 typedef enum { LYNRA_EXEC_IDLE, LYNRA_EXEC_RUNNING, LYNRA_EXEC_COMPLETED } LynraExecutionState;
@@ -30,6 +31,7 @@ typedef struct { uint8_t input_index; LynraConditionTrigger trigger; } LynraCond
 typedef struct {
  LynraActionType type;
  uint8_t output_index;
+ uint8_t follow_input_index; /* FOLLOW: 1..32; WAIT: unused */
  uint32_t t_ms, th_ms, tl_ms;
  uint32_t warning_before_ms, warning_off_ms;
  uint8_t n;
