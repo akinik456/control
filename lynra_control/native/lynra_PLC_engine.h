@@ -11,6 +11,7 @@ extern "C" {
 #define LYNRA_PLC_MAX_RULES 64
 #define LYNRA_PLC_MAX_CONDITIONS 8
 #define LYNRA_PLC_MAX_ACTIONS 16
+#define LYNRA_PLC_MAX_EXPR_TOKENS 32
 
 typedef enum { LYNRA_LOGIC_AND, LYNRA_LOGIC_OR, LYNRA_LOGIC_XOR, LYNRA_LOGIC_AND_EDGE, LYNRA_LOGIC_NAND, LYNRA_LOGIC_NAND_EDGE, LYNRA_LOGIC_NOR, LYNRA_LOGIC_NOT } LynraLogicOperator;
 typedef enum { LYNRA_TRIGGER_HIGH, LYNRA_TRIGGER_LOW, LYNRA_TRIGGER_RISING, LYNRA_TRIGGER_FALLING } LynraConditionTrigger;
@@ -28,6 +29,11 @@ typedef enum {
 typedef enum { LYNRA_RUN_ONCE, LYNRA_RUN_REPEAT } LynraRunPolicy;
 typedef enum { LYNRA_EXEC_IDLE, LYNRA_EXEC_RUNNING, LYNRA_EXEC_COMPLETED } LynraExecutionState;
 typedef struct { uint8_t input_index; LynraConditionTrigger trigger; } LynraCondition;
+/* Optional postfix (RPN) expression. The editor converts parentheses to RPN.
+   CONDITION tokens reference conditions[] by zero-based index. */
+typedef enum { LYNRA_EXPR_CONDITION, LYNRA_EXPR_AND, LYNRA_EXPR_OR,
+               LYNRA_EXPR_XOR, LYNRA_EXPR_NOT } LynraExprOp;
+typedef struct { LynraExprOp op; uint8_t condition_index; } LynraExprToken;
 typedef struct {
  LynraActionType type;
  uint8_t output_index;
@@ -58,6 +64,8 @@ typedef struct {
  LynraRunPolicy run_policy;
  uint8_t condition_count;
  LynraCondition conditions[LYNRA_PLC_MAX_CONDITIONS];
+ uint8_t expression_count; /* 0 = legacy logic_operator */
+ LynraExprToken expression[LYNRA_PLC_MAX_EXPR_TOKENS];
  uint8_t action_count;
  LynraAction actions[LYNRA_PLC_MAX_ACTIONS];
 } LynraRule;

@@ -17,7 +17,7 @@ target_compile_options(lynra_PLC_engine PRIVATE
 
 
 if(NOT ANDROID)
-    add_executable(test_custom_commands test_custom_commands.c)
-    target_link_libraries(test_custom_commands PRIVATE lynra_PLC_engine)
+    add_executable(test_mixed_conditions test_mixed_conditions.c)
+    target_link_libraries(test_mixed_conditions PRIVATE lynra_PLC_engine)
 endif()
 

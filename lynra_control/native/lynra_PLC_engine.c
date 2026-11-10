@@ -79,9 +79,30 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
       !r->condition_count || r->condition_count > LYNRA_PLC_MAX_CONDITIONS ||
       !r->action_count || r->action_count > LYNRA_PLC_MAX_ACTIONS ||
       r->logic_operator > LYNRA_LOGIC_NOT) return false;
-  for (unsigned c = 0; c < r->condition_count; ++c)
+  /* Validate RPN stack shape before accepting a program. */
+  if (r->expression_count > LYNRA_PLC_MAX_EXPR_TOKENS) return false;
+  if (r->expression_count) {
+   unsigned depth = 0;
+   for (unsigned t = 0; t < r->expression_count; ++t) {
+    const LynraExprToken *x = &r->expression[t];
+    if (x->op == LYNRA_EXPR_CONDITION) {
+     if (x->condition_index >= r->condition_count ||
+         depth >= LYNRA_PLC_MAX_EXPR_TOKENS) return false;
+     ++depth;
+    } else if (x->op == LYNRA_EXPR_NOT) {
+     if (depth < 1) return false;
+    } else if (x->op == LYNRA_EXPR_AND || x->op == LYNRA_EXPR_OR ||
+               x->op == LYNRA_EXPR_XOR) {
+     if (depth < 2) return false;
+     --depth;
+    } else return false;
+   }
+   if (depth != 1) return false;
+  }
+  for (unsigned c = 0; c < r->condition_count; ++c) {
    if (r->conditions[c].input_index < 1 || r->conditions[c].input_index > LYNRA_PLC_MAX_INPUTS ||
        r->conditions[c].trigger > LYNRA_TRIGGER_FALLING) return false;
+  }
    /* Command sequences cannot mix with predefined function blocks. */
    bool commands = r->actions[0].type >= LYNRA_CMD_WAIT;
    uint32_t used_outputs = 0;
@@ -162,6 +183,30 @@ static uint32_t random_delay(LynraPlcEngine *e, uint32_t upper_ms) {
  return (uint32_t)((uint64_t)x % ((uint64_t)upper_ms + 1u));
 }
 static bool matches(const LynraRule *r, uint32_t inputs, uint32_t previous) {
+ if (r->expression_count) {
+  bool stack[LYNRA_PLC_MAX_EXPR_TOKENS];
+  unsigned depth = 0;
+  for (unsigned t = 0; t < r->expression_count; ++t) {
+   const LynraExprToken *x = &r->expression[t];
+   if (x->op == LYNRA_EXPR_CONDITION) {
+    const LynraCondition *cond = &r->conditions[x->condition_index];
+    uint32_t bit = 1u << (cond->input_index - 1);
+    bool now = (inputs & bit) != 0;
+    bool before = (previous & bit) != 0;
+    stack[depth++] = cond->trigger == LYNRA_TRIGGER_HIGH ? now :
+       cond->trigger == LYNRA_TRIGGER_LOW ? !now :
+       cond->trigger == LYNRA_TRIGGER_RISING ? now && !before : !now && before;
+   } else if (x->op == LYNRA_EXPR_NOT) {
+    stack[depth - 1] = !stack[depth - 1];
+   } else {
+    bool rhs = stack[--depth];
+    bool lhs = stack[depth - 1];
+    stack[depth - 1] = x->op == LYNRA_EXPR_AND ? lhs && rhs :
+                       x->op == LYNRA_EXPR_OR ? lhs || rhs : lhs != rhs;
+   }
+  }
+  return stack[0];
+ }
  unsigned matched = 0, previous_matched = 0;
  for (unsigned i = 0; i < r->condition_count; ++i) {
   const LynraCondition *c = &r->conditions[i];
