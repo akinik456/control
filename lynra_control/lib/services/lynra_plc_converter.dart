@@ -224,11 +224,9 @@ target.thresholdOff =
       LogicOperator.and => 0,
       LogicOperator.or => 1,
       LogicOperator.xor => 2,
-      LogicOperator.andEdge => 3,
-      LogicOperator.nand => 4,
-      LogicOperator.nandEdge => 5,
-      LogicOperator.nor => 6,
-      LogicOperator.not => 7,
+      LogicOperator.nand => 3,
+      LogicOperator.nor => 4,
+      LogicOperator.not => 5,
     };
     target.runPolicy = switch (source.runPolicy) {
       RuleRunPolicy.once => 0,

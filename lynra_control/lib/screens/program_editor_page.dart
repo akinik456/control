@@ -23,8 +23,96 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     controlBlocks: [ControlBlock(id: 'main', groups: [_makeRule()])],
   );
   int _id = 0;
+  // UI-only expansion state; does not change saved program data.
+  final Set<String> _collapsedConditions = {'rule_1'};
+  final Set<String> _collapsedGroups = {};
+	final Set<ControlAction> _expandedActions = {};
+
+  String _conditionText(InputCondition c) => switch (c.trigger) {
+    ConditionTrigger.highLevel => 'I${c.inputIndex}=ON',
+    ConditionTrigger.lowLevel => 'I${c.inputIndex}=OFF',
+    ConditionTrigger.risingEdge => 'I${c.inputIndex}=↑',
+    ConditionTrigger.fallingEdge => 'I${c.inputIndex}=↓',
+  };
+
+  String _logicText(LogicOperator op) => switch (op) {
+  LogicOperator.and => 'VE',
+  LogicOperator.or => 'VEYA',
+  LogicOperator.xor => 'FARKLIYSA',
+  LogicOperator.nand => 'TERS VE',
+  LogicOperator.nor => 'TERS VEYA',
+  LogicOperator.not => 'DEĞİL',
+};
+
+  String _subgroupText(ConditionSubgroup group) =>
+      '(${group.conditions.isEmpty ? 'koşul yok' : group.conditions.map(_conditionText).join(' ${_logicText(group.logicOperator)} ')})';
+
+  String _allConditionsText(ControlConditionGroup rule) =>
+      rule.conditionGroups.map(_subgroupText).join(' ${_logicText(rule.groupsOperator)} ');
 
 
+
+
+  // Presentation only: colored, readable collapsed EGER summaries.
+  Widget _conditionSummary(ConditionSubgroup group) => RichText(
+    softWrap: true,
+    text: TextSpan(
+      style: DefaultTextStyle.of(context).style.copyWith(
+  fontSize: 13,
+  fontWeight: FontWeight.w600,
+	decoration: TextDecoration.none,
+),
+      children: _subgroupSpans(group),
+    ),
+  );
+
+  List<InlineSpan> _subgroupSpans(ConditionSubgroup group) {
+    final scheme = Theme.of(context).colorScheme;
+    final spans = <InlineSpan>[
+      TextSpan(text: '( ', style: TextStyle(color: scheme.onSurfaceVariant)),
+    ];
+    if (group.conditions.isEmpty) {
+      spans.add(const TextSpan(text: 'koşul yok'));
+    }
+    for (var i = 0; i < group.conditions.length; i++) {
+      if (i > 0) {
+        spans.add(TextSpan(text: ' ${_logicText(group.logicOperator)} ',
+            style: TextStyle(color: scheme.onSurface)));
+      }
+      spans.add(TextSpan(text: _conditionText(group.conditions[i]),
+          style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold)));
+    }
+    spans.add(TextSpan(text: ' )', style: TextStyle(color: scheme.onSurfaceVariant)));
+    return spans;
+  }
+
+  Widget _allConditionsSummary(ControlConditionGroup rule) {
+    final scheme = Theme.of(context).colorScheme;
+    final spans = <InlineSpan>[];
+    for (var i = 0; i < rule.conditionGroups.length; i++) {
+      if (i > 0) {
+        spans.add(TextSpan(
+					text: ' ${_logicText(rule.groupsOperator)} ',
+					style: const TextStyle(
+						color: Colors.green,
+						fontWeight: FontWeight.bold,
+					),
+				));
+      }
+      spans.addAll(_subgroupSpans(rule.conditionGroups[i]));
+    }
+    return RichText(
+      softWrap: true,
+      text: TextSpan(
+        style: DefaultTextStyle.of(context).style.copyWith(
+  fontSize: 13,
+  fontWeight: FontWeight.w600,
+	decoration: TextDecoration.none,
+),
+        children: spans,
+      ),
+    );
+  }
 
   ControlConditionGroup _makeRule() => ControlConditionGroup(
     id: 'rule_${++_id}',
@@ -292,14 +380,15 @@ for (final condition in rule.conditions) {
 
   Widget _timerParameterPreview(ControlAction action) {
   final name = _timerName(action);
-	Widget retriggerToken() => _delayToken(
-  action.timerRetrigger
-      ? 'YENİDEN TETİKLE: ON'
-      : 'YENİDEN TETİKLE: OFF',
-  () => setState(
-    () => action.timerRetrigger = !action.timerRetrigger,
-  ),
-);
+
+  Widget retriggerToken() => _delayToken(
+        action.timerRetrigger
+            ? 'YENİDEN TETİKLE: ON'
+            : 'YENİDEN TETİKLE: OFF',
+        () => setState(
+          () => action.timerRetrigger = !action.timerRetrigger,
+        ),
+      );
 
   Widget resetToken() => _delayToken(
         'RESET: I${action.resetInputIndex}',
@@ -328,24 +417,23 @@ for (final condition in rule.conditions) {
       );
 
   if (action.type == ControlActionType.retentiveOnDelay) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      spacing: 4,
+      runSpacing: 6,
       children: [
         resetToken(),
-        const SizedBox(width: 4),
         timeToken('Kalıcı açılma gecikmesi'),
-				const SizedBox(width: 4),
-retriggerToken(),
+        retriggerToken(),
       ],
     );
   }
 
   if (name == 'Kronometre') {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      spacing: 4,
+      runSpacing: 6,
       children: [
         resetToken(),
-        const SizedBox(width: 4),
         timeToken('Kronometre hedef süresi'),
       ],
     );
@@ -353,38 +441,39 @@ retriggerToken(),
 
   final repeatable =
       action.type == ControlActionType.edgeWipingRelay;
-			
-	final retriggerable =
-    action.type == ControlActionType.edgeWipingRelay ||
-    action.type == ControlActionType.stairwayTimer;
 
-  return Row(
-    mainAxisSize: MainAxisSize.min,
+  final retriggerable =
+      action.type == ControlActionType.edgeWipingRelay ||
+      action.type == ControlActionType.stairwayTimer;
+
+  return Wrap(
+    spacing: 4,
+    runSpacing: 6,
     children: [
-		if (retriggerable) ...[
-  retriggerToken(),
-  const SizedBox(width: 4),
-],
+      if (retriggerable)
+        retriggerToken(),
+
       if (repeatable) ...[
         _delayToken(
-          action.timerRepeat ? 'TEKRARLA: ON' : 'TEKRARLA: OFF',
+          action.timerRepeat
+              ? 'TEKRARLA: ON'
+              : 'TEKRARLA: OFF',
           () => setState(
             () => action.timerRepeat = !action.timerRepeat,
           ),
         ),
-        const SizedBox(width: 4),
-        if (action.timerRepeat) ...[
+        if (action.timerRepeat)
           resetToken(),
-          const SizedBox(width: 4),
-        ],
       ],
-      for (final param in _timerParams(name)) ...[
+
+      for (final param in _timerParams(name))
         _delayToken(
           param.$1 == 'N'
               ? 'N=${action.timerN}'
               : '${param.$1} ${_seconds(_timerValue(action, param.$1))}',
           () async {
             final current = _timerValue(action, param.$1);
+
             final next = param.$1 == 'N'
                 ? await _blinkCountDialog(current)
                 : await _duration(
@@ -409,12 +498,12 @@ retriggerToken(),
                         ControlActionType.multipleFunctionTimer ||
                     (param.$1 != 'T' && param.$1 != 'TL') ||
                     next > 0)) {
-              setState(() => _setTimerValue(action, param.$1, next));
+              setState(
+                () => _setTimerValue(action, param.$1, next),
+              );
             }
           },
         ),
-        const SizedBox(width: 3),
-      ],
     ],
   );
 }
@@ -982,6 +1071,190 @@ _counterInputToken(
   return _timerParameterPreview(action);
 }
 
+  // Grouped conditions are editor-only until the runtime converter supports them.
+  void _enableConditionGroups(ControlConditionGroup rule) {
+    setState(() {
+      if (rule.conditionGroups.isNotEmpty) return;
+      rule.conditionGroups.add(ConditionSubgroup(
+        logicOperator: rule.logicOperator == LogicOperator.or
+            ? LogicOperator.or : LogicOperator.and,
+        conditions: List<InputCondition>.from(rule.conditions),
+      ));
+    });
+  }
+
+  Widget _groupedConditions(ControlConditionGroup rule) {
+    final allCollapsed = _collapsedConditions.contains(rule.id);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      InkWell(
+        onTap: () => setState(() => allCollapsed
+            ? _collapsedConditions.remove(rule.id)
+            : _collapsedConditions.add(rule.id)),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          child: Row(children: [
+            Icon(allCollapsed ? Icons.chevron_right : Icons.expand_more),
+            const SizedBox(width: 5),
+            Expanded(child: allCollapsed
+                ? _allConditionsSummary(rule)
+                : const Text('Koşulları kapat',
+                    style: TextStyle(fontWeight: FontWeight.w600))),
+          ]),
+        ),
+      ),
+      if (!allCollapsed) ...[
+      for (var g = 0; g < rule.conditionGroups.length; g++) ...[
+        if (g > 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: _token(_logicText(rule.groupsOperator), () async {
+              final v = await _choose<LogicOperator>('...', [
+  (LogicOperator.and, 'VE'),
+  (LogicOperator.or, 'VEYA'),
+  (LogicOperator.xor, 'FARKLIYSA'),
+  (LogicOperator.nand, 'TERS VE'),
+  (LogicOperator.nor, 'TERS VEYA'),
+]);
+              if (v != null && mounted) setState(() => rule.groupsOperator = v);
+            }),
+          ),
+        Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(
+            border: Border.all(color: Theme.of(context).colorScheme.outline),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    Row(
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: () => setState(() {
+              final key = '${rule.id}:$g';
+              _collapsedGroups.contains(key)
+                  ? _collapsedGroups.remove(key)
+                  : _collapsedGroups.add(key);
+            }),
+            child: Row(
+              children: [
+                Icon(
+                  _collapsedGroups.contains('${rule.id}:$g')
+                      ? Icons.chevron_right
+                      : Icons.expand_more,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: _collapsedGroups.contains('${rule.id}:$g')
+                      ? _conditionSummary(rule.conditionGroups[g])
+                      : Text(
+                          'GRUP ${g + 1}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (rule.conditionGroups.length > 1)
+          IconButton(
+            tooltip: 'Grubu sil',
+            icon: const Icon(Icons.delete_outline, size: 20),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => setState(
+              () => rule.conditionGroups.removeAt(g),
+            ),
+          ),
+      ],
+    ),
+            if (!_collapsedGroups.contains('${rule.id}:$g')) ...[
+  for (var c = 0; c < rule.conditionGroups[g].conditions.length; c++) ...[
+    if (c > 0)
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: _token(
+            _logicText(rule.conditionGroups[g].logicOperator),
+            () async {
+              final v = await _choose<LogicOperator>(
+                'Grup içi ilişki',
+                [
+                  (LogicOperator.and, 'VE'),
+                  (LogicOperator.or, 'VEYA'),
+                  (LogicOperator.xor, 'FARKLIYSA'),
+                  (LogicOperator.nand, 'TERS VE'),
+                  (LogicOperator.nor, 'TERS VEYA'),
+                ],
+              );
+              if (v != null && mounted) {
+                setState(() =>
+                    rule.conditionGroups[g].logicOperator = v);
+              }
+            },
+          ),
+        ),
+      ),
+
+    Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            fit: FlexFit.loose,
+            child: _condition(
+              rule,
+              rule.conditionGroups[g].conditions[c],
+            ),
+          ),
+          if (rule.conditionGroups[g].conditions.length > 1)
+            IconButton(
+              tooltip: 'Gruptan koşulu sil',
+              icon: const Icon(
+                Icons.remove_circle_outline,
+                size: 19,
+              ),
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(
+                minWidth: 32,
+                minHeight: 32,
+              ),
+              onPressed: () => setState(() =>
+                  rule.conditionGroups[g].conditions.removeAt(c)),
+            ),
+        ],
+      ),
+    ),
+  ],
+
+  TextButton.icon(
+    onPressed: () => setState(() =>
+        rule.conditionGroups[g].conditions.add(
+          InputCondition(inputIndex: 1),
+        )),
+    icon: const Icon(Icons.add),
+    label: const Text('Koşul ekle'),
+  ),
+],
+          ]),
+        ),
+      ],
+      TextButton.icon(
+        onPressed: () => setState(() => rule.conditionGroups.add(
+          ConditionSubgroup(conditions: [InputCondition(inputIndex: 1)]))),
+        icon: const Icon(Icons.add), label: const Text('Yeni grup ekle'),
+      ),
+      const Text('Gruplu koşullar henüz simülatöre ve cihaza aktarılmaz.',
+        style: TextStyle(fontSize: 11)),
+      ],
+    ]);
+  }
+
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
     final primary = Theme.of(context).colorScheme.primary;
     final outline = Theme.of(context).colorScheme.outline;
@@ -1019,6 +1292,45 @@ _counterInputToken(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _sectionLabel('EĞER'),
             const SizedBox(height: 6),
+            if (rule.conditionGroups.isNotEmpty)
+              _groupedConditions(rule)
+            else ...[
+						InkWell(
+  onTap: () => setState(() {
+    _collapsedConditions.contains(rule.id)
+        ? _collapsedConditions.remove(rule.id)
+        : _collapsedConditions.add(rule.id);
+  }),
+  child: Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+    child: Row(
+      children: [
+        Icon(
+          _collapsedConditions.contains(rule.id)
+              ? Icons.chevron_right
+              : Icons.expand_more,
+        ),
+        const SizedBox(width: 5),
+        Expanded(
+          child: _collapsedConditions.contains(rule.id)
+              ? Text(
+                  rule.conditions.isEmpty
+                      ? 'Koşul yok'
+                      : rule.conditions
+                          .map(_conditionText)
+                          .join(' ${_logicText(rule.logicOperator)} '),
+                  style: const TextStyle(fontSize: 13),
+                )
+              : const Text(
+                  'Koşulları kapat',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+        ),
+      ],
+    ),
+  ),
+),
+if (!_collapsedConditions.contains(rule.id)) ...[
             for (var i = 0;
 							i < (rule.logicOperator == LogicOperator.not
 									? (rule.conditions.isEmpty ? 0 : 1)
@@ -1062,20 +1374,16 @@ _counterInputToken(
 											LogicOperator.and => 'VE',
 											LogicOperator.or => 'VEYA',
 											LogicOperator.xor => 'FARKLIYSA',
-											LogicOperator.andEdge => 'VE (Kenar)',
 											LogicOperator.nand => 'VE DEĞİL',
-											LogicOperator.nandEdge => 'VE DEĞİL (Kenar)',
 											LogicOperator.nor => 'VEYA DEĞİL',
 											LogicOperator.not => 'DEĞİL',
 										}, () async {
 											final v = await _choose<LogicOperator>('', [
 												(LogicOperator.and, 'VE'),
 												(LogicOperator.or, 'VEYA'),
-												(LogicOperator.xor, 'FARKLIYSA'),
-												(LogicOperator.andEdge, 'VE (Kenar)'),
-												(LogicOperator.nand, 'VE DEĞİL'),
-												(LogicOperator.nandEdge, 'VE DEĞİL (Kenar)'),
-												(LogicOperator.nor, 'VEYA DEĞİL'),
+												(LogicOperator.xor, 'FARKLIYSA'),												
+												(LogicOperator.nand, 'TERS VE'),												
+												(LogicOperator.nor, 'TERS VEYA'),
 												(LogicOperator.not, 'DEĞİL'),
 											]);
 											if (v != null) {
@@ -1091,81 +1399,132 @@ _counterInputToken(
             if (rule.conditions.isEmpty)
               _token('Koşul ekle', () => setState(() =>
                 rule.conditions.add(InputCondition(inputIndex: 1)))),
+              TextButton.icon(
+                onPressed: () => _enableConditionGroups(rule),
+                icon: const Icon(Icons.account_tree_outlined),
+                label: const Text('Koşulları gruplandır'),
+              ),
+            ],
+						],
             if (rule.onDelayMs > 0)
               Text('${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa'),
             const SizedBox(height: 12),
             Divider(height: 1, color: primary.withValues(alpha: 0.7)),
             const SizedBox(height: 12),
             _sectionLabel('İSE'),
-            const Text('Zaman fonksiyonları: arayüz taslağı; henüz cihaza aktarılabilir değil.', style: TextStyle(fontSize: 11)),
+            //const Text('Zaman fonksiyonları: arayüz taslağı; henüz cihaza aktarılabilir değil.', style: TextStyle(fontSize: 11)),
             const SizedBox(height: 6),
             // Fixed columns keep every action, delay and arrow aligned.
             for (var i = 0; i < rule.actions.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 5),
-                child: LayoutBuilder(builder: (context, constraints) {
-                  const actionWidth = 160.0;
-                  const arrowsWidth = 24.0;
-                  const gap = 3.0;
-                  final available = constraints.maxWidth;
-                  final delayWidth = available - actionWidth - arrowsWidth - gap * 2;
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: available,
-                      child: Row(children: [
-                        SizedBox(
-                          width: actionWidth,
-                          child: _action(rule, rule.actions[i]),
-                        ),
-                        const SizedBox(width: gap),
-                        Expanded(
-                          child: rule.actions[i].type == ControlActionType.delay
-                              ? const SizedBox.shrink()
-                              : Align(
-                                  alignment: Alignment.centerRight,
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    alignment: Alignment.centerRight,
-                                    child: _actionDelayPreview(rule.actions[i]),
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(width: gap),
-                        SizedBox(
-                          width: arrowsWidth,
-                          child: rule.actions.length > 1
-                              ? Column(mainAxisSize: MainAxisSize.min, children: [
-                                  InkWell(
-                                    onTap: i == 0 ? null : () => setState(() {
-                                      final item = rule.actions.removeAt(i);
-                                      rule.actions.insert(i - 1, item);
-                                    }),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(2),
-                                      child: Icon(Icons.keyboard_arrow_up, size: 20,
-                                        color: i == 0 ? Theme.of(context).disabledColor : primary),
-                                    ),
-                                  ),
-                                  InkWell(
-                                    onTap: i == rule.actions.length - 1 ? null : () => setState(() {
-                                      final item = rule.actions.removeAt(i);
-                                      rule.actions.insert(i + 1, item);
-                                    }),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(2),
-                                      child: Icon(Icons.keyboard_arrow_down, size: 20,
-                                        color: i == rule.actions.length - 1 ? Theme.of(context).disabledColor : primary),
-                                    ),
-                                  ),
-                                ])
-                              : const SizedBox.shrink(),
-                        ),
-                      ]),
-                    ),
-                  );
+  Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Builder(
+      builder: (context) {
+        final action = rule.actions[i];
+        final expanded = _expandedActions.contains(action);
+
+        return Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                onTap: () => setState(() {
+                  expanded
+                      ? _expandedActions.remove(action)
+                      : _expandedActions.add(action);
                 }),
+                child: Row(
+                  children: [
+                    Icon(
+                      expanded
+                          ? Icons.expand_more
+                          : Icons.chevron_right,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+  child: expanded
+      ? const SizedBox.shrink()
+      : Text(
+          action.type == ControlActionType.delay
+              ? '${_seconds(action.durationMs)} BEKLE'
+              : 'Q${action.outputIndex} · ${_timerName(action)}',
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+),
+                  ],
+                ),
               ),
+              if (expanded) ...[
+  const SizedBox(height: 8),
+
+  Row(
+    children: [
+      if (action.type != ControlActionType.delay)
+        _outputToken('Q${action.outputIndex}', () async {
+          final v = await _choose<int>('Çıkış seç', [
+            for (var n = 1; n <= 4; n++) (n, 'Q$n'),
+          ]);
+          if (v != null && mounted) {
+            setState(() => action.outputIndex = v);
+          }
+        }, color: Colors.deepOrange),
+
+      const SizedBox(width: 8),
+
+      if (action.type != ControlActionType.delay)
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: _operationToken(_timerName(action), () async {
+              await _chooseFunction(rule, replace: action);
+            }),
+          ),
+        )
+      else
+        Expanded(
+          child: _token('${_seconds(action.durationMs)} BEKLE', () async {
+            final v = await _duration(
+              'Bekleme süresi',
+              action.durationMs,
+            );
+            if (v != null && mounted) {
+              setState(() => action.durationMs = v);
+            }
+          }),
+        ),
+
+      IconButton(
+        tooltip: 'İşlemi sil',
+        icon: const Icon(Icons.close, color: Colors.redAccent),
+        onPressed: () => setState(() {
+          _expandedActions.remove(action);
+          rule.actions.remove(action);
+        }),
+      ),
+    ],
+  ),
+
+  if (action.type != ControlActionType.delay) ...[
+    const SizedBox(height: 8),
+    _actionDelayPreview(action),
+  ],
+],
+            ],
+          ),
+        );
+      },
+    ),
+  ),
             _token('İşlem ekle', () => _chooseFunction(rule)),
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
@@ -1178,16 +1537,22 @@ _counterInputToken(
                 Wrap(spacing: 6, runSpacing: 6, children: [
                   for (final name in _timerFunctions)
                     SizedBox(
-                      width: 142,
-                      child: OutlinedButton(
+												width: 142,
+												height: 56,
+												child: OutlinedButton(
                         onPressed: () => _selectTimer(rule, name),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: Text(name, textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 11)),
+                        child: Text(
+  name,
+  textAlign: TextAlign.center,
+  maxLines: 2,
+  overflow: TextOverflow.ellipsis,
+  style: const TextStyle(fontSize: 11),
+),
                       ),
                     ),
                 ]),
@@ -1228,10 +1593,8 @@ _counterInputToken(
   String _summaryOperator(LogicOperator op) => switch (op) {
     LogicOperator.and => 'VE',
     LogicOperator.or => 'VEYA',
-    LogicOperator.xor => 'FARKLIYSA',
-		LogicOperator.andEdge => 'VE (Kenar)',
+    LogicOperator.xor => 'FARKLIYSA',		
 		LogicOperator.nand => 'VE DEĞİL',
-		LogicOperator.nandEdge => 'VE DEĞİL (Kenar)',
 		LogicOperator.nor => 'VEYA DEĞİL',
 		LogicOperator.not => 'DEĞİL',
   };
@@ -1478,6 +1841,12 @@ _counterInputToken(
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Program Editörü'), actions: [
       IconButton(tooltip: 'Simülasyon', icon: const Icon(Icons.show_chart), onPressed: () {
+        if (_rules.any((r) => r.conditionGroups.isNotEmpty)) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Gruplu koşullar henüz simülatörde desteklenmiyor.'),
+          ));
+          return;
+        }
         _program.name = _name.text.trim();
         Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => ProgramSimulatorPage(program: _program),

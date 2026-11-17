@@ -5,11 +5,9 @@ enum LogicOperator {
   and,
   or,
   xor,
-  andEdge,
   nand,
-  nandEdge,
-	nor,
-	not,
+  nor,
+  not,
 }
 
 enum OutputBehavior { followCondition, latch }
@@ -368,11 +366,40 @@ if (type == ControlActionType.thresholdTrigger) ...{
   }
 }
 
+/// A parenthesized group of input conditions (e.g. I1 AND I2).
+/// The editor will use these groups for mixed logical expressions.
+class ConditionSubgroup {
+  LogicOperator logicOperator;
+  final List<InputCondition> conditions;
+
+  ConditionSubgroup({
+    this.logicOperator = LogicOperator.and,
+    List<InputCondition>? conditions,
+  }) : conditions = conditions ?? [];
+
+  Map<String, dynamic> toJson() => {
+        'logicOperator': logicOperator.name,
+        'conditions': conditions.map((e) => e.toJson()).toList(),
+      };
+
+  factory ConditionSubgroup.fromJson(Map<String, dynamic> json) =>
+      ConditionSubgroup(
+        logicOperator: LogicOperator.values.byName(
+            json['logicOperator'] as String? ?? 'and'),
+        conditions: (json['conditions'] as List? ?? [])
+            .map((e) => InputCondition.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+      );
+}
+
 /// One EGER-ISE rule. Runtime state is deliberately NOT stored here.
 class ControlConditionGroup {
   final String id;
   LogicOperator logicOperator;
   final List<InputCondition> conditions;
+  // Optional grouped expression. Empty means use the existing conditions.
+  final List<ConditionSubgroup> conditionGroups;
+  LogicOperator groupsOperator;
   final List<ControlAction> actions;
   OutputBehavior outputBehavior;
   /// TON: condition must remain true for this duration before rule matches.
@@ -389,6 +416,8 @@ class ControlConditionGroup {
     required this.id,
     this.logicOperator = LogicOperator.and,
     List<InputCondition>? conditions,
+    List<ConditionSubgroup>? conditionGroups,
+    this.groupsOperator = LogicOperator.or,
     List<ControlAction>? actions,
     this.outputBehavior = OutputBehavior.followCondition,
     this.onDelayMs = 0,
@@ -398,12 +427,17 @@ class ControlConditionGroup {
     this.retriggerBehavior = RetriggerBehavior.ignore,
     this.conditionLostBehavior = ConditionLostBehavior.continueRunning,
   })  : conditions = conditions ?? [],
+        conditionGroups = conditionGroups ?? [],
         actions = actions ?? [];
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'logicOperator': logicOperator.name,
         'conditions': conditions.map((e) => e.toJson()).toList(),
+        if (conditionGroups.isNotEmpty) ...{
+          'groupsOperator': groupsOperator.name,
+          'conditionGroups': conditionGroups.map((e) => e.toJson()).toList(),
+        },
         'actions': actions.map((e) => e.toJson()).toList(),
         'outputBehavior': outputBehavior.name,
         'onDelayMs': onDelayMs,
@@ -421,6 +455,11 @@ class ControlConditionGroup {
             json['logicOperator'] as String? ?? 'and'),
         conditions: (json['conditions'] as List? ?? [])
             .map((e) => InputCondition.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+        groupsOperator: LogicOperator.values.byName(
+            json['groupsOperator'] as String? ?? 'or'),
+        conditionGroups: (json['conditionGroups'] as List? ?? [])
+            .map((e) => ConditionSubgroup.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
         actions: (json['actions'] as List? ?? [])
             .map((e) => ControlAction.fromJson(Map<String, dynamic>.from(e as Map)))
