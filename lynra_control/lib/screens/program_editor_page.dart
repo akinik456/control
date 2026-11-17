@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/control_block.dart';
 import '../models/control_program.dart';
 import '../core/widgets/control_circuit_painter.dart';
+import '../core/theme/app_colors.dart';
 import 'program_simulator_page.dart';
 import 'ble_connection_page.dart';
 import 'program_test_page.dart';
@@ -27,6 +28,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   final Set<String> _collapsedConditions = {'rule_1'};
   final Set<String> _collapsedGroups = {};
 	final Set<ControlAction> _expandedActions = {};
+	final Set<String> _collapsedRules = {};
 
   String _conditionText(InputCondition c) => switch (c.trigger) {
     ConditionTrigger.highLevel => 'I${c.inputIndex}=ON',
@@ -1254,7 +1256,26 @@ _counterInputToken(
       ],
     ]);
   }
+String _ruleSummary(ControlConditionGroup rule) {
+  final conditions = rule.conditionGroups.isNotEmpty
+    ? rule.conditionGroups.map((group) {
+        final items = group.conditions
+            .map(_conditionText)
+            .join(' ${_logicText(group.logicOperator)} ');
+        return '( $items )';
+      }).join(' ${_logicText(rule.groupsOperator)} ')
+    : rule.conditions
+        .map(_conditionText)
+        .join(' ${_logicText(rule.logicOperator)} ');
 
+  final actions = rule.actions.map((action) {
+    return action.type == ControlActionType.delay
+        ? '${_seconds(action.durationMs)} BEKLE'
+        : 'Q${action.outputIndex} - ${_timerName(action)}';
+  }).join(' → ');
+
+  return 'EĞER\n$conditions\nİSE\n${actions.replaceAll(' → ', '\n')}';
+}
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
     final primary = Theme.of(context).colorScheme.primary;
     final outline = Theme.of(context).colorScheme.outline;
@@ -1266,26 +1287,108 @@ _counterInputToken(
         border: Border.all(color: primary.withValues(alpha: 0.75)),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 6, 4),
-          child: Row(children: [
-            Text('KURAL ${index + 1}', style: TextStyle(
-              fontWeight: FontWeight.bold, color: primary, fontSize: 15)),
-            const Spacer(),
-            IconButton(tooltip: 'Yukarı',
-              onPressed: index == 0 ? null : () => setState(() {
-                _rules.removeAt(index); _rules.insert(index - 1, rule);
-              }), icon: const Icon(Icons.arrow_upward, size: 20)),
-            IconButton(tooltip: 'Aşağı',
-              onPressed: index == _rules.length - 1 ? null : () => setState(() {
-                _rules.removeAt(index); _rules.insert(index + 1, rule);
-              }), icon: const Icon(Icons.arrow_downward, size: 20)),
-            IconButton(tooltip: 'Kuralı sil',
-              onPressed: () => setState(() => _rules.remove(rule)),
-              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent)),
-          ]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, 
+			children: [
+  Row(
+  children: [
+    Expanded(
+      child: InkWell(
+        onTap: () => setState(() {
+          _collapsedRules.contains(rule.id)
+              ? _collapsedRules.remove(rule.id)
+              : _collapsedRules.add(rule.id);
+        }),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+          child: Row(
+            children: [
+              Icon(
+                _collapsedRules.contains(rule.id)
+                    ? Icons.chevron_right
+                    : Icons.expand_more,
+                color: primary,
+                size: 28,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'KURAL ${index + 1}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: primary,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+  child: RichText(
+    softWrap: true,
+    text: TextSpan(
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onSurface,
+        fontSize: 13,
+        decoration: TextDecoration.none,
+      ),
+      children: [
+        for (final match in RegExp(r'EĞER|İSE|[\s\S]+?(?=EĞER|İSE|$)')
+            .allMatches(_ruleSummary(rule)))
+          TextSpan(
+            text: match.group(0),
+            style: (match.group(0) == 'EĞER' ||
+                    match.group(0) == 'İSE')
+                ? TextStyle(
+                    color: const Color(0xFF22D3EE),
+                    fontWeight: FontWeight.bold,
+                  )
+                : null,
+          ),
+      ],
+    ),
+  ),
+),
+            ],
+          ),
         ),
+      ),
+    ),
+
+    if (!_collapsedRules.contains(rule.id)) ...[
+      IconButton(
+        tooltip: 'Yukarı',
+        onPressed: index == 0 ? null : () => setState(() {
+          _rules.removeAt(index);
+          _rules.insert(index - 1, rule);
+        }),
+        icon: const Icon(Icons.arrow_upward, size: 20),
+        visualDensity: VisualDensity.compact,
+      ),
+      IconButton(
+        tooltip: 'Aşağı',
+        onPressed: index == _rules.length - 1 ? null : () => setState(() {
+          _rules.removeAt(index);
+          _rules.insert(index + 1, rule);
+        }),
+        icon: const Icon(Icons.arrow_downward, size: 20),
+        visualDensity: VisualDensity.compact,
+      ),
+    ],
+
+    IconButton(
+      tooltip: 'Kuralı sil',
+      onPressed: () => setState(() {
+        _collapsedRules.remove(rule.id);
+        _collapsedConditions.remove(rule.id);
+        _rules.remove(rule);
+      }),
+      icon: const Icon(
+        Icons.delete_outline,
+        size: 20,
+        color: Colors.redAccent,
+      ),
+    ),
+  ],
+),
+  if (!_collapsedRules.contains(rule.id)) ...[
+        
         Divider(height: 1, color: outline.withValues(alpha: 0.3)),
         Padding(
           padding: const EdgeInsets.all(12),
@@ -1416,115 +1519,122 @@ if (!_collapsedConditions.contains(rule.id)) ...[
             const SizedBox(height: 6),
             // Fixed columns keep every action, delay and arrow aligned.
             for (var i = 0; i < rule.actions.length; i++)
-  Padding(
-    padding: const EdgeInsets.only(bottom: 6),
-    child: Builder(
-      builder: (context) {
-        final action = rule.actions[i];
-        final expanded = _expandedActions.contains(action);
+							Padding(
+								padding: const EdgeInsets.only(bottom: 6),
+								child: Builder(
+									builder: (context) {
+										final action = rule.actions[i];
+										final expanded = _expandedActions.contains(action);
 
-        return Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outline,
+										return Container(
+											padding: const EdgeInsets.all(8),
+											decoration: BoxDecoration(
+												border: Border.all(
+													color: Theme.of(context).colorScheme.outline,
+												),
+												borderRadius: BorderRadius.circular(12),
+											),
+											child: Column(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    Row(
+      children: [
+        InkWell(
+          onTap: () => setState(() {
+            expanded
+                ? _expandedActions.remove(action)
+                : _expandedActions.add(action);
+          }),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(
+              expanded ? Icons.expand_more : Icons.chevron_right,
             ),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              InkWell(
-                onTap: () => setState(() {
-                  expanded
-                      ? _expandedActions.remove(action)
-                      : _expandedActions.add(action);
-                }),
-                child: Row(
-                  children: [
-                    Icon(
-                      expanded
-                          ? Icons.expand_more
-                          : Icons.chevron_right,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-  child: expanded
-      ? const SizedBox.shrink()
-      : Text(
-          action.type == ControlActionType.delay
-              ? '${_seconds(action.durationMs)} BEKLE'
-              : 'Q${action.outputIndex} · ${_timerName(action)}',
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
           ),
         ),
-),
-                  ],
+        const SizedBox(width: 6),
+
+        if (!expanded)
+          Expanded(
+            child: InkWell(
+              onTap: () => setState(() {
+                _expandedActions.add(action);
+              }),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  action.type == ControlActionType.delay
+                      ? '${_seconds(action.durationMs)} BEKLE'
+                      : 'Q${action.outputIndex} · ${_timerName(action)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
                 ),
               ),
-              if (expanded) ...[
-  const SizedBox(height: 8),
+            ),
+          ),
 
-  Row(
-    children: [
-      if (action.type != ControlActionType.delay)
-        _outputToken('Q${action.outputIndex}', () async {
-          final v = await _choose<int>('Çıkış seç', [
-            for (var n = 1; n <= 4; n++) (n, 'Q$n'),
-          ]);
-          if (v != null && mounted) {
-            setState(() => action.outputIndex = v);
-          }
-        }, color: Colors.deepOrange),
+        if (expanded) ...[
+          if (action.type != ControlActionType.delay) ...[
+            _outputToken('Q${action.outputIndex}', () async {
+              final v = await _choose<int>('Çıkış seç', [
+                for (var n = 1; n <= 4; n++) (n, 'Q$n'),
+              ]);
+              if (v != null && mounted) {
+                setState(() => action.outputIndex = v);
+              }
+            }, color: Colors.deepOrange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _operationToken(_timerName(action), () async {
+                  await _chooseFunction(rule, replace: action);
+                }),
+              ),
+            ),
+          ] else
+            Expanded(
+              child: _token(
+                '${_seconds(action.durationMs)} BEKLE',
+                () async {
+                  final v = await _duration(
+                    'Bekleme süresi',
+                    action.durationMs,
+                  );
+                  if (v != null && mounted) {
+                    setState(() => action.durationMs = v);
+                  }
+                },
+              ),
+            ),
 
-      const SizedBox(width: 8),
-
-      if (action.type != ControlActionType.delay)
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: _operationToken(_timerName(action), () async {
-              await _chooseFunction(rule, replace: action);
+          IconButton(
+            tooltip: 'İşlemi sil',
+            icon: const Icon(
+              Icons.close,
+              color: Colors.redAccent,
+            ),
+            onPressed: () => setState(() {
+              _expandedActions.remove(action);
+              rule.actions.remove(action);
             }),
           ),
-        )
-      else
-        Expanded(
-          child: _token('${_seconds(action.durationMs)} BEKLE', () async {
-            final v = await _duration(
-              'Bekleme süresi',
-              action.durationMs,
-            );
-            if (v != null && mounted) {
-              setState(() => action.durationMs = v);
-            }
-          }),
-        ),
-
-      IconButton(
-        tooltip: 'İşlemi sil',
-        icon: const Icon(Icons.close, color: Colors.redAccent),
-        onPressed: () => setState(() {
-          _expandedActions.remove(action);
-          rule.actions.remove(action);
-        }),
-      ),
-    ],
-  ),
-
-  if (action.type != ControlActionType.delay) ...[
-    const SizedBox(height: 8),
-    _actionDelayPreview(action),
-  ],
-],
-            ],
-          ),
-        );
-      },
+        ],
+      ],
     ),
-  ),
+
+    if (expanded && action.type != ControlActionType.delay) ...[
+      const SizedBox(height: 8),
+      _actionDelayPreview(action),
+    ],
+  ],
+),
+										);
+									},
+								),
+							),
             _token('İşlem ekle', () => _chooseFunction(rule)),
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
@@ -1564,6 +1674,7 @@ if (!_collapsedConditions.contains(rule.id)) ...[
             const SizedBox(height: 10),
           ]),
         ),
+				],
       ]),
     );
   }
