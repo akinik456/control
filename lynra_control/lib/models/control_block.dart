@@ -454,8 +454,10 @@ class ControlConditionGroup {
   Map<String, dynamic> toJson() => {
         'id': id,
         'logicOperator': logicOperator.name,
-        'conditions': conditions.map((e) => e.toJson()).toList(),
-				'conditionOperators': conditionOperators.map((e) => e.name).toList(),
+        if (conditionGroups.isEmpty) ...{
+					'conditions': conditions.map((e) => e.toJson()).toList(),
+					'conditionOperators': conditionOperators.map((e) => e.name).toList(),
+				},
         if (conditionGroups.isNotEmpty) ...{
 					'groupsOperator': groupsOperator.name,
 					'groupOperators': groupOperators.map((e) => e.name).toList(),

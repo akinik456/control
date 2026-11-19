@@ -692,31 +692,7 @@ final v = await _choose<ConditionTrigger>('Giriş koşulu', [
         });
       }),
 			
-if (rule.conditions.length > 1)
-  IconButton(
-    tooltip: 'Koşulu sil',
-    onPressed: () {
-      setState(() {
-        final index = rule.conditions.indexOf(condition);
-        if (index < 0) return;
-
-        rule.conditions.removeAt(index);
-
-        if (rule.conditionOperators.isNotEmpty) {
-          final opIndex = index == 0 ? 0 : index - 1;
-
-          if (opIndex < rule.conditionOperators.length) {
-            rule.conditionOperators.removeAt(opIndex);
-          }
-        }
-      });
-    },
-    icon: const Icon(
-      Icons.close,
-      size: 18,
-      color: Colors.redAccent,
-    ),
-  ),    ],
+    ],
   ));
 
   Widget _action(ControlConditionGroup rule, ControlAction action) {
@@ -1230,6 +1206,7 @@ void _enableConditionGroups(ControlConditionGroup rule) {
           IconButton(
             tooltip: 'Grubu sil',
             icon: const Icon(Icons.delete_outline, size: 20),
+						color: Colors.redAccent,
             visualDensity: VisualDensity.compact,
             onPressed: () {
   setState(() {
@@ -1298,19 +1275,21 @@ void _enableConditionGroups(ControlConditionGroup rule) {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Flexible(
-            fit: FlexFit.loose,
-            child: _condition(
-              rule,
-              rule.conditionGroups[g].conditions[c],
-            ),
-          ),
+          SizedBox(
+						width: 140,
+						child: _condition(
+							rule,
+							rule.conditionGroups[g].conditions[c],
+						),
+					),
+					const SizedBox(width: 8),
           if (rule.conditionGroups[g].conditions.length > 1)
             IconButton(
               tooltip: 'Gruptan koşulu sil',
               icon: const Icon(
                 Icons.remove_circle_outline,
                 size: 19,
+								color: Colors.redAccent,
               ),
               visualDensity: VisualDensity.compact,
               constraints: const BoxConstraints(
@@ -1318,26 +1297,26 @@ void _enableConditionGroups(ControlConditionGroup rule) {
                 minHeight: 32,
               ),
               onPressed: () {
-  setState(() {
-    final group = rule.conditionGroups[g];
-    final index = c;
+								setState(() {
+									final group = rule.conditionGroups[g];
+									final index = c;
 
-    if (index < 0 || index >= group.conditions.length) return;
+									if (index < 0 || index >= group.conditions.length) return;
 
-    // Eksik operatörleri eski varsayılanla tamamla.
-    while (group.conditionOperators.length <
-        group.conditions.length - 1) {
-      group.conditionOperators.add(group.logicOperator);
-    }
+									// Eksik operatörleri eski varsayılanla tamamla.
+									while (group.conditionOperators.length <
+											group.conditions.length - 1) {
+										group.conditionOperators.add(group.logicOperator);
+									}
 
-    group.conditions.removeAt(index);
+									group.conditions.removeAt(index);
 
-    if (group.conditionOperators.isNotEmpty) {
-      final opIndex = index == 0 ? 0 : index - 1;
-      group.conditionOperators.removeAt(opIndex);
-    }
-  });
-},
+									if (group.conditionOperators.isNotEmpty) {
+										final opIndex = index == 0 ? 0 : index - 1;
+										group.conditionOperators.removeAt(opIndex);
+									}
+								});
+							},
             ),
         ],
       ),
