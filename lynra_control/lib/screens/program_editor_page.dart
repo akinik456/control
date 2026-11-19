@@ -82,8 +82,14 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     }
     for (var i = 0; i < group.conditions.length; i++) {
       if (i > 0) {
-        spans.add(TextSpan(text: ' ${_logicText(group.logicOperator)} ',
-            style: TextStyle(color: scheme.onSurface)));
+        spans.add(TextSpan(
+  text: ' ${_logicText(
+    i - 1 < group.conditionOperators.length
+        ? group.conditionOperators[i - 1]
+        : group.logicOperator,
+  )} ',
+  style: TextStyle(color: scheme.onSurface),
+));
       }
       spans.add(TextSpan(text: _conditionText(group.conditions[i]),
           style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold)));
@@ -98,7 +104,11 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     for (var i = 0; i < rule.conditionGroups.length; i++) {
       if (i > 0) {
         spans.add(TextSpan(
-					text: ' ${_logicText(rule.groupsOperator)} ',
+					text: ' ${_logicText(
+  i - 1 < rule.groupOperators.length
+      ? rule.groupOperators[i - 1]
+      : rule.groupsOperator,
+)} ',
 					style: const TextStyle(
 						color: Colors.green,
 						fontWeight: FontWeight.bold,
@@ -1101,16 +1111,28 @@ _counterInputToken(
 }
 
   // Grouped conditions are editor-only until the runtime converter supports them.
-  void _enableConditionGroups(ControlConditionGroup rule) {
-    setState(() {
-      if (rule.conditionGroups.isNotEmpty) return;
-      rule.conditionGroups.add(ConditionSubgroup(
-        logicOperator: rule.logicOperator == LogicOperator.or
-            ? LogicOperator.or : LogicOperator.and,
+  
+void _enableConditionGroups(ControlConditionGroup rule) {
+  setState(() {
+    if (rule.conditionGroups.isNotEmpty) return;
+
+    rule.conditionGroups.add(
+      ConditionSubgroup(
+        logicOperator: rule.logicOperator,
         conditions: List<InputCondition>.from(rule.conditions),
-      ));
-    });
-  }
+        conditionOperators: List<LogicOperator>.generate(
+          rule.conditions.length > 0
+              ? rule.conditions.length - 1
+              : 0,
+          (i) => i < rule.conditionOperators.length
+              ? rule.conditionOperators[i]
+              : rule.logicOperator,
+        ),
+      ),
+    );
+  });
+}
+
 
   Widget _groupedConditions(ControlConditionGroup rule) {
     final allCollapsed = _collapsedConditions.contains(rule.id);
@@ -1137,7 +1159,13 @@ _counterInputToken(
         if (g > 0)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 5),
-            child: _token(_logicText(rule.groupsOperator), () async {
+            child: _token(
+  _logicText(
+    g - 1 < rule.groupOperators.length
+        ? rule.groupOperators[g - 1]
+        : rule.groupsOperator,
+  ),
+  () async {
               final v = await _choose<LogicOperator>('...', [
   (LogicOperator.and, 'VE'),
   (LogicOperator.or, 'VEYA'),
@@ -1145,7 +1173,16 @@ _counterInputToken(
   (LogicOperator.nand, 'TERS VE'),
   (LogicOperator.nor, 'TERS VEYA'),
 ]);
-              if (v != null && mounted) setState(() => rule.groupsOperator = v);
+              if (v != null && mounted) {
+  setState(() {
+    while (rule.groupOperators.length <
+        rule.conditionGroups.length - 1) {
+      rule.groupOperators.add(rule.groupsOperator);
+    }
+
+    rule.groupOperators[g - 1] = v;
+  });
+}
             }),
           ),
         Container(
@@ -1194,9 +1231,24 @@ _counterInputToken(
             tooltip: 'Grubu sil',
             icon: const Icon(Icons.delete_outline, size: 20),
             visualDensity: VisualDensity.compact,
-            onPressed: () => setState(
-              () => rule.conditionGroups.removeAt(g),
-            ),
+            onPressed: () {
+  setState(() {
+    final index = g;
+
+    // Eksik operatörleri eski varsayılanla tamamla.
+    while (rule.groupOperators.length <
+        rule.conditionGroups.length - 1) {
+      rule.groupOperators.add(rule.groupsOperator);
+    }
+
+    rule.conditionGroups.removeAt(index);
+
+    if (rule.groupOperators.isNotEmpty) {
+      final opIndex = index == 0 ? 0 : index - 1;
+      rule.groupOperators.removeAt(opIndex);
+    }
+  });
+},
           ),
       ],
     ),
@@ -1208,7 +1260,11 @@ _counterInputToken(
         child: Align(
           alignment: Alignment.centerLeft,
           child: _token(
-            _logicText(rule.conditionGroups[g].logicOperator),
+            _logicText(
+  c - 1 < rule.conditionGroups[g].conditionOperators.length
+      ? rule.conditionGroups[g].conditionOperators[c - 1]
+      : rule.conditionGroups[g].logicOperator,
+),
             () async {
               final v = await _choose<LogicOperator>(
                 'Grup içi ilişki',
@@ -1221,8 +1277,16 @@ _counterInputToken(
                 ],
               );
               if (v != null && mounted) {
-                setState(() =>
-                    rule.conditionGroups[g].logicOperator = v);
+                setState(() {
+  final group = rule.conditionGroups[g];
+
+  while (group.conditionOperators.length <
+      group.conditions.length - 1) {
+    group.conditionOperators.add(group.logicOperator);
+  }
+
+  group.conditionOperators[c - 1] = v;
+});
               }
             },
           ),
@@ -1253,8 +1317,27 @@ _counterInputToken(
                 minWidth: 32,
                 minHeight: 32,
               ),
-              onPressed: () => setState(() =>
-                  rule.conditionGroups[g].conditions.removeAt(c)),
+              onPressed: () {
+  setState(() {
+    final group = rule.conditionGroups[g];
+    final index = c;
+
+    if (index < 0 || index >= group.conditions.length) return;
+
+    // Eksik operatörleri eski varsayılanla tamamla.
+    while (group.conditionOperators.length <
+        group.conditions.length - 1) {
+      group.conditionOperators.add(group.logicOperator);
+    }
+
+    group.conditions.removeAt(index);
+
+    if (group.conditionOperators.isNotEmpty) {
+      final opIndex = index == 0 ? 0 : index - 1;
+      group.conditionOperators.removeAt(opIndex);
+    }
+  });
+},
             ),
         ],
       ),
@@ -1262,10 +1345,21 @@ _counterInputToken(
   ],
 
   TextButton.icon(
-    onPressed: () => setState(() =>
-        rule.conditionGroups[g].conditions.add(
-          InputCondition(inputIndex: 1),
-        )),
+    onPressed: () {
+  setState(() {
+    final group = rule.conditionGroups[g];
+
+    if (group.conditions.isNotEmpty) {
+      while (group.conditionOperators.length <
+          group.conditions.length - 1) {
+        group.conditionOperators.add(group.logicOperator);
+      }
+      group.conditionOperators.add(group.logicOperator);
+    }
+
+    group.conditions.add(InputCondition(inputIndex: 1));
+  });
+},
     icon: const Icon(Icons.add),
     label: const Text('Koşul ekle'),
   ),
@@ -1274,42 +1368,88 @@ _counterInputToken(
         ),
       ],
       TextButton.icon(
-        onPressed: () => setState(() => rule.conditionGroups.add(
-          ConditionSubgroup(conditions: [InputCondition(inputIndex: 1)]))),
-        icon: const Icon(Icons.add), label: const Text('Yeni grup ekle'),
-      ),
+  onPressed: () {
+    setState(() {
+      // Eksik operatörleri tamamla.
+      while (rule.groupOperators.length <
+          rule.conditionGroups.length - 1) {
+        rule.groupOperators.add(rule.groupsOperator);
+      }
+
+      // Yeni grubu mevcut gruplara bağlayan operatör.
+      if (rule.conditionGroups.isNotEmpty) {
+        rule.groupOperators.add(rule.groupsOperator);
+      }
+
+      rule.conditionGroups.add(
+        ConditionSubgroup(
+          conditions: [InputCondition(inputIndex: 1)],
+        ),
+      );
+    });
+  },
+  icon: const Icon(Icons.add),
+  label: const Text('Yeni grup ekle'),
+),
       const Text('Gruplu koşullar henüz simülatöre ve cihaza aktarılmaz.',
         style: TextStyle(fontSize: 11)),
       ],
     ]);
   }
+
 String _ruleSummary(ControlConditionGroup rule) {
   final conditions = rule.conditionGroups.isNotEmpty
-    ? rule.conditionGroups.map((group) {
-        final items = group.conditions
-            .map(_conditionText)
-            .join(' ${_logicText(group.logicOperator)} ');
-        return '( $items )';
-      }).join(' ${_logicText(rule.groupsOperator)} ')
-    : () {
-    final parts = <String>[];
+      ? () {
+          final groups = <String>[];
 
-    for (var i = 0; i < rule.conditions.length; i++) {
-      if (i > 0) {
-        final opIndex = i - 1;
+          for (var g = 0; g < rule.conditionGroups.length; g++) {
+            final group = rule.conditionGroups[g];
 
-        final op = opIndex < rule.conditionOperators.length
-            ? rule.conditionOperators[opIndex]
-            : rule.logicOperator;
+            if (g > 0) {
+              final opIndex = g - 1;
+              final op = opIndex < rule.groupOperators.length
+                  ? rule.groupOperators[opIndex]
+                  : rule.groupsOperator;
+              groups.add(_logicText(op));
+            }
 
-        parts.add(_logicText(op));
-      }
+            final parts = <String>[];
 
-      parts.add(_conditionText(rule.conditions[i]));
-    }
+            for (var i = 0; i < group.conditions.length; i++) {
+              if (i > 0) {
+                final opIndex = i - 1;
+                final op = opIndex < group.conditionOperators.length
+                    ? group.conditionOperators[opIndex]
+                    : group.logicOperator;
+                parts.add(_logicText(op));
+              }
 
-    return parts.join(' ');
-  }();
+              parts.add(_conditionText(group.conditions[i]));
+            }
+
+            groups.add('( ${parts.join(' ')} )');
+          }
+
+          return groups.join(' ');
+        }()
+      : () {
+          final parts = <String>[];
+
+          for (var i = 0; i < rule.conditions.length; i++) {
+            if (i > 0) {
+              final opIndex = i - 1;
+              final op = opIndex < rule.conditionOperators.length
+                  ? rule.conditionOperators[opIndex]
+                  : rule.logicOperator;
+              parts.add(_logicText(op));
+            }
+
+            parts.add(_conditionText(rule.conditions[i]));
+          }
+
+          return parts.join(' ');
+        }();
+
   final actions = rule.actions.map((action) {
     return action.type == ControlActionType.delay
         ? '${_seconds(action.durationMs)} BEKLE'
@@ -1318,6 +1458,7 @@ String _ruleSummary(ControlConditionGroup rule) {
 
   return 'EĞER\n$conditions\nİSE\n${actions.replaceAll(' → ', '\n')}';
 }
+
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
     final primary = Theme.of(context).colorScheme.primary;
     final outline = Theme.of(context).colorScheme.outline;

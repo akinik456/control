@@ -376,28 +376,35 @@ class ConditionSubgroup {
   LogicOperator logicOperator;
 	bool negated;
   final List<InputCondition> conditions;
-
+	final List<LogicOperator> conditionOperators;
   ConditionSubgroup({
-    this.logicOperator = LogicOperator.and,
+		this.logicOperator = LogicOperator.and,
 		this.negated = false,
-    List<InputCondition>? conditions,
-  }) : conditions = conditions ?? [];
-
+		List<InputCondition>? conditions,
+		List<LogicOperator>? conditionOperators,
+	})  : conditions = conditions ?? [],
+      conditionOperators = conditionOperators ?? [];
   Map<String, dynamic> toJson() => {
-        'logicOperator': logicOperator.name,
-				'negated': false,
-        'conditions': conditions.map((e) => e.toJson()).toList(),
-      };
+  'logicOperator': logicOperator.name,
+  'negated': false,
+  'conditions': conditions.map((e) => e.toJson()).toList(),
+  'conditionOperators':
+      conditionOperators.map((e) => e.name).toList(),
+};
 
   factory ConditionSubgroup.fromJson(Map<String, dynamic> json) =>
-      ConditionSubgroup(
-        logicOperator: LogicOperator.values.byName(
-            json['logicOperator'] as String? ?? 'and'),
-				negated: false,
-        conditions: (json['conditions'] as List? ?? [])
-            .map((e) => InputCondition.fromJson(Map<String, dynamic>.from(e as Map)))
-            .toList(),
-      );
+    ConditionSubgroup(
+      logicOperator: LogicOperator.values.byName(
+          json['logicOperator'] as String? ?? 'and'),
+      negated: false,
+      conditions: (json['conditions'] as List? ?? [])
+          .map((e) => InputCondition.fromJson(
+              Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      conditionOperators: (json['conditionOperators'] as List? ?? [])
+          .map((e) => LogicOperator.values.byName(e as String))
+          .toList(),
+    );
 }
 
 /// One EGER-ISE rule. Runtime state is deliberately NOT stored here.
@@ -410,6 +417,7 @@ class ControlConditionGroup {
   final List<ConditionSubgroup> conditionGroups;
   LogicOperator groupsOperator;
   final List<ControlAction> actions;
+	final List<LogicOperator> groupOperators;
   OutputBehavior outputBehavior;
   /// TON: condition must remain true for this duration before rule matches.
   int onDelayMs;
@@ -426,8 +434,9 @@ class ControlConditionGroup {
     this.logicOperator = LogicOperator.and,
     List<InputCondition>? conditions,
     List<ConditionSubgroup>? conditionGroups,
-    this.groupsOperator = LogicOperator.or,
-    List<ControlAction>? actions,
+		this.groupsOperator = LogicOperator.or,
+		List<LogicOperator>? groupOperators,
+		List<ControlAction>? actions,
 		List<LogicOperator>? conditionOperators,
     this.outputBehavior = OutputBehavior.followCondition,
     this.onDelayMs = 0,
@@ -437,9 +446,10 @@ class ControlConditionGroup {
     this.retriggerBehavior = RetriggerBehavior.ignore,
     this.conditionLostBehavior = ConditionLostBehavior.continueRunning,
   })  : conditions = conditions ?? [],
-        conditionGroups = conditionGroups ?? [],
-				conditionOperators = conditionOperators ?? [],
-        actions = actions ?? [];
+  conditionGroups = conditionGroups ?? [],
+  conditionOperators = conditionOperators ?? [],
+  groupOperators = groupOperators ?? [],
+  actions = actions ?? [];
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -447,9 +457,10 @@ class ControlConditionGroup {
         'conditions': conditions.map((e) => e.toJson()).toList(),
 				'conditionOperators': conditionOperators.map((e) => e.name).toList(),
         if (conditionGroups.isNotEmpty) ...{
-          'groupsOperator': groupsOperator.name,
-          'conditionGroups': conditionGroups.map((e) => e.toJson()).toList(),
-        },
+					'groupsOperator': groupsOperator.name,
+					'groupOperators': groupOperators.map((e) => e.name).toList(),
+					'conditionGroups': conditionGroups.map((e) => e.toJson()).toList(),
+				},
         'actions': actions.map((e) => e.toJson()).toList(),
         'outputBehavior': outputBehavior.name,
         'onDelayMs': onDelayMs,
@@ -463,8 +474,9 @@ class ControlConditionGroup {
   factory ControlConditionGroup.fromJson(Map<String, dynamic> json) =>
       ControlConditionGroup(
         id: json['id'] as String,
-        logicOperator: LogicOperator.values.byName(
-            json['logicOperator'] as String? ?? 'and'),
+        groupOperators: (json['groupOperators'] as List? ?? [])
+				.map((e) => LogicOperator.values.byName(e as String))
+				.toList(),
         conditions: (json['conditions'] as List? ?? [])
             .map((e) => InputCondition.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
