@@ -257,14 +257,59 @@ if (stopwatchActions.isNotEmpty) {
   }
 }
 
-final count = source.logicOperator == LogicOperator.not
-    ? 1
-    : source.conditions.length;
+final count = source.conditions.length;
 
 target.conditionCount = count;
     for (var i = 0; i < count; i++) {
       writeCondition(source.conditions[i], target.conditions.elements[i]);
-    }for (final action in source.actions) {
+    }
+		
+target.expressionCount = 0;
+
+if (count > 1 && source.conditionOperators.isNotEmpty) {
+  var tokenIndex = 0;
+
+  void addToken(int op, [int conditionIndex = 0]) {
+    final token = target.expression.elements[tokenIndex++];
+    token.op = op;
+    token.conditionIndex = conditionIndex;
+  }
+
+  // RPN: first condition
+  addToken(0, 0);
+
+  for (var i = 1; i < count; i++) {
+    addToken(0, i);
+
+    final opIndex = i - 1;
+    final op = opIndex < source.conditionOperators.length
+        ? source.conditionOperators[opIndex]
+        : source.logicOperator;
+
+    switch (op) {
+      case LogicOperator.and:
+        addToken(1);
+      case LogicOperator.or:
+        addToken(2);
+      case LogicOperator.xor:
+        addToken(3);
+      case LogicOperator.nand:
+        addToken(1);
+        addToken(4);
+      case LogicOperator.nor:
+        addToken(2);
+        addToken(4);
+      case LogicOperator.not:
+        throw UnsupportedError(
+          'NOT cannot be used between conditions',
+        );
+    }
+  }
+
+  target.expressionCount = tokenIndex;
+}
+
+		for (final action in source.actions) {
   final repeatable =
       action.type == ControlActionType.edgeWipingRelay ||
       action.type == ControlActionType.stairwayTimer;

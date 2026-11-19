@@ -30,12 +30,16 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 	final Set<ControlAction> _expandedActions = {};
 	final Set<String> _collapsedRules = {};
 
-  String _conditionText(InputCondition c) => switch (c.trigger) {
+  String _conditionText(InputCondition c) {
+  final text = switch (c.trigger) {
     ConditionTrigger.highLevel => 'I${c.inputIndex}=ON',
     ConditionTrigger.lowLevel => 'I${c.inputIndex}=OFF',
     ConditionTrigger.risingEdge => 'I${c.inputIndex}=↑',
     ConditionTrigger.fallingEdge => 'I${c.inputIndex}=↓',
   };
+
+  return text;
+}
 
   String _logicText(LogicOperator op) => switch (op) {
   LogicOperator.and => 'VE',
@@ -677,9 +681,32 @@ final v = await _choose<ConditionTrigger>('Giriş koşulu', [
           condition.expectedState = v == ConditionTrigger.highLevel || v == ConditionTrigger.risingEdge;
         });
       }),
-      if (rule.conditions.length > 1)
-        IconButton(tooltip: 'Koşulu sil', onPressed: () => setState(() => rule.conditions.remove(condition)), icon: const Icon(Icons.close, size: 18, color: Colors.redAccent)),
-    ],
+			
+if (rule.conditions.length > 1)
+  IconButton(
+    tooltip: 'Koşulu sil',
+    onPressed: () {
+      setState(() {
+        final index = rule.conditions.indexOf(condition);
+        if (index < 0) return;
+
+        rule.conditions.removeAt(index);
+
+        if (rule.conditionOperators.isNotEmpty) {
+          final opIndex = index == 0 ? 0 : index - 1;
+
+          if (opIndex < rule.conditionOperators.length) {
+            rule.conditionOperators.removeAt(opIndex);
+          }
+        }
+      });
+    },
+    icon: const Icon(
+      Icons.close,
+      size: 18,
+      color: Colors.redAccent,
+    ),
+  ),    ],
   ));
 
   Widget _action(ControlConditionGroup rule, ControlAction action) {
@@ -1264,10 +1291,25 @@ String _ruleSummary(ControlConditionGroup rule) {
             .join(' ${_logicText(group.logicOperator)} ');
         return '( $items )';
       }).join(' ${_logicText(rule.groupsOperator)} ')
-    : rule.conditions
-        .map(_conditionText)
-        .join(' ${_logicText(rule.logicOperator)} ');
+    : () {
+    final parts = <String>[];
 
+    for (var i = 0; i < rule.conditions.length; i++) {
+      if (i > 0) {
+        final opIndex = i - 1;
+
+        final op = opIndex < rule.conditionOperators.length
+            ? rule.conditionOperators[opIndex]
+            : rule.logicOperator;
+
+        parts.add(_logicText(op));
+      }
+
+      parts.add(_conditionText(rule.conditions[i]));
+    }
+
+    return parts.join(' ');
+  }();
   final actions = rule.actions.map((action) {
     return action.type == ControlActionType.delay
         ? '${_seconds(action.durationMs)} BEKLE'
@@ -1434,11 +1476,7 @@ String _ruleSummary(ControlConditionGroup rule) {
   ),
 ),
 if (!_collapsedConditions.contains(rule.id)) ...[
-            for (var i = 0;
-							i < (rule.logicOperator == LogicOperator.not
-									? (rule.conditions.isEmpty ? 0 : 1)
-									: rule.conditions.length);
-							i++)
+            for (var i = 0; i < rule.conditions.length; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 5),
                 child: SingleChildScrollView(
@@ -1471,31 +1509,50 @@ if (!_collapsedConditions.contains(rule.id)) ...[
                         ),
                       ]),
                     const SizedBox(width: 5),
-                    if (i < rule.conditions.length - 1 ||
-											(i == 0 && rule.logicOperator == LogicOperator.not))
-										_token(switch (rule.logicOperator) {
-											LogicOperator.and => 'VE',
-											LogicOperator.or => 'VEYA',
-											LogicOperator.xor => 'FARKLIYSA',
-											LogicOperator.nand => 'VE DEĞİL',
-											LogicOperator.nor => 'VEYA DEĞİL',
-											LogicOperator.not => 'DEĞİL',
-										}, () async {
-											final v = await _choose<LogicOperator>('', [
-												(LogicOperator.and, 'VE'),
-												(LogicOperator.or, 'VEYA'),
-												(LogicOperator.xor, 'FARKLIYSA'),												
-												(LogicOperator.nand, 'TERS VE'),												
-												(LogicOperator.nor, 'TERS VEYA'),
-												(LogicOperator.not, 'DEĞİL'),
-											]);
-											if (v != null) {
-												setState(() => rule.logicOperator = v);
-											}
-										})
-									else if (rule.logicOperator != LogicOperator.not)
-										_token('Koşul ekle', () => setState(() =>
-											rule.conditions.add(InputCondition(inputIndex: 1)))),
+                    if (i < rule.conditions.length - 1)
+										_token(
+  switch (
+    i < rule.conditionOperators.length
+        ? rule.conditionOperators[i]
+        : rule.logicOperator
+  ) {
+    LogicOperator.and => 'VE',
+    LogicOperator.or => 'VEYA',
+    LogicOperator.xor => 'FARKLIYSA',
+    LogicOperator.nand => 'TERS VE',
+    LogicOperator.nor => 'TERS VEYA',
+    LogicOperator.not => 'DEĞİL',
+  },
+  () async {
+    final v = await _choose<LogicOperator>('', [
+      (LogicOperator.and, 'VE'),
+      (LogicOperator.or, 'VEYA'),
+      (LogicOperator.xor, 'FARKLIYSA'),
+      (LogicOperator.nand, 'TERS VE'),
+      (LogicOperator.nor, 'TERS VEYA'),
+    ]);
+
+    if (v != null) {
+      setState(() {
+        while (rule.conditionOperators.length <
+            rule.conditions.length - 1) {
+          rule.conditionOperators.add(rule.logicOperator);
+        }
+
+        if (i < rule.conditionOperators.length) {
+          rule.conditionOperators[i] = v;
+        }
+      });
+    }
+  },
+)
+										else
+  _token('Koşul ekle', () {
+    setState(() {
+      rule.conditionOperators.add(rule.logicOperator);
+      rule.conditions.add(InputCondition(inputIndex: 1));
+    });
+  }),
                   ]),
                 ),
               ),
@@ -1702,13 +1759,13 @@ if (!_collapsedConditions.contains(rule.id)) ...[
       'I${c.inputIndex} ${_triggerName(c.trigger)}';
 
   String _summaryOperator(LogicOperator op) => switch (op) {
-    LogicOperator.and => 'VE',
-    LogicOperator.or => 'VEYA',
-    LogicOperator.xor => 'FARKLIYSA',		
-		LogicOperator.nand => 'VE DEĞİL',
-		LogicOperator.nor => 'VEYA DEĞİL',
-		LogicOperator.not => 'DEĞİL',
-  };
+  LogicOperator.and => 'VE',
+  LogicOperator.or => 'VEYA',
+  LogicOperator.xor => 'FARKLIYSA',
+  LogicOperator.nand => 'TERS VE',
+  LogicOperator.nor => 'TERS VEYA',
+  LogicOperator.not => 'DEĞİL',
+};
 
   // Program is embedded in the URL; no Firebase or additional package needed.
   // Browser counterpart must decode Base64URL and decompress gzip.
@@ -1778,26 +1835,29 @@ if (!_collapsedConditions.contains(rule.id)) ...[
     void add(String value, [TextStyle? style]) =>
         spans.add(TextSpan(text: value, style: style ?? normal));
 
-    if (_rules.isEmpty) add('Henüz kural eklenmedi.');
-    for (var i = 0; i < _rules.length; i++) {
-      final rule = _rules[i];
-      if (i > 0) add('\n');
-      add('KURAL ${i + 1}\n', heading);
-      add('EĞER ', keyword);
-      if (rule.conditions.isEmpty) {
-        add('(koşul yok)');
-      } else {
-  if (rule.logicOperator == LogicOperator.not) {
-    if (rule.conditions.isNotEmpty) {
-      final condition = rule.conditions.first;
-      add('DEĞİL ', keyword);
-      add('I${condition.inputIndex}', input);
-      add(' ${_triggerName(condition.trigger)}');
-    }
+    
+if (_rules.isEmpty) add('Henüz kural eklenmedi.');
+
+for (var i = 0; i < _rules.length; i++) {
+  final rule = _rules[i];
+
+  if (i > 0) add('\n');
+
+  add('KURAL ${i + 1}\n', heading);
+  add('EĞER ', keyword);
+
+  if (rule.conditions.isEmpty) {
+    add('(koşul yok)');
   } else {
     for (var c = 0; c < rule.conditions.length; c++) {
       if (c > 0) {
-        add(' ${_summaryOperator(rule.logicOperator)} ', keyword);
+        final opIndex = c - 1;
+
+        final op = opIndex < rule.conditionOperators.length
+            ? rule.conditionOperators[opIndex]
+            : rule.logicOperator;
+
+        add(' ${_summaryOperator(op)} ', keyword);
       }
 
       final condition = rule.conditions[c];
@@ -1805,77 +1865,126 @@ if (!_collapsedConditions.contains(rule.id)) ...[
       add(' ${_triggerName(condition.trigger)}');
     }
   }
-}
-      // A TON waits for the complete logical condition, not each input separately.
-      if (rule.onDelayMs > 0) {
-        add(', ${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa');
-      }
-      add('\n');
-      add('İSE ', keyword);
-      if (rule.actions.isEmpty) {
-        add('(işlem yok)');
+
+  // A TON waits for the complete logical condition, not each input separately.
+  if (rule.onDelayMs > 0) {
+    add(', ${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa');
+  }
+
+  add('\n');
+  add('İSE ', keyword);
+
+  if (rule.actions.isEmpty) {
+    add('(işlem yok)');
+  } else {
+    for (var a = 0; a < rule.actions.length; a++) {
+      if (a > 0) add(' → ');
+
+      final action = rule.actions[a];
+
+      if (action.type == ControlActionType.delay) {
+        add('${_seconds(action.durationMs)} bekle');
       } else {
-        for (var a = 0; a < rule.actions.length; a++) {
-          if (a > 0) add(' → ');
-          final action = rule.actions[a];
-          if (action.type == ControlActionType.delay) {
-            add('${_seconds(action.durationMs)} bekle');
-          } else {
-            add('Q${action.outputIndex}', output);
-            add(switch (action.type) {
-              ControlActionType.onDelay || ControlActionType.offDelay || ControlActionType.onOffDelay || ControlActionType.retentiveOnDelay || ControlActionType.wipingRelay || ControlActionType.edgeWipingRelay || ControlActionType.asynchronousPulse || ControlActionType.randomGenerator || ControlActionType.stairwayTimer || ControlActionType.multipleFunctionTimer || ControlActionType.stopwatchTimer => ' ${_timerName(action)}',
-              ControlActionType.setLatch => ' SET',
-              ControlActionType.resetLatch => ' RESET',
-              ControlActionType.toggleOutput => ' DEĞİŞTİR',
-              ControlActionType.stairwayOutput => ' MERDİVEN (T ${_seconds(action.durationMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)} / Tekrar ${action.stairRetrigger ? 'Açık' : 'Kapalı'})',
-              ControlActionType.multiSwitchOutput => ' ÇOK İŞLEVLİ (T ${_seconds(action.durationMs)} / Uzun ${_seconds(action.multiLongPressMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)})',
-              ControlActionType.stopwatchOutput => ' KRONOMETRE (EN: I${rule.conditions.isNotEmpty ? rule.conditions[0].inputIndex : 1} / RESET: I${rule.conditions.length > 1 ? rule.conditions[1].inputIndex : 2} / T ${_seconds(action.durationMs)})',
-              ControlActionType.blinkOutput => ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ON ${action.blinkOnMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}' : _seconds(action.durationMs)} / OFF ${action.blinkOffMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}' : _seconds(action.offDurationMs)} / N=${action.blinkCount})',
-              _ => action.outputState ? ' ON' : ' OFF',
-            });
-          }
-        }
+        add('Q${action.outputIndex}', output);
+
+        add(switch (action.type) {
+          ControlActionType.onDelay ||
+          ControlActionType.offDelay ||
+          ControlActionType.onOffDelay ||
+          ControlActionType.retentiveOnDelay ||
+          ControlActionType.wipingRelay ||
+          ControlActionType.edgeWipingRelay ||
+          ControlActionType.asynchronousPulse ||
+          ControlActionType.randomGenerator ||
+          ControlActionType.stairwayTimer ||
+          ControlActionType.multipleFunctionTimer ||
+          ControlActionType.stopwatchTimer =>
+            ' ${_timerName(action)}',
+
+          ControlActionType.setLatch => ' SET',
+          ControlActionType.resetLatch => ' RESET',
+          ControlActionType.toggleOutput => ' DEĞİŞTİR',
+
+          ControlActionType.stairwayOutput =>
+            ' MERDİVEN (T ${_seconds(action.durationMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)} / Tekrar ${action.stairRetrigger ? 'Açık' : 'Kapalı'})',
+
+          ControlActionType.multiSwitchOutput =>
+            ' ÇOK İŞLEVLİ (T ${_seconds(action.durationMs)} / Uzun ${_seconds(action.multiLongPressMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)})',
+
+          ControlActionType.stopwatchOutput =>
+            ' KRONOMETRE (EN: I${rule.conditions.isNotEmpty ? rule.conditions[0].inputIndex : 1} / RESET: I${rule.conditions.length > 1 ? rule.conditions[1].inputIndex : 2} / T ${_seconds(action.durationMs)})',
+
+          ControlActionType.blinkOutput =>
+            ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ON ${action.blinkOnMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}' : _seconds(action.durationMs)} / OFF ${action.blinkOffMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}' : _seconds(action.offDurationMs)} / N=${action.blinkCount})',
+
+          _ => action.outputState ? ' ON' : ' OFF',
+        });
       }
-      // Describe the return behavior only when it is unambiguous.
-      final levelConditions = rule.conditions.every((c) =>
-          c.trigger == ConditionTrigger.highLevel ||
-          c.trigger == ConditionTrigger.lowLevel);
-      final outputActions = rule.actions.where((a) =>
-          a.type == ControlActionType.setOutput).toList();
-      final simpleContinuous = rule.executionMode == RuleExecutionMode.continuous &&
-          levelConditions && rule.actions.length == 1 && outputActions.length == 1;
-      if (simpleContinuous) {
-        final a = outputActions.first;
-        add('\nKoşul artık sağlanmazsa ');
-        if (rule.offDelayMs > 0) add('${_seconds(rule.offDelayMs)} sonra ');
-        add('Q${a.outputIndex}', output);
-        add(a.outputState ? ' OFF olur.' : ' ON olur.');
-      } else if (rule.actions.any((a) => a.type == ControlActionType.setLatch || a.type == ControlActionType.resetLatch)) {
-        for (final action in rule.actions) {
-          if (action.type == ControlActionType.setLatch) {
-            add('\nQ${action.outputIndex}', output);
-            add(' ON olur ve başka bir komut değiştirmedikçe ON kalır.');
-          } else if (action.type == ControlActionType.resetLatch) {
-            add('\nQ${action.outputIndex}', output);
-            add(' OFF olur ve başka bir komut değiştirmedikçe OFF kalır.');
-          }
-        }
-      } else if (rule.actions.any((a) => a.type == ControlActionType.blinkOutput)) {
-        add('\nN=0 ise koşul sağlandığı sürece yanıp söner; N>0 ise tetiklemede belirlenen sayıda darbe üretir.');
-      } else if (rule.actions.any((a) => a.type == ControlActionType.toggleOutput)) {
-        for (final action in rule.actions) {
-          if (action.type == ControlActionType.toggleOutput) {
-            add('\nQ${action.outputIndex}', output);
-            add(' mevcut durumunun tersine geçer (ON ise OFF, OFF ise ON).');
-          }
-        }
-      } else if (rule.offDelayMs > 0) {
-        add('\nOFF gecikmesi: ${_seconds(rule.offDelayMs)}.');
-      }
-       
-      add('\n');
+    }
+  }
+
+  // Describe the return behavior only when it is unambiguous.
+  final levelConditions = rule.conditions.every((c) =>
+      c.trigger == ConditionTrigger.highLevel ||
+      c.trigger == ConditionTrigger.lowLevel);
+
+  final outputActions = rule.actions
+      .where((a) => a.type == ControlActionType.setOutput)
+      .toList();
+
+  final simpleContinuous =
+      rule.executionMode == RuleExecutionMode.continuous &&
+      levelConditions &&
+      rule.actions.length == 1 &&
+      outputActions.length == 1;
+
+  if (simpleContinuous) {
+    final a = outputActions.first;
+
+    add('\nKoşul artık sağlanmazsa ');
+
+    if (rule.offDelayMs > 0) {
+      add('${_seconds(rule.offDelayMs)} sonra ');
     }
 
+    add('Q${a.outputIndex}', output);
+    add(a.outputState ? ' OFF olur.' : ' ON olur.');
+
+  } else if (rule.actions.any((a) =>
+      a.type == ControlActionType.setLatch ||
+      a.type == ControlActionType.resetLatch)) {
+
+    for (final action in rule.actions) {
+      if (action.type == ControlActionType.setLatch) {
+        add('\nQ${action.outputIndex}', output);
+        add(' ON olur ve başka bir komut değiştirmedikçe ON kalır.');
+      } else if (action.type == ControlActionType.resetLatch) {
+        add('\nQ${action.outputIndex}', output);
+        add(' OFF olur ve başka bir komut değiştirmedikçe OFF kalır.');
+      }
+    }
+
+  } else if (rule.actions.any(
+      (a) => a.type == ControlActionType.blinkOutput)) {
+
+    add('\nN=0 ise koşul sağlandığı sürece yanıp söner; N>0 ise tetiklemede belirlenen sayıda darbe üretir.');
+
+  } else if (rule.actions.any(
+      (a) => a.type == ControlActionType.toggleOutput)) {
+
+    for (final action in rule.actions) {
+      if (action.type == ControlActionType.toggleOutput) {
+        add('\nQ${action.outputIndex}', output);
+        add(' mevcut durumunun tersine geçer (ON ise OFF, OFF ise ON).');
+      }
+    }
+
+  } else if (rule.offDelayMs > 0) {
+    add('\nOFF gecikmesi: ${_seconds(rule.offDelayMs)}.');
+  }
+
+  add('\n');
+}
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (ctx) => Scaffold(
         appBar: AppBar(title: const Text('Program Özeti'), actions: [

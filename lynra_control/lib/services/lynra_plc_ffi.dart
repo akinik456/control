@@ -84,6 +84,15 @@ external int thresholdOn;
 external int thresholdOff;
 }
 
+final class LynraExprToken extends Struct {
+  @Int32()
+  external int op;
+
+  @Uint8()
+  external int conditionIndex;
+}
+
+
 final class LynraRule extends Struct {
   @Uint32()
   external int id;
@@ -99,6 +108,12 @@ final class LynraRule extends Struct {
 
   @Array(8)
   external Array<LynraCondition> conditions;
+
+  @Uint8()
+  external int expressionCount;
+
+  @Array(32)
+  external Array<LynraExprToken> expression;
 
   @Uint8()
   external int actionCount;

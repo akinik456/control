@@ -44,11 +44,13 @@ class InputCondition {
   int inputIndex;
   bool expectedState;
   ConditionTrigger trigger;
+	bool negated;
 
   InputCondition({
     required this.inputIndex,
     this.expectedState = true,
     ConditionTrigger? trigger,
+		this.negated = false,
   }) : trigger = trigger ??
             (expectedState ? ConditionTrigger.highLevel : ConditionTrigger.lowLevel);
 
@@ -56,17 +58,19 @@ class InputCondition {
         'inputIndex': inputIndex,
         'expectedState': expectedState,
         'trigger': trigger.name,
+				'negated': false,
       };
 
   factory InputCondition.fromJson(Map<String, dynamic> json) {
     final expectedState = json['expectedState'] as bool? ?? true;
     return InputCondition(
-      inputIndex: json['inputIndex'] as int,
-      expectedState: expectedState,
-      trigger: json['trigger'] == null
-          ? null
-          : ConditionTrigger.values.byName(json['trigger'] as String),
-    );
+  inputIndex: json['inputIndex'] as int,
+  expectedState: expectedState,
+  trigger: json['trigger'] == null
+      ? null
+      : ConditionTrigger.values.byName(json['trigger'] as String),
+  negated: false,
+);
   }
 }
 
@@ -370,15 +374,18 @@ if (type == ControlActionType.thresholdTrigger) ...{
 /// The editor will use these groups for mixed logical expressions.
 class ConditionSubgroup {
   LogicOperator logicOperator;
+	bool negated;
   final List<InputCondition> conditions;
 
   ConditionSubgroup({
     this.logicOperator = LogicOperator.and,
+		this.negated = false,
     List<InputCondition>? conditions,
   }) : conditions = conditions ?? [];
 
   Map<String, dynamic> toJson() => {
         'logicOperator': logicOperator.name,
+				'negated': false,
         'conditions': conditions.map((e) => e.toJson()).toList(),
       };
 
@@ -386,6 +393,7 @@ class ConditionSubgroup {
       ConditionSubgroup(
         logicOperator: LogicOperator.values.byName(
             json['logicOperator'] as String? ?? 'and'),
+				negated: false,
         conditions: (json['conditions'] as List? ?? [])
             .map((e) => InputCondition.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
@@ -396,6 +404,7 @@ class ConditionSubgroup {
 class ControlConditionGroup {
   final String id;
   LogicOperator logicOperator;
+	final List<LogicOperator> conditionOperators;
   final List<InputCondition> conditions;
   // Optional grouped expression. Empty means use the existing conditions.
   final List<ConditionSubgroup> conditionGroups;
@@ -419,6 +428,7 @@ class ControlConditionGroup {
     List<ConditionSubgroup>? conditionGroups,
     this.groupsOperator = LogicOperator.or,
     List<ControlAction>? actions,
+		List<LogicOperator>? conditionOperators,
     this.outputBehavior = OutputBehavior.followCondition,
     this.onDelayMs = 0,
     this.offDelayMs = 0,
@@ -428,12 +438,14 @@ class ControlConditionGroup {
     this.conditionLostBehavior = ConditionLostBehavior.continueRunning,
   })  : conditions = conditions ?? [],
         conditionGroups = conditionGroups ?? [],
+				conditionOperators = conditionOperators ?? [],
         actions = actions ?? [];
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'logicOperator': logicOperator.name,
         'conditions': conditions.map((e) => e.toJson()).toList(),
+				'conditionOperators': conditionOperators.map((e) => e.name).toList(),
         if (conditionGroups.isNotEmpty) ...{
           'groupsOperator': groupsOperator.name,
           'conditionGroups': conditionGroups.map((e) => e.toJson()).toList(),
@@ -461,6 +473,9 @@ class ControlConditionGroup {
         conditionGroups: (json['conditionGroups'] as List? ?? [])
             .map((e) => ConditionSubgroup.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
+				conditionOperators: (json['conditionOperators'] as List? ?? [])
+						.map((e) => LogicOperator.values.byName(e as String))
+						.toList(),
         actions: (json['actions'] as List? ?? [])
             .map((e) => ControlAction.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),

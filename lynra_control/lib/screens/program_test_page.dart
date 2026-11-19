@@ -42,10 +42,8 @@ bool _counterRunning = false;
 
   for (final block in widget.program.controlBlocks) {
     for (final rule in block.groups) {
-      final conditions = rule.logicOperator == LogicOperator.not
-          ? rule.conditions.take(1)
-          : rule.conditions;
-
+      final conditions = rule.conditions;
+          
       for (final condition in conditions) {
         indexes.add(condition.inputIndex);
       }
@@ -435,11 +433,10 @@ Expanded(
   }
 	
 	Widget _ruleCard(int ruleNumber, ControlConditionGroup rule) {
-  final inputSet = (rule.logicOperator == LogicOperator.not
-          ? rule.conditions.take(1)
-          : rule.conditions)
+  final inputSet = rule.conditions
       .map((c) => c.inputIndex)
       .toSet();
+
   for (final action in rule.actions) {
     if (action.type == ControlActionType.stopwatchTimer) {
       inputSet.add(action.resetInputIndex);
