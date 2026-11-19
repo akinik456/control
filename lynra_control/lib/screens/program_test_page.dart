@@ -42,7 +42,11 @@ bool _counterRunning = false;
 
   for (final block in widget.program.controlBlocks) {
     for (final rule in block.groups) {
-      final conditions = rule.conditions;
+      final conditions = rule.conditionGroups.isNotEmpty
+    ? rule.conditionGroups
+        .expand((group) => group.conditions)
+        .toList()
+    : rule.conditions;
           
       for (final condition in conditions) {
         indexes.add(condition.inputIndex);
@@ -433,9 +437,14 @@ Expanded(
   }
 	
 	Widget _ruleCard(int ruleNumber, ControlConditionGroup rule) {
-  final inputSet = rule.conditions
-      .map((c) => c.inputIndex)
-      .toSet();
+  final conditions = rule.conditionGroups.isNotEmpty
+    ? rule.conditionGroups
+        .expand((group) => group.conditions)
+    : rule.conditions;
+
+final inputSet = conditions
+    .map((c) => c.inputIndex)
+    .toSet();
 
   for (final action in rule.actions) {
     if (action.type == ControlActionType.stopwatchTimer) {

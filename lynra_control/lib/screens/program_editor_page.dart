@@ -1987,25 +1987,59 @@ for (var i = 0; i < _rules.length; i++) {
   add('KURAL ${i + 1}\n', heading);
   add('EĞER ', keyword);
 
-  if (rule.conditions.isEmpty) {
+  
+  void addCondition(InputCondition condition) {
+    add('I${condition.inputIndex}', input);
+    add(' ${_triggerName(condition.trigger)}');
+  }
+
+  if (rule.conditionGroups.isNotEmpty) {
+    for (var g = 0; g < rule.conditionGroups.length; g++) {
+      final group = rule.conditionGroups[g];
+
+      if (g > 0) {
+        final index = g - 1;
+        final op = index < rule.groupOperators.length
+            ? rule.groupOperators[index]
+            : rule.groupsOperator;
+
+        add(' ${_summaryOperator(op)} ', keyword);
+      }
+
+      add('( ');
+
+      for (var c = 0; c < group.conditions.length; c++) {
+        if (c > 0) {
+          final index = c - 1;
+          final op = index < group.conditionOperators.length
+              ? group.conditionOperators[index]
+              : group.logicOperator;
+
+          add(' ${_summaryOperator(op)} ', keyword);
+        }
+
+        addCondition(group.conditions[c]);
+      }
+
+      add(' )');
+    }
+  } else if (rule.conditions.isEmpty) {
     add('(koşul yok)');
   } else {
     for (var c = 0; c < rule.conditions.length; c++) {
       if (c > 0) {
-        final opIndex = c - 1;
-
-        final op = opIndex < rule.conditionOperators.length
-            ? rule.conditionOperators[opIndex]
+        final index = c - 1;
+        final op = index < rule.conditionOperators.length
+            ? rule.conditionOperators[index]
             : rule.logicOperator;
 
         add(' ${_summaryOperator(op)} ', keyword);
       }
 
-      final condition = rule.conditions[c];
-      add('I${condition.inputIndex}', input);
-      add(' ${_triggerName(condition.trigger)}');
+      addCondition(rule.conditions[c]);
     }
   }
+
 
   // A TON waits for the complete logical condition, not each input separately.
   if (rule.onDelayMs > 0) {
@@ -2202,12 +2236,7 @@ for (var i = 0; i < _rules.length; i++) {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Program Editörü'), actions: [
       IconButton(tooltip: 'Simülasyon', icon: const Icon(Icons.show_chart), onPressed: () {
-        if (_rules.any((r) => r.conditionGroups.isNotEmpty)) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Gruplu koşullar henüz simülatörde desteklenmiyor.'),
-          ));
-          return;
-        }
+        
         _program.name = _name.text.trim();
         Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => ProgramSimulatorPage(program: _program),

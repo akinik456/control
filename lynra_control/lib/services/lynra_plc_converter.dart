@@ -209,9 +209,17 @@ target.thresholdOff =
   }
 
   static void writeRule(ControlConditionGroup source, LynraRule target, int ruleId) {
-    if (source.conditions.isEmpty || source.conditions.length > 8) {
-      throw StateError('Rule ${source.id}: 1..8 conditions required');
-    }
+		
+    final conditionCount = source.conditionGroups.isNotEmpty
+    ? source.conditionGroups.fold<int>(
+        0,
+        (sum, group) => sum + group.conditions.length,
+      )
+    : source.conditions.length;
+
+if (conditionCount < 1 || conditionCount > 8) {
+  throw StateError('Rule ${source.id}: 1..8 conditions required');
+}
     if (source.actions.isEmpty || source.actions.length > 16) {
       throw StateError('Rule ${source.id}: 1..16 actions required');
     }
@@ -257,16 +265,92 @@ if (stopwatchActions.isNotEmpty) {
   }
 }
 
-final count = source.conditions.length;
+final conditions = source.conditionGroups.isNotEmpty
+    ? source.conditionGroups
+        .expand((group) => group.conditions)
+        .toList()
+    : source.conditions;
+
+final count = conditions.length;
 
 target.conditionCount = count;
     for (var i = 0; i < count; i++) {
-      writeCondition(source.conditions[i], target.conditions.elements[i]);
+      writeCondition(conditions[i], target.conditions.elements[i]);
     }
 		
 target.expressionCount = 0;
 
-if (count > 1 && source.conditionOperators.isNotEmpty) {
+if (source.conditionGroups.isNotEmpty) {
+  var tokenIndex = 0;
+  var conditionIndex = 0;
+
+  void addToken(int op, [int index = 0]) {
+    if (tokenIndex >= 32) {
+      throw StateError('RPN expression exceeds 32 tokens');
+    }
+
+    final token = target.expression.elements[tokenIndex++];
+    token.op = op;
+    token.conditionIndex = index;
+  }
+
+  void addOperator(LogicOperator op) {
+    switch (op) {
+      case LogicOperator.and:
+        addToken(1);
+      case LogicOperator.or:
+        addToken(2);
+      case LogicOperator.xor:
+        addToken(3);
+      case LogicOperator.nand:
+        addToken(1);
+        addToken(4);
+      case LogicOperator.nor:
+        addToken(2);
+        addToken(4);
+      case LogicOperator.not:
+        throw UnsupportedError('NOT cannot be used between groups');
+    }
+  }
+
+  for (var g = 0; g < source.conditionGroups.length; g++) {
+    final group = source.conditionGroups[g];
+
+    if (group.conditions.isEmpty) {
+      throw StateError('Empty condition group');
+    }
+
+    for (var c = 0; c < group.conditions.length; c++) {
+      addToken(0, conditionIndex++);
+
+      if (c > 0) {
+        final i = c - 1;
+        final op = i < group.conditionOperators.length
+            ? group.conditionOperators[i]
+            : group.logicOperator;
+        addOperator(op);
+      }
+    }
+
+    if (group.negated) {
+      addToken(4);
+    }
+
+    if (g > 0) {
+      final i = g - 1;
+      final op = i < source.groupOperators.length
+          ? source.groupOperators[i]
+          : source.groupsOperator;
+      addOperator(op);
+    }
+  }
+
+  target.expressionCount = tokenIndex;
+}
+
+if (source.conditionGroups.isEmpty &&
+    count > 1 &&
+    source.conditionOperators.isNotEmpty) {
   var tokenIndex = 0;
 
   void addToken(int op, [int conditionIndex = 0]) {
