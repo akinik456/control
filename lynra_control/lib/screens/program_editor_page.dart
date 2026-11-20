@@ -1951,21 +1951,23 @@ if (!_collapsedConditions.contains(rule.id)) ...[
     final input = normal.copyWith(color: Colors.blue.shade700, fontWeight: FontWeight.bold);
     final output = normal.copyWith(color: Colors.deepOrange.shade700, fontWeight: FontWeight.bold);
     final heading = normal.copyWith(fontWeight: FontWeight.bold);
-    final spans = <InlineSpan>[];
-    void add(String value, [TextStyle? style]) =>
-        spans.add(TextSpan(text: value, style: style ?? normal));
+    final ruleSpans = <List<InlineSpan>>[];
+		var spans = <InlineSpan>[];
+
+		void add(String value, [TextStyle? style]) =>
+				spans.add(TextSpan(text: value, style: style ?? normal));
 
     
 if (_rules.isEmpty) add('Henüz kural eklenmedi.');
 
 for (var i = 0; i < _rules.length; i++) {
+  spans = <InlineSpan>[];
+
   final rule = _rules[i];
 
-  if (i > 0) add('\n');
-
   add('KURAL ${i + 1}\n', heading);
-  add('EĞER ', keyword);
-
+  add('\n');
+  add('EĞER\n', keyword);
   
   void addCondition(InputCondition condition) {
     add('I${condition.inputIndex}', input);
@@ -2024,9 +2026,9 @@ for (var i = 0; i < _rules.length; i++) {
   if (rule.onDelayMs > 0) {
     add(', ${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa');
   }
-
+	add('\n');
   add('\n');
-  add('İSE ', keyword);
+  add('İSE\n', keyword);
 
   if (rule.actions.isEmpty) {
     add('(işlem yok)');
@@ -2137,65 +2139,147 @@ for (var i = 0; i < _rules.length; i++) {
     add('\nOFF gecikmesi: ${_seconds(rule.offDelayMs)}.');
   }
 
-  add('\n');
+  ruleSpans.add(spans);
 }
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (ctx) => Scaffold(
-        appBar: AppBar(title: const Text('Program Özeti'), actions: [
-					IconButton(
-						tooltip: 'Program Testi',
-						icon: const Icon(Icons.science_outlined),
-						onPressed: () {
-							_program.name = _name.text.trim();
+			builder: (ctx) => Scaffold(
+				appBar: AppBar(
+					title: const Text('Program Özeti'),
+				),
 
-							Navigator.of(context).push(
-								MaterialPageRoute<void>(
-									builder: (_) => ProgramTestPage(program: _program),
-								),
-							);
-						},
-					),
-          IconButton(
-            tooltip: 'Program Şeması',
-            icon: const Icon(Icons.account_tree_outlined),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              _openDiagram();
-            },
-          ),
-          IconButton(
-            tooltip: 'Link Oluştur',
-            icon: const Icon(Icons.link_outlined),
-            onPressed: _createShareLink,
-          ),
-					IconButton(
-						tooltip: 'Cihaza Gönder',
-						icon: const Icon(Icons.upload_outlined),
-						onPressed: () {
-							_program.name = _name.text.trim();
+				body: Center(
+					child: ConstrainedBox(
+						constraints: const BoxConstraints(maxWidth: 760),
+						child: ListView(
+							padding: const EdgeInsets.all(16),
+							children: [
+								Container(
+									padding: const EdgeInsets.all(12),
+									decoration: BoxDecoration(
+										border: Border.all(
+											color: primary.withValues(alpha: 0.75),
+											width: 1.2,
+										),
+										borderRadius: BorderRadius.circular(12),
+									),
+									child: Column(
+										crossAxisAlignment: CrossAxisAlignment.stretch,
+										children: [
+											if (ruleSpans.isEmpty)
+												Padding(
+													padding: const EdgeInsets.all(8),
+													child: Text(
+														'Henüz kural eklenmedi.',
+														style: normal,
+													),
+												),
 
-							Navigator.of(context).push(
-								MaterialPageRoute<void>(
-									builder: (_) => BleConnectionPage(program: _program),
+											for (var i = 0; i < ruleSpans.length; i++) ...[
+												if (i > 0)
+													const SizedBox(height: 10),
+
+												Container(
+													padding: const EdgeInsets.all(14),
+													decoration: BoxDecoration(
+														border: Border.all(
+															color: Colors.grey.withValues(alpha: 0.55),
+															width: 1,
+														),
+														borderRadius: BorderRadius.circular(10),
+													),
+													child: SelectableText.rich(
+														TextSpan(
+															style: normal,
+															children: ruleSpans[i],
+														),
+													),
+												),
+											],
+										],
+									),
 								),
-							);
-						},
+							],
+						),
 					),
-        ]),
-        body: Center(child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(padding: const EdgeInsets.all(16), children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                border: Border.all(color: primary.withValues(alpha: 0.75), width: 1.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: SelectableText.rich(TextSpan(style: normal, children: spans)),
-            ),
-          ]),
-        )),
-      ),
+				),
+
+				bottomNavigationBar: SafeArea(
+					child: Padding(
+						padding: const EdgeInsets.all(12),
+						child: Center(
+							heightFactor: 1,
+							child: ConstrainedBox(
+								constraints: const BoxConstraints(maxWidth: 760),
+								child: Column(
+									mainAxisSize: MainAxisSize.min,
+									children: [
+										Row(
+											children: [
+												Expanded(
+													child: OutlinedButton.icon(
+														icon: const Icon(Icons.science_outlined),
+														label: const Text('Program Testi'),
+														onPressed: () {
+															_program.name = _name.text.trim();
+
+															Navigator.of(context).push(
+																MaterialPageRoute<void>(
+																	builder: (_) =>
+																			ProgramTestPage(program: _program),
+																),
+															);
+														},
+													),
+												),
+												const SizedBox(width: 10),
+												Expanded(
+													child: OutlinedButton.icon(
+														icon: const Icon(Icons.account_tree_outlined),
+														label: const Text('Program Şeması'),
+														onPressed: () {
+															Navigator.of(ctx).pop();
+															_openDiagram();
+														},
+													),
+												),
+											],
+										),
+										const SizedBox(height: 10),
+										Row(
+											children: [
+												Expanded(
+													child: OutlinedButton.icon(
+														icon: const Icon(Icons.link_outlined),
+														label: const Text('Link Oluştur'),
+														onPressed: _createShareLink,
+													),
+												),
+												const SizedBox(width: 10),
+												Expanded(
+													child: OutlinedButton.icon(
+														icon: const Icon(Icons.upload_outlined),
+														label: const Text('Cihaza Gönder'),
+														onPressed: () {
+															_program.name = _name.text.trim();
+
+															Navigator.of(context).push(
+																MaterialPageRoute<void>(
+																	builder: (_) =>
+																			BleConnectionPage(program: _program),
+																),
+															);
+														},
+													),
+												),
+											],
+										),
+									],
+								),
+							),
+						),
+					),
+				),
+			),
     ));
   }
 
@@ -2213,22 +2297,47 @@ for (var i = 0; i < _rules.length; i++) {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Program Editörü'), actions: [
-      IconButton(tooltip: 'Simülasyon', icon: const Icon(Icons.show_chart), onPressed: () {
-        
-        _program.name = _name.text.trim();
-        Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => ProgramSimulatorPage(program: _program),
-        ));
-      }),
-      IconButton(tooltip: 'Program Özeti', onPressed: _openSummary,
-          icon: const Icon(Icons.description_outlined)),
-      IconButton(tooltip: 'Program JSON', onPressed: _showJson,
-          icon: const Icon(Icons.data_object)),
-    ]),
+    appBar: AppBar(
+			title: const Text('Program Editörü'),
+		),
     body: Center(child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 760),
       child: ListView(padding: const EdgeInsets.all(14), children: [
+				Row(
+					children: [
+						Expanded(
+							child: OutlinedButton.icon(
+								onPressed: () {
+									_program.name = _name.text.trim();
+									Navigator.of(context).push(
+										MaterialPageRoute<void>(
+											builder: (_) => ProgramSimulatorPage(program: _program),
+										),
+									);
+								},
+								icon: const Icon(Icons.show_chart, size: 18),
+								label: const Text('Simülasyon'),
+							),
+						),
+						const SizedBox(width: 8),
+						Expanded(
+							child: OutlinedButton.icon(
+								onPressed: _openSummary,
+								icon: const Icon(Icons.description_outlined, size: 18),
+								label: const Text('Özet'),
+							),
+						),
+						const SizedBox(width: 8),
+						Expanded(
+							child: OutlinedButton.icon(
+								onPressed: _showJson,
+								icon: const Icon(Icons.data_object, size: 18),
+								label: const Text('JSON'),
+							),
+						),
+					],
+				),
+				const SizedBox(height: 16),
         TextField(
           controller: _name,
           decoration: InputDecoration(
