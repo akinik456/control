@@ -1370,8 +1370,7 @@ void _enableConditionGroups(ControlConditionGroup rule) {
   icon: const Icon(Icons.add),
   label: const Text('Yeni grup ekle'),
 ),
-      const Text('Gruplu koşullar henüz simülatöre ve cihaza aktarılmaz.',
-        style: TextStyle(fontSize: 11)),
+      
       ],
     ]);
   }

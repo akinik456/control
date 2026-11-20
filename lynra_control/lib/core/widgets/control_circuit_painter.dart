@@ -1,102 +1,210 @@
 import 'package:flutter/material.dart';
 import '../../models/control_block.dart';
 
-/// Draws one rule using its current conditions and actions.
-class ControlCircuitDiagram extends StatelessWidget {
+/// Read-only FBD preview. Operators follow the editor's left-to-right order.
+class ControlCircuitDiagram extends StatefulWidget {
   final ControlConditionGroup group;
   const ControlCircuitDiagram({super.key, required this.group});
 
   @override
+  State<ControlCircuitDiagram> createState() => _ControlCircuitDiagramState();
+}
+
+class _ControlCircuitDiagramState extends State<ControlCircuitDiagram> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.onSurface;
-    final height = 110.0 + (group.logicOperator == LogicOperator.or
-        ? (group.conditions.length - 1).clamp(0, 10) * 28.0 : 0.0);
+    final tree = _buildExpression(widget.group);
+    final leaves = tree?.leaves ?? 1;
+    final depth = tree?.depth ?? 1;
+    // Final logic gate + short wire (24 px) + 88 px action block.
+    final width = depth * 130.0 + 100.0;
+    final height = (leaves * 66.0 + 75.0).clamp(210.0, double.infinity);
+    final colors = Theme.of(context).colorScheme;
+
     return SizedBox(
       height: height,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(
-          width: 360 + (group.logicOperator == LogicOperator.and
-              ? (group.conditions.length - 2).clamp(0, 10) * 50.0 : 0.0),
-          child: CustomPaint(painter: _CircuitPainter(group, color)),
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
+            children: [
+              SingleChildScrollView(
+                controller: _scrollController,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: width,
+									height: height,
+                  child: CustomPaint(
+                    painter: _FbdPainter(tree, colors.onSurface, colors.primary),
+                  ),
+                ),
+              ),
+              if (width > constraints.maxWidth + 1)
+  Align(
+    alignment: Alignment.bottomRight,
+    child: IconButton(
+      icon: Icon(
+        Icons.keyboard_double_arrow_right,
+        color: colors.onSurface.withValues(alpha: 0.35),
+        size: 30,
+      ),
+      onPressed: () {
+        if (!_scrollController.hasClients) return;
+
+        final position = _scrollController.position;
+        final target = (_scrollController.offset + 180.0)
+            .clamp(0.0, position.maxScrollExtent)
+            .toDouble();
+
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      },
+    ),
+  ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class _CircuitPainter extends CustomPainter {
-  final ControlConditionGroup group;
-  final Color color;
-  _CircuitPainter(this.group, this.color);
+class _Node {
+  final String text;
+  final _Node? left;
+  final _Node? right;
+  _Node(this.text, [this.left, this.right]);
+  int get leaves => left == null ? 1 : left!.leaves + (right?.leaves ?? 0);
+  int get depth {
+  final l = left?.depth ?? 0;
+  final r = right?.depth ?? 0;
+  return 1 + (l > r ? l : r);
+}
+}
+
+String _operatorName(LogicOperator op) => switch (op) {
+  LogicOperator.and => 'VE',
+  LogicOperator.or => 'VEYA',
+  LogicOperator.xor => 'FARKLIYSA',
+  LogicOperator.nand => 'TERS VE',
+  LogicOperator.nor => 'TERS VEYA',
+  _ => 'DEĞİL',
+};
+
+_Node? _conditionChain(List<InputCondition> conditions,
+    List<LogicOperator> operators, LogicOperator fallback) {
+  if (conditions.isEmpty) return null;
+  _Node leaf(InputCondition c) {
+    final input = _Node('I${c.inputIndex} ${c.expectedState ? "ON" : "OFF"}');
+    return c.negated ? _Node('DEĞİL', input) : input;
+  }
+  var result = leaf(conditions.first);
+  for (var i = 1; i < conditions.length; i++) {
+    final op = i - 1 < operators.length ? operators[i - 1] : fallback;
+    result = _Node(_operatorName(op), result, leaf(conditions[i]));
+  }
+  return result;
+}
+
+_Node? _buildExpression(ControlConditionGroup rule) {
+  if (rule.conditionGroups.isEmpty) {
+    return _conditionChain(rule.conditions, rule.conditionOperators, rule.logicOperator);
+  }
+  _Node? result;
+  for (var i = 0; i < rule.conditionGroups.length; i++) {
+    final subgroup = rule.conditionGroups[i];
+    var current = _conditionChain(
+      subgroup.conditions, subgroup.conditionOperators, subgroup.logicOperator);
+    if (current == null) continue;
+    if (subgroup.negated) current = _Node('DEĞİL', current);
+    if (result == null) {
+      result = current;
+    } else {
+      final opIndex = i - 1;
+      final op = opIndex < rule.groupOperators.length
+          ? rule.groupOperators[opIndex] : rule.groupsOperator;
+      result = _Node(_operatorName(op), result, current);
+    }
+  }
+  return result;
+}
+
+class _FbdPainter extends CustomPainter {
+  final _Node? root;
+  final Color ink;
+  final Color accent;
+  _FbdPainter(this.root, this.ink, this.accent);
+
+  void _label(Canvas canvas, String text, Offset center, {Color? color}) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: TextStyle(
+        color: color ?? ink, fontSize: 12, fontWeight: FontWeight.w600)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(canvas, center - Offset(painter.width / 2, painter.height / 2));
+  }
+
+  void _block(Canvas canvas, Rect rect, String text, Paint stroke) {
+    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(7)), stroke);
+    _label(canvas, text, rect.center, color: accent);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final line = Paint()..color = color..strokeWidth = 1.8..style = PaintingStyle.stroke;
-    final y = size.height / 2;
-    const left = 16.0;
-    final right = size.width - 16;
-    canvas.drawLine(const Offset(left, 16), Offset(left, size.height - 16), line);
-    canvas.drawLine(Offset(right, 16), Offset(right, size.height - 16), line);
-    final conditions = group.conditions;
-    if (conditions.isEmpty) return;
-    const start = 48.0;
-    final end = right - 88;
-    if (group.logicOperator == LogicOperator.xor && conditions.length > 1) {
-      canvas.drawLine(const Offset(left, 0) + Offset(0, y), Offset(start, y), line);
-      canvas.drawLine(Offset(start, y), Offset(start + 24, y), line);
-      canvas.drawRect(Rect.fromLTWH(start + 24, y - 23, 75, 46), line);
-      _text(canvas, 'XOR', Offset(start + 61.5, y), centered: true);
-      _text(canvas, conditions.map((e) => 'I${e.inputIndex}${e.expectedState ? "" : "!"}').join(', '), Offset(start + 61.5, y - 34), centered: true);
-      canvas.drawLine(Offset(start + 99, y), Offset(end, y), line);
-    } else if (group.logicOperator == LogicOperator.or && conditions.length > 1) {
-      final top = y - (conditions.length - 1) * 28 / 2;
-      final bottom = top + (conditions.length - 1) * 28;
-      canvas.drawLine(Offset(left, y), Offset(start, y), line);
-      canvas.drawLine(Offset(start, top), Offset(start, bottom), line);
-      for (var i = 0; i < conditions.length; i++) {
-        final by = top + i * 28;
-        canvas.drawLine(Offset(start, by), Offset(start + 25, by), line);
-        _contact(canvas, start + 25, by, conditions[i], line);
-        canvas.drawLine(Offset(start + 53, by), Offset(end, by), line);
-      }
-      canvas.drawLine(Offset(end, top), Offset(end, bottom), line);
-    } else {
-      canvas.drawLine(Offset(left, y), Offset(start, y), line);
-      final spacing = (end - start) / conditions.length;
-      for (var i = 0; i < conditions.length; i++) {
-        final x = start + i * spacing;
-        _contact(canvas, x, y, conditions[i], line);
-        canvas.drawLine(Offset(x + 28, y), Offset(start + (i + 1) * spacing, y), line);
-      }
+	debugPrint('FBD PAINT START');
+debugPrint('FBD ROOT DEPTH: ${root?.depth}');
+debugPrint('FBD ROOT LEAVES: ${root?.leaves}');
+    final wire = Paint()..color = ink..strokeWidth = 1.5..style = PaintingStyle.stroke;
+    final border = Paint()..color = accent..strokeWidth = 1.5..style = PaintingStyle.stroke;
+    if (root == null) {
+      _label(canvas, 'Koşul yok', Offset(size.width / 2, size.height / 2));
+      return;
     }
-    final actions = group.actions;
-    final output = actions.where((a) => a.type == ControlActionType.setOutput).toList();
-    final label = output.isEmpty ? 'İşlem yok' : output.map((a) => 'Q${a.outputIndex} ${a.outputState ? "ON" : "OFF"}').join(' → ');
-    final coilX = right - 55;
-    canvas.drawLine(Offset(end, y), Offset(coilX - 14, y), line);
-    canvas.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(coilX, y), width: 55, height: 34), const Radius.circular(6)), line);
-    _text(canvas, output.length == 1 ? (output.first.outputState ? 'SET' : 'RESET') : 'ACT', Offset(coilX, y), centered: true);
-    _text(canvas, label, Offset(coilX, y - 29), centered: true);
-    canvas.drawLine(Offset(coilX + 28, y), Offset(right, y), line);
-    final delays = actions.where((a) => a.type == ControlActionType.delay).toList();
-    if (delays.isNotEmpty) {
-      _text(canvas, 'Bekle: ${delays.map((a) => '${a.durationMs / 1000} sn').join(', ')}', Offset(start, size.height - 19));
+    var leafIndex = 0;
+    final maxDepth = root!.depth;
+    // Each subtree receives a distinct vertical interval; no overlapping blocks.
+    Offset draw(_Node node, int depth) {
+      final x = 12.0 + (depth - 1) * 130.0;
+      if (node.left == null) {
+        final y = 40.0 + leafIndex++ * 66.0;
+        _block(canvas, Rect.fromCenter(center: Offset(x + 45, y), width: 90, height: 36), node.text, border);
+        return Offset(x + 90, y);
+      }
+      final leftEnd = draw(node.left!, depth - 1);
+      final rightEnd = node.right == null ? null : draw(node.right!, depth - 1);
+      final y = rightEnd == null ? leftEnd.dy : (leftEnd.dy + rightEnd.dy) / 2;
+      final gate = Rect.fromCenter(center: Offset(x + 45, y), width: 90, height: 46);
+      void connect(Offset source, double targetY) {
+        final elbowX = x - 12.0;
+        canvas.drawLine(source, Offset(elbowX, source.dy), wire);
+        canvas.drawLine(Offset(elbowX, source.dy), Offset(elbowX, targetY), wire);
+        canvas.drawLine(Offset(elbowX, targetY), Offset(x, targetY), wire);
+      }
+      connect(leftEnd, rightEnd == null ? y : y - 12);
+      if (rightEnd != null) connect(rightEnd, y + 12);
+      _block(canvas, gate, node.text, border);
+      return Offset(gate.right, y);
     }
-  }
-
-  void _contact(Canvas canvas, double x, double y, InputCondition c, Paint paint) {
-    canvas.drawLine(Offset(x, y - 12), Offset(x, y + 12), paint);
-    canvas.drawLine(Offset(x + 28, y - 12), Offset(x + 28, y + 12), paint);
-    if (!c.expectedState) canvas.drawLine(Offset(x - 3, y + 15), Offset(x + 31, y - 15), paint);
-    _text(canvas, 'I${c.inputIndex}', Offset(x + 14, y - 24), centered: true);
-  }
-
-  void _text(Canvas canvas, String text, Offset at, {bool centered = false}) {
-    final tp = TextPainter(text: TextSpan(text: text, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500)), textDirection: TextDirection.ltr)..layout();
-    tp.paint(canvas, centered ? Offset(at.dx - tp.width / 2, at.dy - tp.height / 2) : at);
+		debugPrint('FBD BEFORE DRAW');
+    final end = draw(root!, maxDepth);
+		debugPrint('FBD AFTER DRAW');
+    final actionX = end.dx + 24.0;
+    canvas.drawLine(end, Offset(actionX, end.dy), wire);
+    _block(canvas, Rect.fromLTWH(actionX, end.dy - 18, 88, 36), 'İŞLEM', border);
+    //_label(canvas, 'İşlem blokları sonraki aşama', Offset(size.width / 2, size.height - 22));
+		debugPrint('FBD PAINT COMPLETE');
   }
 
   @override
-  bool shouldRepaint(covariant _CircuitPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _FbdPainter oldDelegate) => true;
 }
