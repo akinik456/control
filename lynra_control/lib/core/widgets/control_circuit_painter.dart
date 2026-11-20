@@ -25,8 +25,12 @@ class _ControlCircuitDiagramState extends State<ControlCircuitDiagram> {
     final leaves = tree?.leaves ?? 1;
     final depth = tree?.depth ?? 1;
     // Final logic gate + short wire (24 px) + 88 px action block.
-    final width = depth * 130.0 + 100.0;
-    final height = (leaves * 66.0 + 75.0).clamp(210.0, double.infinity);
+    final width = depth * 130.0 + 190.0;
+    final extraBranches = widget.group.actions.length > 1
+        ? (widget.group.actions.length - 1) * 58.0
+        : 0.0;
+    final height = (40.0 + (leaves - 1) * 66.0 + 45.0 + extraBranches)
+        .clamp(110.0, double.infinity);
     final colors = Theme.of(context).colorScheme;
 
     return SizedBox(
@@ -42,7 +46,7 @@ class _ControlCircuitDiagramState extends State<ControlCircuitDiagram> {
                   width: width,
 									height: height,
                   child: CustomPaint(
-                    painter: _FbdPainter(tree, colors.onSurface, colors.primary),
+                    painter: _FbdPainter(tree, widget.group.actions, colors.onSurface, colors.primary, colors.brightness),
                   ),
                 ),
               ),
@@ -139,11 +143,69 @@ _Node? _buildExpression(ControlConditionGroup rule) {
   return result;
 }
 
+
+String _actionLabel(ControlAction a) => switch (a.type) {
+  ControlActionType.onDelay => 'TON',
+  ControlActionType.offDelay => 'TOF',
+  ControlActionType.onOffDelay => 'TON/TOF',
+  ControlActionType.retentiveOnDelay => 'TONR',
+  ControlActionType.setLatch => 'SET',
+  ControlActionType.resetLatch => 'RESET',
+  ControlActionType.toggleOutput => 'TOGGLE',
+  ControlActionType.setOutput => a.outputState ? 'ON' : 'OFF',
+  ControlActionType.delay => 'BEKLE',
+  ControlActionType.blinkOutput => 'FLASH',
+  ControlActionType.wipingRelay => 'PULSE',
+  ControlActionType.edgeWipingRelay => 'EDGE',
+  ControlActionType.asynchronousPulse => 'ASYNC',
+  ControlActionType.randomGenerator => 'RANDOM',
+  ControlActionType.stairwayTimer => 'STAIR',
+  ControlActionType.multipleFunctionTimer => 'MULTI',
+  ControlActionType.stopwatchTimer => 'STOPWATCH',
+  ControlActionType.upDownCounter => 'COUNTER',
+  ControlActionType.hoursCounter => 'HOURS',
+  ControlActionType.thresholdTrigger => 'THRESHOLD',
+  ControlActionType.stairwayOutput => 'STAIR',
+  ControlActionType.multiSwitchOutput => 'MULTI',
+  ControlActionType.stopwatchOutput => 'STOPWATCH',
+};
+
+String _formatMs(int ms) =>
+    ms % 1000 == 0 ? '${ms ~/ 1000} s' : '${ms} ms';
+
+String? _actionDuration(ControlAction a) {
+  if (a.type == ControlActionType.onOffDelay) {
+    return 'ON: ${_formatMs(a.timerTHMs)} / OFF: ${_formatMs(a.timerTLMs)}';
+  }
+  final ms = switch (a.type) {
+    ControlActionType.onDelay || ControlActionType.offDelay ||
+    ControlActionType.retentiveOnDelay ||
+    ControlActionType.wipingRelay || ControlActionType.edgeWipingRelay ||
+    ControlActionType.stairwayTimer => a.timerTMs,
+    ControlActionType.delay || ControlActionType.blinkOutput ||
+    ControlActionType.stairwayOutput || ControlActionType.multiSwitchOutput ||
+    ControlActionType.stopwatchOutput => a.durationMs,
+    _ => null,
+  };
+  if (ms == null) return null;
+  return _formatMs(ms);
+}
+
 class _FbdPainter extends CustomPainter {
   final _Node? root;
+  final List<ControlAction> actions;
   final Color ink;
   final Color accent;
-  _FbdPainter(this.root, this.ink, this.accent);
+  final Brightness brightness;
+  _FbdPainter(this.root, this.actions, this.ink, this.accent, this.brightness);
+
+  Color get inputColor => const Color(0xFF20C5D5);
+  Color get logicColor => brightness == Brightness.dark
+      ? const Color(0xFFA4B0C0) : const Color(0xFF53657B);
+  Color get actionColor => brightness == Brightness.dark
+      ? const Color(0xFFE9AA45) : const Color(0xFFAD6B0B);
+  Color get outputColor => brightness == Brightness.dark
+      ? const Color(0xFFB388FF) : const Color(0xFF168458);
 
   void _label(Canvas canvas, String text, Offset center, {Color? color}) {
     final painter = TextPainter(
@@ -154,18 +216,19 @@ class _FbdPainter extends CustomPainter {
     painter.paint(canvas, center - Offset(painter.width / 2, painter.height / 2));
   }
 
-  void _block(Canvas canvas, Rect rect, String text, Paint stroke) {
-    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(7)), stroke);
-    _label(canvas, text, rect.center, color: accent);
+  void _block(Canvas canvas, Rect rect, String text, Color color) {
+    final shape = RRect.fromRectAndRadius(rect, const Radius.circular(7));
+    canvas.drawRRect(shape, Paint()..color = color.withValues(alpha: 0.10));
+    canvas.drawRRect(shape, Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke);
+    _label(canvas, text, rect.center, color: color);
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-	debugPrint('FBD PAINT START');
-debugPrint('FBD ROOT DEPTH: ${root?.depth}');
-debugPrint('FBD ROOT LEAVES: ${root?.leaves}');
     final wire = Paint()..color = ink..strokeWidth = 1.5..style = PaintingStyle.stroke;
-    final border = Paint()..color = accent..strokeWidth = 1.5..style = PaintingStyle.stroke;
     if (root == null) {
       _label(canvas, 'Koşul yok', Offset(size.width / 2, size.height / 2));
       return;
@@ -177,7 +240,7 @@ debugPrint('FBD ROOT LEAVES: ${root?.leaves}');
       final x = 12.0 + (depth - 1) * 130.0;
       if (node.left == null) {
         final y = 40.0 + leafIndex++ * 66.0;
-        _block(canvas, Rect.fromCenter(center: Offset(x + 45, y), width: 90, height: 36), node.text, border);
+        _block(canvas, Rect.fromCenter(center: Offset(x + 45, y), width: 90, height: 36), node.text, inputColor);
         return Offset(x + 90, y);
       }
       final leftEnd = draw(node.left!, depth - 1);
@@ -192,17 +255,44 @@ debugPrint('FBD ROOT LEAVES: ${root?.leaves}');
       }
       connect(leftEnd, rightEnd == null ? y : y - 12);
       if (rightEnd != null) connect(rightEnd, y + 12);
-      _block(canvas, gate, node.text, border);
+      _block(canvas, gate, node.text, logicColor);
       return Offset(gate.right, y);
     }
-		debugPrint('FBD BEFORE DRAW');
     final end = draw(root!, maxDepth);
-		debugPrint('FBD AFTER DRAW');
     final actionX = end.dx + 24.0;
-    canvas.drawLine(end, Offset(actionX, end.dy), wire);
-    _block(canvas, Rect.fromLTWH(actionX, end.dy - 18, 88, 36), 'İŞLEM', border);
-    //_label(canvas, 'İşlem blokları sonraki aşama', Offset(size.width / 2, size.height - 22));
-		debugPrint('FBD PAINT COMPLETE');
+    if (actions.isEmpty) {
+      canvas.drawLine(end, Offset(actionX, end.dy), wire);
+      _block(canvas, Rect.fromLTWH(actionX, end.dy - 18, 94, 36), 'İŞLEM YOK', logicColor);
+      return;
+    }
+
+    // Each ISE action has its own branch from the same condition result.
+    final junctionX = end.dx + 12.0;
+    if (actions.length > 1) {
+      canvas.drawLine(end, Offset(junctionX, end.dy), wire);
+      canvas.drawLine(Offset(junctionX, end.dy),
+          Offset(junctionX, end.dy + (actions.length - 1) * 58.0), wire);
+    }
+    for (var i = 0; i < actions.length; i++) {
+      final action = actions[i];
+      final y = end.dy + i * 58.0;
+      canvas.drawLine(
+        Offset(actions.length == 1 ? end.dx : junctionX, y),
+        Offset(actionX, y), wire);
+      final label = _actionLabel(action);
+      _block(canvas, Rect.fromLTWH(actionX, y - 20, 94, 40), label, actionColor);
+      if (action.type != ControlActionType.delay) {
+        final qX = actionX + 118.0;
+        canvas.drawLine(Offset(actionX + 94, y), Offset(qX, y), wire);
+        _block(canvas, Rect.fromLTWH(qX, y - 18, 56, 36),
+            'Q${action.outputIndex}', outputColor);
+      }
+      final duration = _actionDuration(action);
+      if (duration != null) {
+        _label(canvas, duration, Offset(actionX + 47, y + 30), color: ink);
+      }
+    }
+
   }
 
   @override
