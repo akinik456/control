@@ -133,6 +133,8 @@ if (source.type == ControlActionType.thresholdTrigger) {
       throw RangeError('timerN must be 0..255');
     }
     target.n = source.timerN;
+    target.thRandom = (source.type == ControlActionType.onOffDelay || source.type == ControlActionType.edgeWipingRelay) && source.timerTHRandom ? 1 : 0;
+    target.tlRandom = (source.type == ControlActionType.onOffDelay || source.type == ControlActionType.edgeWipingRelay) && source.timerTLRandom ? 1 : 0;
     target.stopwatchTimeBase = switch (source.stopwatchTimeBase) {
       'milliseconds' => 0,
       'seconds' => 1,

@@ -207,7 +207,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           autofocus: true,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: '1–255 = darbe sayısı',
+            labelText: '0 = sınırsız, 1–255 = darbe sayısı',
             border: OutlineInputBorder(),
           ),
           onChanged: (v) => input = v,
@@ -216,7 +216,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
           FilledButton(onPressed: () {
             final n = int.tryParse(input.trim());
-            if (n != null && n >= 1 && n <= 255) Navigator.pop(ctx, n);
+            if (n != null && n >= 0 && n <= 255) Navigator.pop(ctx, n);
           }, child: const Text('Tamam')),
         ],
       ),
@@ -268,7 +268,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     'Darbe Rölesi',
     'Kenar Tetiklemeli Darbe Rölesi',
     'Asenkron Darbe Üreteci',
-    'Rastgele Zamanlı Darbe Üreteci',
     'Merdiven Otomatiği',
     'Çok İşlevli Anahtar',
     'Kronometre',
@@ -282,7 +281,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     'Darbe Rölesi' => ControlActionType.wipingRelay,
     'Kenar Tetiklemeli Darbe Rölesi' => ControlActionType.edgeWipingRelay,
     'Asenkron Darbe Üreteci' => ControlActionType.asynchronousPulse,
-    'Rastgele Zamanlı Darbe Üreteci' => ControlActionType.randomGenerator,
     'Merdiven Otomatiği' => ControlActionType.stairwayTimer,
     'Çok İşlevli Anahtar' => ControlActionType.multipleFunctionTimer,
     'Kronometre' => ControlActionType.stopwatchTimer,
@@ -337,7 +335,9 @@ for (final condition in rule.conditions) {
       } else {
         final index = rule.actions.indexOf(replace);
         if (index >= 0) rule.actions[index] = action;
+        _expandedActions.remove(replace);
       }
+      _expandedActions.add(action);
     });
   }
 
@@ -349,7 +349,6 @@ for (final condition in rule.conditions) {
     ControlActionType.wipingRelay => 'Darbe Rölesi',
     ControlActionType.edgeWipingRelay => 'Kenar Tetiklemeli Darbe Rölesi',
     ControlActionType.asynchronousPulse => 'Asenkron Darbe Üreteci',
-    ControlActionType.randomGenerator => 'Rastgele Zamanlı Darbe Üreteci',
     ControlActionType.stairwayTimer => 'Merdiven Otomatiği',
     ControlActionType.multipleFunctionTimer => 'Çok İşlevli Anahtar',
     ControlActionType.stopwatchTimer => 'Kronometre',
@@ -388,7 +387,6 @@ for (final condition in rule.conditions) {
     'Darbe Rölesi' => [('T', 'Darbe süresi')],
     'Kenar Tetiklemeli Darbe Rölesi' => [('TH', 'Darbe süresi'), ('TL', 'Ara süresi'), ('N', 'Darbe sayısı')],
     'Asenkron Darbe Üreteci' => [('TH', 'ON süresi'), ('TL', 'OFF süresi')],
-    'Rastgele Zamanlı Darbe Üreteci' => [('TH', 'ON gecikmesi üst sınırı'), ('TL', 'OFF gecikmesi üst sınırı')],
     'Merdiven Otomatiği' => [('T', 'Kapanma süresi'), ('T!', 'Ön uyarı zamanı'), ('T!L', 'Uyarı kesintisi')],
     'Çok İşlevli Anahtar' => [('T', 'Kapanma süresi'), ('TL', 'Uzun basma eşiği'), ('T!', 'Ön uyarı zamanı'), ('T!L', 'Uyarı kesintisi')],
     _ => [],
@@ -474,14 +472,40 @@ for (final condition in rule.conditions) {
           action.timerRepeat
               ? 'TEKRARLA: ON'
               : 'TEKRARLA: OFF',
-          () => setState(
-            () => action.timerRepeat = !action.timerRepeat,
-          ),
+          () => setState(() {
+            if (action.timerN == 0) return;
+            action.timerRepeat = !action.timerRepeat;
+          }),
         ),
-        if (action.timerRepeat)
+        if (action.timerRepeat || action.timerN == 0)
           resetToken(),
       ],
 
+      if (action.type == ControlActionType.onOffDelay ||
+          action.type == ControlActionType.edgeWipingRelay) ...[
+        _delayToken(
+          'TH: ${action.timerTHRandom ? "RASTGELE" : "SABİT"}',
+          () async {
+            final selected = await _choose<bool>('TH gecikme tipi', [
+              (false, 'SABİT'), (true, 'RASTGELE (0–TH)'),
+            ]);
+            if (selected != null && mounted) {
+              setState(() => action.timerTHRandom = selected);
+            }
+          },
+        ),
+        _delayToken(
+          'TL: ${action.timerTLRandom ? "RASTGELE" : "SABİT"}',
+          () async {
+            final selected = await _choose<bool>('TL gecikme tipi', [
+              (false, 'SABİT'), (true, 'RASTGELE (0–TL)'),
+            ]);
+            if (selected != null && mounted) {
+              setState(() => action.timerTLRandom = selected);
+            }
+          },
+        ),
+      ],
       for (final param in _timerParams(name))
         _delayToken(
           param.$1 == 'N'
@@ -504,7 +528,7 @@ for (final condition in rule.conditions) {
 
             if (next != null &&
                 mounted &&
-                (param.$1 != 'N' || next >= 1) &&
+                (param.$1 != 'N' || next >= 0) &&
                 (action.type != ControlActionType.asynchronousPulse ||
                     next > 0) &&
                 (action.type != ControlActionType.stairwayTimer ||
@@ -514,9 +538,13 @@ for (final condition in rule.conditions) {
                         ControlActionType.multipleFunctionTimer ||
                     (param.$1 != 'T' && param.$1 != 'TL') ||
                     next > 0)) {
-              setState(
-                () => _setTimerValue(action, param.$1, next),
-              );
+              setState(() {
+                _setTimerValue(action, param.$1, next);
+                if (action.type == ControlActionType.edgeWipingRelay &&
+                    param.$1 == 'N' && next == 0) {
+                  action.timerRepeat = true;
+                }
+              });
             }
           },
         ),
@@ -678,8 +706,8 @@ if (selected == 'threshold') {
 
 final v = await _choose<ConditionTrigger>('Giriş koşulu', [
   if (!edgeOnly) ...[
-    (ConditionTrigger.highLevel, 'ON olduğu sürece'),
-    (ConditionTrigger.lowLevel, 'OFF olduğu sürece'),
+    (ConditionTrigger.highLevel, 'ON '),
+    (ConditionTrigger.lowLevel, 'OFF '),
   ],
   if (edgeOnly) ...[
     (ConditionTrigger.risingEdge, 'ON olursa (yükselen kenar)'),
@@ -2050,7 +2078,6 @@ for (var i = 0; i < _rules.length; i++) {
           ControlActionType.wipingRelay ||
           ControlActionType.edgeWipingRelay ||
           ControlActionType.asynchronousPulse ||
-          ControlActionType.randomGenerator ||
           ControlActionType.stairwayTimer ||
           ControlActionType.multipleFunctionTimer ||
           ControlActionType.stopwatchTimer =>

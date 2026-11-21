@@ -100,6 +100,8 @@ class ControlAction {
   int timerTMs = 0;
   int timerTHMs = 0;
   int timerTLMs = 0;
+  bool timerTHRandom = false;
+  bool timerTLRandom = false;
   int timerN = 1;
   int timerWarningBeforeMs = 0;
   int timerWarningOffMs = 0;
@@ -241,6 +243,8 @@ if (type == ControlActionType.thresholdTrigger) ...{
           'timerTMs': timerTMs,
           'timerTHMs': timerTHMs,
           'timerTLMs': timerTLMs,
+          'timerTHRandom': timerTHRandom,
+          'timerTLRandom': timerTLRandom,
           'timerN': timerN,
           'timerWarningBeforeMs': timerWarningBeforeMs,
           'timerWarningOffMs': timerWarningOffMs,
@@ -315,6 +319,8 @@ if (type == ControlActionType.thresholdTrigger) ...{
         ..timerTMs = json['timerTMs'] as int? ?? 0
         ..timerTHMs = json['timerTHMs'] as int? ?? 0
         ..timerTLMs = json['timerTLMs'] as int? ?? 0
+        ..timerTHRandom = json['timerTHRandom'] as bool? ?? false
+        ..timerTLRandom = json['timerTLRandom'] as bool? ?? false
         ..timerN = json['timerN'] as int? ?? 1
         ..timerWarningBeforeMs = json['timerWarningBeforeMs'] as int? ?? 0
         ..timerWarningOffMs = json['timerWarningOffMs'] as int? ?? 0

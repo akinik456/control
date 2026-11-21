@@ -9,7 +9,9 @@ uint32_t trigger_count;
 uint32_t completion_count;
 uint64_t started_at; 
 uint64_t elapsed_ms; 
-uint32_t pulse_phase; 
+uint32_t pulse_phase;
+ uint32_t edge_phase_delay_ms;
+ uint32_t transition_delay_ms; 
 uint64_t random_due_ms; 
 bool random_pending; 
 bool random_target; 
@@ -164,7 +166,7 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
          r->actions[a].warning_before_ms > r->actions[a].t_ms ||
          r->actions[a].warning_off_ms > r->actions[a].warning_before_ms)) ||
        (r->actions[a].type == LYNRA_TIMER_EDGE_WIPING_RELAY &&
-        (r->actions[a].n == 0 || r->actions[a].th_ms == 0 ||
+        (r->actions[a].th_ms == 0 ||
 				 r->actions[a].tl_ms == 0)) ||
        (r->actions[a].type == LYNRA_TIMER_ASYNC_PULSE &&
         (r->actions[a].th_ms == 0 || r->actions[a].tl_ms == 0))) return false;
@@ -363,8 +365,11 @@ if (on && s->execution_state != LYNRA_EXEC_COMPLETED) {
     if (active != s->prev_match || !s->started) {
      s->started = true;
      s->started_at = now_ms;
+     uint32_t upper = active ? a->th_ms : a->tl_ms;
+      bool random_mode = active ? a->th_random != 0 : a->tl_random != 0;
+      s->transition_delay_ms = random_mode ? random_delay(e, upper) : upper;
     }
-    uint32_t delay = active ? a->th_ms : a->tl_ms;
+    uint32_t delay = s->transition_delay_ms;
     if (now_ms - s->started_at >= delay) s->output_on = active;
     on = s->output_on;
     s->execution_state = now_ms - s->started_at >= delay ?
@@ -425,37 +430,50 @@ if (on && s->execution_state != LYNRA_EXEC_COMPLETED) {
      s->execution_state = LYNRA_EXEC_COMPLETED;
    }
    if (a->type == LYNRA_TIMER_EDGE_WIPING_RELAY) {
-    // Each rising edge restarts the complete N-pulse train.
-    // The train continues after the trigger falls.
+    /* Phase 0 = TL (OFF), phase 1 = TH (ON). Each phase draws once. */
     if (reset_rising) {
-    s->started = false;
-    s->execution_state = LYNRA_EXEC_IDLE;
-} else if (trigger_event && (!s->started || a->retrigger)) {
+     s->started = false;
+     s->output_on = false;
+     s->execution_state = LYNRA_EXEC_IDLE;
+    } else if (trigger_event && (!s->started || a->retrigger)) {
      s->started = true;
      s->started_at = now_ms;
-     s->pulse_phase = 0;
+     s->pulse_phase = 0; /* number of completed ON pulses */
+     s->output_on = false;
+     s->edge_phase_delay_ms = a->tl_random ? random_delay(e, a->tl_ms) : a->tl_ms;
      s->execution_state = LYNRA_EXEC_RUNNING;
     }
     if (s->started) {
-     uint64_t elapsed = now_ms - s->started_at;
-     uint64_t period = (uint64_t)a->th_ms + a->tl_ms;
-     uint64_t total = (uint64_t)a->n * period;
-     if (elapsed >= total) {
-    if (a->repeat) {
-        s->started_at = now_ms;
-        s->pulse_phase = 0;
-        s->execution_state = LYNRA_EXEC_RUNNING;
-        on = false;
-    } else {
-        s->started = false;
-        s->execution_state = LYNRA_EXEC_COMPLETED;
-        on = false;
-    }
-} else {
-      s->execution_state = LYNRA_EXEC_RUNNING;
-      on = (elapsed % period) >= a->tl_ms;
+     /* Catch up on scans that skip phase boundaries. Zero-length random
+        phases are processed immediately; the finite guard prevents a
+        pathological infinite loop for N=0 with repeated zero draws. */
+     unsigned guard = 0;
+     while (s->started && now_ms - s->started_at >= s->edge_phase_delay_ms && guard++ < 1024) {
+      s->started_at += s->edge_phase_delay_ms;
+      if (!s->output_on) {
+       s->output_on = true;
+       s->edge_phase_delay_ms = a->th_random ? random_delay(e, a->th_ms) : a->th_ms;
+      } else {
+       s->pulse_phase++;
+       if (a->n != 0 && s->pulse_phase >= a->n) {
+        if (a->repeat) {
+         s->pulse_phase = 0;
+        } else {
+         s->started = false;
+         s->execution_state = LYNRA_EXEC_COMPLETED;
+         s->output_on = false;
+         break;
+        }
+       }
+       s->output_on = false;
+       s->edge_phase_delay_ms = a->tl_random ? random_delay(e, a->tl_ms) : a->tl_ms;
+      }
      }
+     /* If random zero-duration phases exceed the guard, defer the rest
+        until the next scan to keep the scan bounded. */
+     if (s->started) s->execution_state = LYNRA_EXEC_RUNNING;
     }
+    on = s->started && s->output_on;
    }
    if (a->type == LYNRA_TIMER_ASYNC_PULSE) {
     // En HIGH: start with an ON phase, then repeat TH ON / TL OFF.
@@ -979,6 +997,8 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
     case LYNRA_TIMER_ON_OFF_DELAY:
         DIAG_ADD(parameters, TH_MS, a->th_ms);
         DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        DIAG_ADD(parameters, TH_RANDOM, a->th_random);
+        DIAG_ADD(parameters, TL_RANDOM, a->tl_random);
         return true;
     case LYNRA_TIMER_RETENTIVE_ON_DELAY:
         DIAG_ADD(parameters, TON_MS, a->t_ms);
@@ -992,6 +1012,8 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
         DIAG_ADD(parameters, TH_MS, a->th_ms);
         DIAG_ADD(parameters, TL_MS, a->tl_ms);
         DIAG_ADD(parameters, PULSE_COUNT, a->n);
+        DIAG_ADD(parameters, TH_RANDOM, a->th_random);
+        DIAG_ADD(parameters, TL_RANDOM, a->tl_random);
         DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
         DIAG_ADD(parameters, REPEAT, a->repeat);
         DIAG_ADD(parameters, RETRIGGER, a->retrigger);
@@ -1220,6 +1242,14 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
     case LYNRA_FIELD_TL_MS:
         if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_ASYNC_PULSE && a->type != LYNRA_TIMER_RANDOM_GENERATOR && a->type != LYNRA_TIMER_MULTI_FUNCTION) || value < 0 || value > UINT32_MAX) return false;
         next.tl_ms = (uint32_t)value;
+        break;
+    case LYNRA_FIELD_TH_RANDOM:
+        if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY) || value < 0 || value > 1) return false;
+        next.th_random = (uint8_t)value;
+        break;
+    case LYNRA_FIELD_TL_RANDOM:
+        if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY) || value < 0 || value > 1) return false;
+        next.tl_random = (uint8_t)value;
         break;
     case LYNRA_FIELD_PULSE_COUNT:
         if ((a->type != LYNRA_TIMER_EDGE_WIPING_RELAY) || value < 0 || value > 255) return false;

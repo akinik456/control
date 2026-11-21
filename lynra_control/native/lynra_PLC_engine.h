@@ -41,6 +41,8 @@ typedef struct {
  uint32_t t_ms, th_ms, tl_ms;
  uint32_t warning_before_ms, warning_off_ms;
  uint8_t n;
+  uint8_t th_random; /* 0=fixed, 1=random 0..TH */
+  uint8_t tl_random; /* 0=fixed, 1=random 0..TL */
  uint8_t stopwatch_time_base; /* 0=ms, 1=seconds, 2=minutes */
  uint8_t reset_input_index; /* Retentive timer R input; 0 = no external reset */
  uint8_t repeat; /* 0=single cycle, 1=repeat until RESET */
@@ -114,7 +116,9 @@ typedef enum {
     LYNRA_FIELD_REMAINING_MS,
     LYNRA_FIELD_RANDOM_PENDING,
     LYNRA_FIELD_MULTI_PERMANENT,
-    LYNRA_FIELD_COUNTER_DIRECTION
+    LYNRA_FIELD_COUNTER_DIRECTION,
+     LYNRA_FIELD_TH_RANDOM,
+     LYNRA_FIELD_TL_RANDOM
 } LynraFieldId;
 
 /* Ortak API değer tipi */

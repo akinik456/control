@@ -36,6 +36,12 @@ final class LynraAction extends Struct {
   external int n;
 
   @Uint8()
+  external int thRandom;
+
+  @Uint8()
+  external int tlRandom;
+
+  @Uint8()
   external int stopwatchTimeBase;
 
   @Uint8()

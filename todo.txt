@@ -49,3 +49,18 @@ Yani temel motor ve haberleşme tarafında çok iyi ilerledik. Şimdi sistemi sa
 Bence sıradaki en mantıklı iş programın ESP32'de kalıcı saklanması.
 *********************
 buna benzer şu fonk. ekleyecez giriş on ise ON/OFF time ı random sürekli darbe.yani blink - aç kapa
+
+***********
+
+Özellikle üç konu önemli:
+1. Editör–Simülatör–ESP32 tutarlılığı: Aynı program üç yerde de aynı sonucu üretmeli.
+2. Program doğrulama: Çakışan Q çıkışları, eksik parametreler, geçersiz koşullar kullanıcıya anlaşılır şekilde bildirilmeli.
+3. Kullanım kolaylığı: Teknik bilgisi az olan biri telefondan program hazırlayabiliyor mu? Asıl ticari değerimiz burada.
+Ben hangisinden başlardım?
+Program doğrulama ve çakışma kontrolünden.
+
+Mesela az önceki şemamızda Q1 hem Kural 1'de hem Kural 2'de kullanılıyor. Bu mutlaka hata değildir; ancak iki kural aynı anda Q1'i farklı durumlara sürmek isterse ne olacak?
+
+Bu sorunun cevabı hem simülatörde hem gerçek cihazda aynı olmalı.
+
+**************
