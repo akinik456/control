@@ -59,6 +59,7 @@ typedef struct {
  uint32_t threshold_gate_ms;      /* G_T: 0-100000 ms */
  uint32_t threshold_on;           /* On: pulse count */
  uint32_t threshold_off;          /* Off: pulse count */
+ uint8_t virtual_start; /* TON only */
 } LynraAction;
 typedef struct {
  uint32_t id;
@@ -118,7 +119,8 @@ typedef enum {
     LYNRA_FIELD_MULTI_PERMANENT,
     LYNRA_FIELD_COUNTER_DIRECTION,
      LYNRA_FIELD_TH_RANDOM,
-     LYNRA_FIELD_TL_RANDOM
+     LYNRA_FIELD_TL_RANDOM,
+     LYNRA_FIELD_VIRTUAL_START
 } LynraFieldId;
 
 /* Ortak API değer tipi */

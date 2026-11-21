@@ -17,6 +17,9 @@ final class LynraAction extends Struct {
   @Uint8()
   external int outputIndex;
 
+  @Uint8()
+  external int followInputIndex;
+
   @Uint32()
   external int tMs;
 
@@ -88,6 +91,9 @@ external int thresholdOn;
 
 @Uint32()
 external int thresholdOff;
+
+  @Uint8()
+  external int virtualStart;
 }
 
 final class LynraExprToken extends Struct {

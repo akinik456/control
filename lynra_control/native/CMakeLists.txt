@@ -17,7 +17,7 @@ target_compile_options(lynra_PLC_engine PRIVATE
 
 
 if(NOT ANDROID)
-    add_executable(test_edge_random test_edge_random.c)
-    target_link_libraries(test_edge_random PRIVATE lynra_PLC_engine)
+    add_executable(test_virtual_ton test_virtual_ton.c)
+    target_link_libraries(test_virtual_ton PRIVATE lynra_PLC_engine)
 endif()
 

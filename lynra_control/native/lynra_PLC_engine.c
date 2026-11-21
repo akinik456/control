@@ -27,6 +27,8 @@ uint32_t threshold_count;
 uint32_t threshold_last_count;
 uint64_t threshold_window_start_ms;
 bool threshold_prev_input;
+ bool virtual_started;
+ bool physical_taken_over;
 } TimerState;
 struct LynraPlcEngine {
  bool in_use, has_last_scan;
@@ -153,7 +155,8 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
 				r->actions[a].threshold_gate_ms > 100000 ||
 				r->actions[a].threshold_on > 9999 ||
 				r->actions[a].threshold_off > 9999)) ||
-			 r->actions[a].repeat > 1 ||
+			 r->actions[a].virtual_start > 1 ||
+             r->actions[a].repeat > 1 ||
 			 r->actions[a].retrigger > 1 ||
        (r->actions[a].type == LYNRA_TIMER_STOPWATCH &&
         r->actions[a].stopwatch_time_base > 2) ||
@@ -308,26 +311,50 @@ if (a->reset_input_index != 0) {
         (inputs & mask) != 0 &&
         (e->previous_inputs & mask) == 0;
 }
-   if (a->type == LYNRA_TIMER_ON_DELAY) {
-    if (!active) { s->started = false; }
-    else {
-     if (!s->started) {
-    s->started = true;
-    s->started_at = now_ms;
-
-    if (s->trigger_count < UINT32_MAX)
-        s->trigger_count++;
-}
-     on = now_ms - s->started_at >= a->t_ms;
-
-if (on && s->execution_state != LYNRA_EXEC_COMPLETED) {
-    if (s->completion_count < UINT32_MAX)
-        s->completion_count++;
-}
-    }
-    s->execution_state = !active ? LYNRA_EXEC_IDLE :
-      on ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
-   
+    if (a->type == LYNRA_TIMER_ON_DELAY) {
+     if (!a->virtual_start) {
+      /* Original TON behavior, unchanged when virtual start is disabled. */
+      if (!active) { s->started = false; }
+      else {
+       if (!s->started) {
+        s->started = true;
+        s->started_at = now_ms;
+        if (s->trigger_count < UINT32_MAX) s->trigger_count++;
+       }
+       on = now_ms - s->started_at >= a->t_ms;
+       if (on && s->execution_state != LYNRA_EXEC_COMPLETED &&
+           s->completion_count < UINT32_MAX) s->completion_count++;
+      }
+      s->execution_state = !active ? LYNRA_EXEC_IDLE :
+          on ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
+     } else {
+      /* Virtual start fires once. The first physical activation takes over;
+         from then on TON uses only the physical condition. */
+      if (!s->virtual_started) {
+       s->virtual_started = true;
+       s->started = true;
+       s->started_at = now_ms;
+       if (s->trigger_count < UINT32_MAX) s->trigger_count++;
+      }
+      if (active && !s->physical_taken_over) {
+       s->physical_taken_over = true;
+       s->started = false; /* restore initial Q=OFF, elapsed=0 */
+       s->execution_state = LYNRA_EXEC_IDLE;
+      }
+      if (s->physical_taken_over) {
+       if (!active) s->started = false;
+       else if (!s->started) {
+        s->started = true;
+        s->started_at = now_ms;
+        if (s->trigger_count < UINT32_MAX) s->trigger_count++;
+       }
+      }
+      on = s->started && now_ms - s->started_at >= a->t_ms;
+      if (on && s->execution_state != LYNRA_EXEC_COMPLETED &&
+          s->completion_count < UINT32_MAX) s->completion_count++;
+      s->execution_state = !s->started ? LYNRA_EXEC_IDLE :
+          on ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
+     }
 } else if (a->type == LYNRA_TIMER_OFF_DELAY) {
     if (active) {
         s->started = false;
@@ -990,6 +1017,7 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
     switch (a->type) {
     case LYNRA_TIMER_ON_DELAY:
         DIAG_ADD(parameters, TON_MS, a->t_ms);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         return true;
     case LYNRA_TIMER_OFF_DELAY:
         DIAG_ADD(parameters, TOFF_MS, a->t_ms);
@@ -1227,6 +1255,10 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
     LynraAction *a = &e->rules[ri].actions[ai];
     LynraAction next = *a;
     switch (field) {
+    case LYNRA_FIELD_VIRTUAL_START:
+        if (a->type != LYNRA_TIMER_ON_DELAY || value < 0 || value > 1) return false;
+        next.virtual_start = (uint8_t)value;
+        break;
     case LYNRA_FIELD_TON_MS:
         if ((a->type != LYNRA_TIMER_ON_DELAY && a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION && a->type != LYNRA_TIMER_STOPWATCH) || value < 0 || value > UINT32_MAX) return false;
         next.t_ms = (uint32_t)value;

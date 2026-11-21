@@ -431,6 +431,32 @@ for (final condition in rule.conditions) {
         },
       );
 
+  if (action.type == ControlActionType.onDelay) {
+    return Wrap(
+      spacing: 4,
+      runSpacing: 6,
+      children: [
+        _delayToken(
+          action.virtualStart ? 'SANAL GİRİŞ: AÇIK' : 'SANAL GİRİŞ: KAPALI',
+          () => setState(() => action.virtualStart = !action.virtualStart),
+        ),
+        for (final param in _timerParams(name))
+          _delayToken(
+            '${param.$1} ${_seconds(_timerValue(action, param.$1))}',
+            () async {
+              final next = await _duration(
+                '${param.$1} – ${param.$2}',
+                _timerValue(action, param.$1),
+              );
+              if (next != null && mounted) {
+                setState(() => _setTimerValue(action, param.$1, next));
+              }
+            },
+          ),
+      ],
+    );
+  }
+
   if (action.type == ControlActionType.retentiveOnDelay) {
     return Wrap(
       spacing: 4,

@@ -109,6 +109,7 @@ class ControlAction {
 	int resetInputIndex = 2;
 	bool timerRepeat = false;
 	bool timerRetrigger = false;
+	bool virtualStart = false;
 	
 	// Counter parameters
 	int counterInputIndex = 1;
@@ -241,6 +242,7 @@ if (type == ControlActionType.thresholdTrigger) ...{
 },
         if (timerTypes.contains(type)) ...{
           'timerTMs': timerTMs,
+          if (type == ControlActionType.onDelay) 'virtualStart': virtualStart,
           'timerTHMs': timerTHMs,
           'timerTLMs': timerTLMs,
           'timerTHRandom': timerTHRandom,
@@ -317,6 +319,7 @@ if (type == ControlActionType.thresholdTrigger) ...{
     if (ControlAction.timerTypes.contains(type)) {
       return ControlAction.timer(type, outputIndex: json['outputIndex'] as int? ?? 1)
         ..timerTMs = json['timerTMs'] as int? ?? 0
+        ..virtualStart = json['virtualStart'] as bool? ?? false
         ..timerTHMs = json['timerTHMs'] as int? ?? 0
         ..timerTLMs = json['timerTLMs'] as int? ?? 0
         ..timerTHRandom = json['timerTHRandom'] as bool? ?? false

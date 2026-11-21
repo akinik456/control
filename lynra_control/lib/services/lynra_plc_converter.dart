@@ -124,6 +124,7 @@ if (source.type == ControlActionType.thresholdTrigger) {
       _ => throw UnsupportedError('Unsupported timer: ${source.type.name}'),
     };
     target.outputIndex = source.outputIndex;
+    target.followInputIndex = 0;
     target.tMs = _u32(source.timerTMs, 'timerTMs');
     target.thMs = _u32(source.timerTHMs, 'timerTHMs');
     target.tlMs = _u32(source.timerTLMs, 'timerTLMs');
@@ -207,6 +208,9 @@ target.thresholdOn =
 target.thresholdOff =
     source.type == ControlActionType.thresholdTrigger
         ? source.thresholdOff : 0;
+
+    target.virtualStart =
+        source.type == ControlActionType.onDelay && source.virtualStart ? 1 : 0;
 				
   }
 
