@@ -678,12 +678,12 @@ if (on && s->execution_state != LYNRA_EXEC_COMPLETED) {
     if (a->counter_on >= a->counter_off) {
         if (s->counter_value >= a->counter_on)
             s->output_on = true;
-        else if (s->counter_value < a->counter_off)
+        else if (s->counter_value <= a->counter_off)
             s->output_on = false;
     } else {
         if (s->counter_value <= a->counter_on)
             s->output_on = true;
-        else if (s->counter_value > a->counter_off)
+        else if (s->counter_value >= a->counter_off)
             s->output_on = false;
     }
 }

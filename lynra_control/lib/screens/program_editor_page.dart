@@ -294,7 +294,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
           outputIndex: replace?.outputIndex ?? 1);
 					final edgeOnly =
     action.type == ControlActionType.retentiveOnDelay ||
-    action.type == ControlActionType.edgeWipingRelay;
+    action.type == ControlActionType.edgeWipingRelay ||
+    action.type == ControlActionType.stairwayTimer;
 
 for (final condition in rule.conditions) {
   condition.trigger = edgeOnly
@@ -587,7 +588,9 @@ Future<void> _chooseFunction(
       } else {
         final index = rule.actions.indexOf(replace);
         if (index >= 0) rule.actions[index] = action;
+      _expandedActions.remove(replace);
       }
+    _expandedActions.add(action);
     });
   }
 	if (selected == 'hours') {
@@ -606,7 +609,9 @@ Future<void> _chooseFunction(
     } else {
       final index = rule.actions.indexOf(replace);
       if (index >= 0) rule.actions[index] = action;
+      _expandedActions.remove(replace);
     }
+    _expandedActions.add(action);
   });
 }
 if (selected == 'threshold') {
@@ -625,7 +630,9 @@ if (selected == 'threshold') {
     } else {
       final index = rule.actions.indexOf(replace);
       if (index >= 0) rule.actions[index] = action;
+      _expandedActions.remove(replace);
     }
+    _expandedActions.add(action);
   });
 }
 }
@@ -702,16 +709,21 @@ if (selected == 'threshold') {
       _token(_triggerName(condition.trigger), () async {
         final edgeOnly = rule.actions.any((a) =>
     a.type == ControlActionType.retentiveOnDelay ||
-    a.type == ControlActionType.edgeWipingRelay);
+    a.type == ControlActionType.edgeWipingRelay ||
+    a.type == ControlActionType.stairwayTimer);
+        final onOnly = rule.actions.any((a) =>
+    a.type == ControlActionType.multipleFunctionTimer ||
+    a.type == ControlActionType.stopwatchTimer);
 
 final v = await _choose<ConditionTrigger>('Giriş koşulu', [
   if (!edgeOnly) ...[
     (ConditionTrigger.highLevel, 'ON '),
-    (ConditionTrigger.lowLevel, 'OFF '),
+    if (!onOnly) (ConditionTrigger.lowLevel, 'OFF '),
   ],
   if (edgeOnly) ...[
     (ConditionTrigger.risingEdge, 'ON olursa (yükselen kenar)'),
-    (ConditionTrigger.fallingEdge, 'OFF olursa (düşen kenar)'),
+    if (!rule.actions.any((a) => a.type == ControlActionType.stairwayTimer))
+      (ConditionTrigger.fallingEdge, 'OFF olursa (düşen kenar)'),
   ],
 ]);
         if (v != null) setState(() {

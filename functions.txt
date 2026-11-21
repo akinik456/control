@@ -24,15 +24,12 @@ SAYAÇLAR
 ************
 TODO
 		
-	Merdiven otomatiğinde giriş aktif ise çıkış sürekli aktif,girişin tetikleme olması gerekir
-	
+		
 	Sanal giriş tanımlanması gereken fonksiyonlar: 
 		Açılma Gecikmesi,Kapanma Gecikmesi,Açılma/Kapanma Gecikmesi
 		Darbe Rölesi,Kenar Tetiklemeli Darbe Rölesi,Asenkron Darbe Üreteci,Rastgele Zamanlı Darbe Üreteci
 		
-	Çok işlevli anahtar da girişi ON ile sınırla 
 	
-	kronmetre de girişi ON ile sınırla ( sim. de hata veriyor zaten , stopwatch requires one HIGH EN condition and one action)
 	
-	ileri / geri sayıcıda ON a ulaşınca çıkış aktif oluyor ancak OFF un altına düşünce çıkış resetleniyor.OFF a ulaşınca resetlenmesi lazım
+	
 	
