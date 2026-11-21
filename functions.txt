@@ -26,8 +26,8 @@ TODO
 		
 		
 	Sanal giriş tanımlanması gereken fonksiyonlar: 
-		Açılma Gecikmesi,Kapanma Gecikmesi,Açılma/Kapanma Gecikmesi
-		Darbe Rölesi,Kenar Tetiklemeli Darbe Rölesi,Asenkron Darbe Üreteci,Rastgele Zamanlı Darbe Üreteci
+		Açılma/Kapanma Gecikmesi 
+		
 		
 	
 	

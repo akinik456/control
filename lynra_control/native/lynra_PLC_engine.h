@@ -59,7 +59,7 @@ typedef struct {
  uint32_t threshold_gate_ms;      /* G_T: 0-100000 ms */
  uint32_t threshold_on;           /* On: pulse count */
  uint32_t threshold_off;          /* Off: pulse count */
- uint8_t virtual_start; /* TON only */
+ uint8_t virtual_start; /* Timer functions including stopwatch */
 } LynraAction;
 typedef struct {
  uint32_t id;

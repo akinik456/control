@@ -109,7 +109,7 @@ class ControlAction {
 	int resetInputIndex = 2;
 	bool timerRepeat = false;
 	bool timerRetrigger = false;
-	bool virtualStart = false;
+  bool virtualStart = false;
 	
 	// Counter parameters
 	int counterInputIndex = 1;
@@ -242,7 +242,16 @@ if (type == ControlActionType.thresholdTrigger) ...{
 },
         if (timerTypes.contains(type)) ...{
           'timerTMs': timerTMs,
-          if (type == ControlActionType.onDelay) 'virtualStart': virtualStart,
+          if (const {
+            ControlActionType.onDelay,
+            ControlActionType.offDelay,
+              ControlActionType.retentiveOnDelay,
+            ControlActionType.wipingRelay,
+            ControlActionType.edgeWipingRelay,
+            ControlActionType.asynchronousPulse,
+            ControlActionType.randomGenerator,
+            ControlActionType.stopwatchTimer,
+          }.contains(type)) 'virtualStart': virtualStart,
           'timerTHMs': timerTHMs,
           'timerTLMs': timerTLMs,
           'timerTHRandom': timerTHRandom,

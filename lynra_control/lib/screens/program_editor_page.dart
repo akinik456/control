@@ -431,15 +431,17 @@ for (final condition in rule.conditions) {
         },
       );
 
+  Widget virtualToken() => _delayToken(
+        action.virtualStart ? 'SANAL GİRİŞ: AÇIK' : 'SANAL GİRİŞ: KAPALI',
+        () => setState(() => action.virtualStart = !action.virtualStart),
+      );
+
   if (action.type == ControlActionType.onDelay) {
     return Wrap(
       spacing: 4,
       runSpacing: 6,
       children: [
-        _delayToken(
-          action.virtualStart ? 'SANAL GİRİŞ: AÇIK' : 'SANAL GİRİŞ: KAPALI',
-          () => setState(() => action.virtualStart = !action.virtualStart),
-        ),
+        virtualToken(),
         for (final param in _timerParams(name))
           _delayToken(
             '${param.$1} ${_seconds(_timerValue(action, param.$1))}',
@@ -462,6 +464,7 @@ for (final condition in rule.conditions) {
       spacing: 4,
       runSpacing: 6,
       children: [
+        virtualToken(),
         resetToken(),
         timeToken('Kalıcı açılma gecikmesi'),
         retriggerToken(),
@@ -474,6 +477,7 @@ for (final condition in rule.conditions) {
       spacing: 4,
       runSpacing: 6,
       children: [
+        virtualToken(),
         resetToken(),
         timeToken('Kronometre hedef süresi'),
       ],
@@ -491,6 +495,14 @@ for (final condition in rule.conditions) {
     spacing: 4,
     runSpacing: 6,
     children: [
+      if (const {
+        ControlActionType.offDelay,
+        ControlActionType.wipingRelay,
+        ControlActionType.edgeWipingRelay,
+        ControlActionType.asynchronousPulse,
+        ControlActionType.randomGenerator,
+      }.contains(action.type))
+        virtualToken(),
       if (retriggerable)
         retriggerToken(),
 

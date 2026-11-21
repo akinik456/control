@@ -156,6 +156,10 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
 				r->actions[a].threshold_on > 9999 ||
 				r->actions[a].threshold_off > 9999)) ||
 			 r->actions[a].virtual_start > 1 ||
+             (r->actions[a].virtual_start &&
+              (r->actions[a].type == LYNRA_TIMER_ON_OFF_DELAY ||
+               (r->actions[a].type > LYNRA_TIMER_RANDOM_GENERATOR &&
+               r->actions[a].type != LYNRA_TIMER_STOPWATCH))) ||
              r->actions[a].repeat > 1 ||
 			 r->actions[a].retrigger > 1 ||
        (r->actions[a].type == LYNRA_TIMER_STOPWATCH &&
@@ -301,7 +305,40 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
    /* Rule-level trigger admission, separate from timer output state.
       A new activation is accepted when idle, or while running in REPEAT.
       LEVEL conditions generate a new event only after deactivation. */
-   bool accept_trigger = rule_accept_trigger;
+    bool accept_trigger = rule_accept_trigger;
+    /* Virtual input: a one-time power-on activation, until the first
+       physical activation takes ownership. OFF DELAY instead starts with
+       a synthetic release so its countdown begins at RUN. */
+    const bool physical_active = active;
+    const bool virtual_enabled = a->virtual_start &&
+        a->type >= LYNRA_TIMER_OFF_DELAY &&
+        a->type <= LYNRA_TIMER_RANDOM_GENERATOR &&
+        a->type != LYNRA_TIMER_ON_OFF_DELAY;
+    bool virtual_event = false;
+    if (virtual_enabled && !s->physical_taken_over) {
+        if (physical_active) {
+            /* A real activation cancels the virtual cycle and starts fresh. */
+            memset(s, 0, sizeof(*s));
+            s->virtual_started = true;
+            s->physical_taken_over = true;
+            virtual_event = true;
+        } else if (!s->virtual_started) {
+            s->virtual_started = true;
+            virtual_event = true;
+            if (a->type == LYNRA_TIMER_OFF_DELAY) {
+                s->started = true;
+                s->started_at = now_ms;
+                if (s->trigger_count < UINT32_MAX) s->trigger_count++;
+            }
+        }
+    }
+    /* For all non-OFF-DELAY timers, virtual EN stays high until a
+       physical activation. Edge timers receive a single initial event. */
+    bool active = physical_active ||
+        (virtual_enabled && !s->physical_taken_over &&
+         a->type != LYNRA_TIMER_OFF_DELAY);
+    bool trigger_event = rule_accept_trigger || virtual_event;
+    accept_trigger = trigger_event;
 	 bool reset_rising = false;
 
 if (a->reset_input_index != 0) {
@@ -634,7 +671,22 @@ if (a->reset_input_index != 0) {
       s->output_on ? (s->multi_permanent ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING) :
       s->execution_state == LYNRA_EXEC_RUNNING ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE;
    }
-   if (a->type == LYNRA_TIMER_STOPWATCH) {
+      if (a->type == LYNRA_TIMER_STOPWATCH) {
+     /* Virtual EN starts on the first scan. First physical EN takes over
+        with a fresh elapsed time; subsequent EN cycles retain pause/resume. */
+     if (a->virtual_start && !s->physical_taken_over) {
+         if (physical_active) {
+             s->physical_taken_over = true;
+             s->virtual_started = true;
+             s->started = false;
+             s->elapsed_ms = 0;
+             s->output_on = false;
+         } else if (!s->virtual_started) {
+             s->virtual_started = true;
+         }
+     }
+     const bool stopwatch_en = physical_active ||
+         (a->virtual_start && s->virtual_started && !s->physical_taken_over);
     bool reset = a->reset_input_index &&
         (inputs & (1u << (a->reset_input_index - 1))) != 0;
 
@@ -643,7 +695,7 @@ if (a->reset_input_index != 0) {
         s->elapsed_ms = 0;
         s->output_on = false;
     } else {
-        if (active) {
+        if (stopwatch_en) {
             if (!s->started) {
                 s->started = true;
                 s->started_at = now_ms;
@@ -1021,6 +1073,7 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
         return true;
     case LYNRA_TIMER_OFF_DELAY:
         DIAG_ADD(parameters, TOFF_MS, a->t_ms);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         return true;
     case LYNRA_TIMER_ON_OFF_DELAY:
         DIAG_ADD(parameters, TH_MS, a->th_ms);
@@ -1032,9 +1085,11 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
         DIAG_ADD(parameters, TON_MS, a->t_ms);
         DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
         DIAG_ADD(parameters, RETRIGGER, a->retrigger);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         return true;
     case LYNRA_TIMER_WIPING_RELAY:
         DIAG_ADD(parameters, TON_MS, a->t_ms);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         return true;
     case LYNRA_TIMER_EDGE_WIPING_RELAY:
         DIAG_ADD(parameters, TH_MS, a->th_ms);
@@ -1045,14 +1100,17 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
         DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
         DIAG_ADD(parameters, REPEAT, a->repeat);
         DIAG_ADD(parameters, RETRIGGER, a->retrigger);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         return true;
     case LYNRA_TIMER_ASYNC_PULSE:
         DIAG_ADD(parameters, TH_MS, a->th_ms);
         DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         return true;
     case LYNRA_TIMER_RANDOM_GENERATOR:
         DIAG_ADD(parameters, TH_MS, a->th_ms);
         DIAG_ADD(parameters, TL_MS, a->tl_ms);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         return true;
     case LYNRA_TIMER_STAIRWAY:
         DIAG_ADD(parameters, TON_MS, a->t_ms);
@@ -1069,6 +1127,7 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
         return true;
     case LYNRA_TIMER_STOPWATCH:
         DIAG_ADD(parameters, TON_MS, a->t_ms);
+        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
         DIAG_ADD(parameters, STOPWATCH_TIME_BASE, a->stopwatch_time_base);
         DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
         return true;
@@ -1256,7 +1315,8 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
     LynraAction next = *a;
     switch (field) {
     case LYNRA_FIELD_VIRTUAL_START:
-        if (a->type != LYNRA_TIMER_ON_DELAY || value < 0 || value > 1) return false;
+        if ((a->type == LYNRA_TIMER_ON_OFF_DELAY ||
+             (a->type > LYNRA_TIMER_RANDOM_GENERATOR && a->type != LYNRA_TIMER_STOPWATCH)) || value < 0 || value > 1) return false;
         next.virtual_start = (uint8_t)value;
         break;
     case LYNRA_FIELD_TON_MS:
