@@ -133,7 +133,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   ControlConditionGroup _makeRule() => ControlConditionGroup(
     id: 'rule_${++_id}',
     conditions: [InputCondition(inputIndex: 1)],
-    actions: [ControlAction.timer(ControlActionType.onDelay)],
+    actions: [ControlAction.timer(ControlActionType.onOffDelay)],
   );
 
   @override
@@ -261,10 +261,8 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   // Siemens-style function selection. Unsupported functions remain UI-only
   // until their distinct data model and runtime behavior are implemented.
   static const _timerFunctions = <String>[
-    'Açılma Gecikmesi',
-    'Kapanma Gecikmesi',
-    'Açılma / Kapanma Gecikmesi',
-    'Kalıcı Açılma Gecikmesi',
+    'Açma / Kapanma Gecikmesi',
+    'Kalıcı Açma Gecikmesi',
     'Darbe Rölesi',
     'Kenar Tetiklemeli Darbe Rölesi',
     'Asenkron Darbe Üreteci',
@@ -274,17 +272,15 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   ];
 
   ControlActionType _timerType(String name) => switch (name) {
-    'Açılma Gecikmesi' => ControlActionType.onDelay,
-    'Kapanma Gecikmesi' => ControlActionType.offDelay,
-    'Açılma / Kapanma Gecikmesi' => ControlActionType.onOffDelay,
-    'Kalıcı Açılma Gecikmesi' => ControlActionType.retentiveOnDelay,
+    'Açma / Kapanma Gecikmesi' => ControlActionType.onOffDelay,
+    'Kalıcı Açma Gecikmesi' => ControlActionType.retentiveOnDelay,
     'Darbe Rölesi' => ControlActionType.wipingRelay,
     'Kenar Tetiklemeli Darbe Rölesi' => ControlActionType.edgeWipingRelay,
     'Asenkron Darbe Üreteci' => ControlActionType.asynchronousPulse,
     'Merdiven Otomatiği' => ControlActionType.stairwayTimer,
     'Çok İşlevli Anahtar' => ControlActionType.multipleFunctionTimer,
     'Kronometre' => ControlActionType.stopwatchTimer,
-    _ => ControlActionType.onDelay,
+    _ => ControlActionType.onOffDelay,
   };
 
   void _selectTimer(ControlConditionGroup rule, String name,
@@ -343,10 +339,10 @@ for (final condition in rule.conditions) {
   }
 
   String _timerName(ControlAction action) => switch (action.type) {
-    ControlActionType.onDelay => 'Açılma Gecikmesi',
+    ControlActionType.onDelay => 'Açma Gecikmesi',
     ControlActionType.offDelay => 'Kapanma Gecikmesi',
-    ControlActionType.onOffDelay => 'Açılma / Kapanma Gecikmesi',
-    ControlActionType.retentiveOnDelay => 'Kalıcı Açılma Gecikmesi',
+    ControlActionType.onOffDelay => 'Açma / Kapanma Gecikmesi',
+    ControlActionType.retentiveOnDelay => 'Kalıcı Açma Gecikmesi',
     ControlActionType.wipingRelay => 'Darbe Rölesi',
     ControlActionType.edgeWipingRelay => 'Kenar Tetiklemeli Darbe Rölesi',
     ControlActionType.asynchronousPulse => 'Asenkron Darbe Üreteci',
@@ -381,10 +377,8 @@ for (final condition in rule.conditions) {
   }
 
   List<(String, String)> _timerParams(String name) => switch (name) {
-    'Açılma Gecikmesi' => [('T', 'ON gecikmesi')],
-    'Kapanma Gecikmesi' => [('T', 'OFF gecikmesi')],
-    'Açılma / Kapanma Gecikmesi' => [('TH', 'ON gecikmesi'), ('TL', 'OFF gecikmesi')],
-    'Kalıcı Açılma Gecikmesi' => [('T', 'Gecikme')],
+    'Açma / Kapanma Gecikmesi' => [('TH', 'ON gecikmesi'), ('TL', 'OFF gecikmesi')],
+    'Kalıcı Açma Gecikmesi' => [('T', 'Gecikme')],
     'Darbe Rölesi' => [('T', 'Darbe süresi')],
     'Kenar Tetiklemeli Darbe Rölesi' => [('TH', 'Darbe süresi'), ('TL', 'Ara süresi'), ('N', 'Darbe sayısı')],
     'Asenkron Darbe Üreteci' => [('TH', 'ON süresi'), ('TL', 'OFF süresi')],
@@ -436,29 +430,6 @@ for (final condition in rule.conditions) {
         () => setState(() => action.virtualStart = !action.virtualStart),
       );
 
-  if (action.type == ControlActionType.onDelay) {
-    return Wrap(
-      spacing: 4,
-      runSpacing: 6,
-      children: [
-        virtualToken(),
-        for (final param in _timerParams(name))
-          _delayToken(
-            '${param.$1} ${_seconds(_timerValue(action, param.$1))}',
-            () async {
-              final next = await _duration(
-                '${param.$1} – ${param.$2}',
-                _timerValue(action, param.$1),
-              );
-              if (next != null && mounted) {
-                setState(() => _setTimerValue(action, param.$1, next));
-              }
-            },
-          ),
-      ],
-    );
-  }
-
   if (action.type == ControlActionType.retentiveOnDelay) {
     return Wrap(
       spacing: 4,
@@ -466,7 +437,7 @@ for (final condition in rule.conditions) {
       children: [
         virtualToken(),
         resetToken(),
-        timeToken('Kalıcı açılma gecikmesi'),
+        timeToken('Kalıcı Açma gecikmesi'),
         retriggerToken(),
       ],
     );
@@ -496,7 +467,6 @@ for (final condition in rule.conditions) {
     runSpacing: 6,
     children: [
       if (const {
-        ControlActionType.offDelay,
         ControlActionType.wipingRelay,
         ControlActionType.edgeWipingRelay,
         ControlActionType.asynchronousPulse,

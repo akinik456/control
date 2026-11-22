@@ -107,8 +107,6 @@ if (source.type == ControlActionType.thresholdTrigger) {
       throw RangeError('Output index must be 1..32');
     }
     target.type = switch (source.type) {
-      ControlActionType.onDelay => 0,
-      ControlActionType.offDelay => 1,
       ControlActionType.onOffDelay => 2,
       ControlActionType.retentiveOnDelay => 3,
       ControlActionType.wipingRelay => 4,
@@ -211,8 +209,6 @@ target.thresholdOff =
 
     target.virtualStart =
         const {
-          ControlActionType.onDelay,
-          ControlActionType.offDelay,
           ControlActionType.retentiveOnDelay,
           ControlActionType.wipingRelay,
           ControlActionType.edgeWipingRelay,

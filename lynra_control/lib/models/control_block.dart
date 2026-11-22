@@ -130,7 +130,6 @@ class ControlAction {
 	int thresholdOff = 5;
 
   static const Set<ControlActionType> timerTypes = {
-    ControlActionType.onDelay, ControlActionType.offDelay,
     ControlActionType.onOffDelay, ControlActionType.retentiveOnDelay,
     ControlActionType.wipingRelay, ControlActionType.edgeWipingRelay,
     ControlActionType.asynchronousPulse, ControlActionType.randomGenerator,
@@ -243,8 +242,6 @@ if (type == ControlActionType.thresholdTrigger) ...{
         if (timerTypes.contains(type)) ...{
           'timerTMs': timerTMs,
           if (const {
-            ControlActionType.onDelay,
-            ControlActionType.offDelay,
               ControlActionType.retentiveOnDelay,
             ControlActionType.wipingRelay,
             ControlActionType.edgeWipingRelay,
@@ -298,6 +295,14 @@ if (type == ControlActionType.thresholdTrigger) ...{
 
   factory ControlAction.fromJson(Map<String, dynamic> json) {
     final type = ControlActionType.values.byName(json['type'] as String);
+    // Old standalone TON/TOF programs are loaded as the unified timer.
+    if (type == ControlActionType.onDelay || type == ControlActionType.offDelay) {
+      final oldT = json['timerTMs'] as int? ?? 0;
+      return ControlAction.timer(ControlActionType.onOffDelay,
+          outputIndex: json['outputIndex'] as int? ?? 1)
+        ..timerTHMs = type == ControlActionType.onDelay ? oldT : 0
+        ..timerTLMs = type == ControlActionType.offDelay ? oldT : 0;
+    }
 		if (ControlAction.counterTypes.contains(type)) {
   return ControlAction.counter(
     type,

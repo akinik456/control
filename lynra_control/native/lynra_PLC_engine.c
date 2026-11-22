@@ -129,9 +129,7 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
    }
    if (commands) continue;
    for (unsigned a = 0; a < r->action_count; ++a)
-    if ((r->actions[a].type != LYNRA_TIMER_ON_DELAY &&
-        r->actions[a].type != LYNRA_TIMER_OFF_DELAY &&
-        r->actions[a].type != LYNRA_TIMER_ON_OFF_DELAY &&
+    if ((r->actions[a].type != LYNRA_TIMER_ON_OFF_DELAY &&
         r->actions[a].type != LYNRA_TIMER_RETENTIVE_ON_DELAY &&
         r->actions[a].type != LYNRA_TIMER_WIPING_RELAY &&
         r->actions[a].type != LYNRA_TIMER_EDGE_WIPING_RELAY &&
@@ -306,40 +304,28 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
       A new activation is accepted when idle, or while running in REPEAT.
       LEVEL conditions generate a new event only after deactivation. */
     bool accept_trigger = rule_accept_trigger;
-    /* Virtual input: a one-time power-on activation, until the first
-       physical activation takes ownership. OFF DELAY instead starts with
-       a synthetic release so its countdown begins at RUN. */
-    const bool physical_active = active;
-    const bool virtual_enabled = a->virtual_start &&
-        a->type >= LYNRA_TIMER_OFF_DELAY &&
-        a->type <= LYNRA_TIMER_RANDOM_GENERATOR &&
-        a->type != LYNRA_TIMER_ON_OFF_DELAY;
-    bool virtual_event = false;
-    if (virtual_enabled && !s->physical_taken_over) {
-        if (physical_active) {
-            /* A real activation cancels the virtual cycle and starts fresh. */
-            memset(s, 0, sizeof(*s));
-            s->virtual_started = true;
-            s->physical_taken_over = true;
-            virtual_event = true;
-        } else if (!s->virtual_started) {
-            s->virtual_started = true;
-            virtual_event = true;
-            if (a->type == LYNRA_TIMER_OFF_DELAY) {
-                s->started = true;
-                s->started_at = now_ms;
-                if (s->trigger_count < UINT32_MAX) s->trigger_count++;
-            }
-        }
-    }
-    /* For all non-OFF-DELAY timers, virtual EN stays high until a
-       physical activation. Edge timers receive a single initial event. */
-    bool active = physical_active ||
-        (virtual_enabled && !s->physical_taken_over &&
-         a->type != LYNRA_TIMER_OFF_DELAY);
-    bool trigger_event = rule_accept_trigger || virtual_event;
-    accept_trigger = trigger_event;
-	 bool reset_rising = false;
+     /* Virtual startup applies only to supported timer types. */
+     const bool physical_active = active;
+     const bool virtual_enabled = a->virtual_start &&
+         a->type >= LYNRA_TIMER_RETENTIVE_ON_DELAY &&
+         a->type <= LYNRA_TIMER_RANDOM_GENERATOR;
+     bool virtual_event = false;
+     if (virtual_enabled && !s->physical_taken_over) {
+         if (physical_active) {
+             memset(s, 0, sizeof(*s));
+             s->virtual_started = true;
+             s->physical_taken_over = true;
+             virtual_event = true;
+         } else if (!s->virtual_started) {
+             s->virtual_started = true;
+             virtual_event = true;
+         }
+     }
+     bool active = physical_active ||
+         (virtual_enabled && !s->physical_taken_over);
+     bool trigger_event = rule_accept_trigger || virtual_event;
+     accept_trigger = trigger_event;
+ bool reset_rising = false;
 
 if (a->reset_input_index != 0) {
     uint32_t mask = 1u << (a->reset_input_index - 1);
@@ -348,82 +334,6 @@ if (a->reset_input_index != 0) {
         (inputs & mask) != 0 &&
         (e->previous_inputs & mask) == 0;
 }
-    if (a->type == LYNRA_TIMER_ON_DELAY) {
-     if (!a->virtual_start) {
-      /* Original TON behavior, unchanged when virtual start is disabled. */
-      if (!active) { s->started = false; }
-      else {
-       if (!s->started) {
-        s->started = true;
-        s->started_at = now_ms;
-        if (s->trigger_count < UINT32_MAX) s->trigger_count++;
-       }
-       on = now_ms - s->started_at >= a->t_ms;
-       if (on && s->execution_state != LYNRA_EXEC_COMPLETED &&
-           s->completion_count < UINT32_MAX) s->completion_count++;
-      }
-      s->execution_state = !active ? LYNRA_EXEC_IDLE :
-          on ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
-     } else {
-      /* Virtual start fires once. The first physical activation takes over;
-         from then on TON uses only the physical condition. */
-      if (!s->virtual_started) {
-       s->virtual_started = true;
-       s->started = true;
-       s->started_at = now_ms;
-       if (s->trigger_count < UINT32_MAX) s->trigger_count++;
-      }
-      if (active && !s->physical_taken_over) {
-       s->physical_taken_over = true;
-       s->started = false; /* restore initial Q=OFF, elapsed=0 */
-       s->execution_state = LYNRA_EXEC_IDLE;
-      }
-      if (s->physical_taken_over) {
-       if (!active) s->started = false;
-       else if (!s->started) {
-        s->started = true;
-        s->started_at = now_ms;
-        if (s->trigger_count < UINT32_MAX) s->trigger_count++;
-       }
-      }
-      on = s->started && now_ms - s->started_at >= a->t_ms;
-      if (on && s->execution_state != LYNRA_EXEC_COMPLETED &&
-          s->completion_count < UINT32_MAX) s->completion_count++;
-      s->execution_state = !s->started ? LYNRA_EXEC_IDLE :
-          on ? LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
-     }
-} else if (a->type == LYNRA_TIMER_OFF_DELAY) {
-    if (active) {
-        s->started = false;
-        on = true;
-    }
-    else if (s->prev_match) {
-        s->started = true;
-        s->started_at = now_ms;
-
-        if (s->trigger_count < UINT32_MAX)
-            s->trigger_count++;
-    }
-
-    if (!active && s->started) {
-        on = now_ms - s->started_at < a->t_ms;
-
-        if (!on) {
-            s->started = false;
-
-            if (s->completion_count < UINT32_MAX)
-                s->completion_count++;
-        }
-    }
-
-    s->execution_state = active ? LYNRA_EXEC_IDLE :
-        s->started ? LYNRA_EXEC_RUNNING :
-        (s->prev_match ||
-         s->execution_state == LYNRA_EXEC_RUNNING ||
-         s->execution_state == LYNRA_EXEC_COMPLETED) ?
-        LYNRA_EXEC_COMPLETED : LYNRA_EXEC_IDLE;
-}
-
    if (a->type == LYNRA_TIMER_ON_OFF_DELAY) {
     // Each input transition restarts its own delay; opposite transitions cancel it.
     if (active != s->prev_match || !s->started) {
@@ -960,8 +870,6 @@ bool lynra_plc_get_action_state(const LynraPlcEngine *e, size_t rule_index,
      type != LYNRA_TIMER_STOPWATCH &&
      type != LYNRA_TIMER_RETENTIVE_ON_DELAY &&
      type != LYNRA_TIMER_RANDOM_GENERATOR &&
-     type != LYNRA_TIMER_ON_DELAY &&
-     type != LYNRA_TIMER_OFF_DELAY &&
      type != LYNRA_TIMER_ON_OFF_DELAY &&
      type != LYNRA_TIMER_EDGE_WIPING_RELAY &&
      type != LYNRA_TIMER_WIPING_RELAY &&
@@ -1067,14 +975,6 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
     const LynraAction *a = &e->rules[ri].actions[ai];
     parameters->count = 0;
     switch (a->type) {
-    case LYNRA_TIMER_ON_DELAY:
-        DIAG_ADD(parameters, TON_MS, a->t_ms);
-        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
-        return true;
-    case LYNRA_TIMER_OFF_DELAY:
-        DIAG_ADD(parameters, TOFF_MS, a->t_ms);
-        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
-        return true;
     case LYNRA_TIMER_ON_OFF_DELAY:
         DIAG_ADD(parameters, TH_MS, a->th_ms);
         DIAG_ADD(parameters, TL_MS, a->tl_ms);
@@ -1173,13 +1073,6 @@ bool lynra_plc_get_values(const LynraPlcEngine *e, size_t ri, size_t ai,
     if (s->started && e->has_last_scan && e->last_scan >= s->started_at)
         elapsed = e->last_scan - s->started_at;
     switch (a->type) {
-    case LYNRA_TIMER_ON_DELAY:
-    case LYNRA_TIMER_OFF_DELAY:
-        if (elapsed > a->t_ms) elapsed = a->t_ms;
-        DIAG_ADD(values, ELAPSED_MS, diag_u64(elapsed));
-        DIAG_ADD(values, TRIGGER_COUNT, s->trigger_count);
-        DIAG_ADD(values, COMPLETION_COUNT, s->completion_count);
-        return true;
     case LYNRA_TIMER_ON_OFF_DELAY:
         DIAG_ADD(values, ELAPSED_MS, diag_u64(elapsed));
         break;
@@ -1250,24 +1143,7 @@ bool lynra_plc_get_field(
         return false;
 
     const LynraAction *a = &r->actions[action_index];
-    const TimerState *s = &e->timers[rule_index][action_index];
-
     switch (field) {
-			case LYNRA_FIELD_ELAPSED_MS:
-    if (a->type != LYNRA_TIMER_ON_DELAY)
-        return false;
-
-    if (!s->started) {
-        *value = 0;
-    } else {
-        uint64_t elapsed = e->last_scan - s->started_at;
-
-        if (elapsed > a->t_ms)
-            elapsed = a->t_ms;
-
-        *value = (LynraFieldValue)elapsed;
-    }
-    return true;
 			case LYNRA_FIELD_INPUT:
     if (r->condition_count != 1)
         return false;
@@ -1285,24 +1161,6 @@ case LYNRA_FIELD_TRIGGER_MODE:
             *value = (e->outputs >> (a->output_index - 1)) & 1u;
             return true;
 
-        case LYNRA_FIELD_TON_MS:
-            if (a->type != LYNRA_TIMER_ON_DELAY)
-                return false;
-            *value = a->t_ms;
-            return true;
-
-        case LYNRA_FIELD_TRIGGER_COUNT:
-            if (a->type != LYNRA_TIMER_ON_DELAY)
-                return false;
-            *value = s->trigger_count;
-            return true;
-
-        case LYNRA_FIELD_COMPLETION_COUNT:
-            if (a->type != LYNRA_TIMER_ON_DELAY)
-                return false;
-            *value = s->completion_count;
-            return true;
-
         default:
             return false;
     }
@@ -1315,16 +1173,12 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
     LynraAction next = *a;
     switch (field) {
     case LYNRA_FIELD_VIRTUAL_START:
-        if ((a->type == LYNRA_TIMER_ON_OFF_DELAY ||
+        if ((a->type < LYNRA_TIMER_RETENTIVE_ON_DELAY ||
              (a->type > LYNRA_TIMER_RANDOM_GENERATOR && a->type != LYNRA_TIMER_STOPWATCH)) || value < 0 || value > 1) return false;
         next.virtual_start = (uint8_t)value;
         break;
     case LYNRA_FIELD_TON_MS:
-        if ((a->type != LYNRA_TIMER_ON_DELAY && a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION && a->type != LYNRA_TIMER_STOPWATCH) || value < 0 || value > UINT32_MAX) return false;
-        next.t_ms = (uint32_t)value;
-        break;
-    case LYNRA_FIELD_TOFF_MS:
-        if ((a->type != LYNRA_TIMER_OFF_DELAY) || value < 0 || value > UINT32_MAX) return false;
+        if ((a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION && a->type != LYNRA_TIMER_STOPWATCH) || value < 0 || value > UINT32_MAX) return false;
         next.t_ms = (uint32_t)value;
         break;
     case LYNRA_FIELD_TH_MS:
