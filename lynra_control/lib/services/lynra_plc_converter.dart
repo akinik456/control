@@ -100,13 +100,19 @@ if (source.type == ControlActionType.thresholdTrigger) {
   }
 }
     if (!ControlAction.timerTypes.contains(source.type) &&
-    !ControlAction.counterTypes.contains(source.type)) {
+    !ControlAction.counterTypes.contains(source.type) &&
+    !const {ControlActionType.setOutput, ControlActionType.setLatch,
+      ControlActionType.resetLatch, ControlActionType.toggleOutput}.contains(source.type)) {
       throw UnsupportedError('Legacy action not supported by C Engine v1.0: ${source.type.name}');
     }
     if (source.outputIndex < 1 || source.outputIndex > 32) {
       throw RangeError('Output index must be 1..32');
     }
     target.type = switch (source.type) {
+      ControlActionType.setOutput => source.outputState ? 18 : 19,
+      ControlActionType.setLatch => 20,
+      ControlActionType.resetLatch => 21,
+      ControlActionType.toggleOutput => 22,
       ControlActionType.onOffDelay => 2,
       ControlActionType.wipingRelay => 4,
       ControlActionType.edgeWipingRelay => 5,

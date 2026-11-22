@@ -332,6 +332,10 @@ for (final condition in rule.conditions) {
   }
 
   String _timerName(ControlAction action) => switch (action.type) {
+    ControlActionType.setOutput => action.outputState ? 'ON' : 'OFF',
+    ControlActionType.setLatch => 'SET',
+    ControlActionType.resetLatch => 'RESET',
+    ControlActionType.toggleOutput => 'TOGGLE',
     ControlActionType.onDelay => 'Açma Gecikmesi',
     ControlActionType.offDelay => 'Kapanma Gecikmesi',
     ControlActionType.onOffDelay => 'Açma / Kapanma Gecikmesi',
@@ -569,10 +573,13 @@ for (final condition in rule.conditions) {
 Future<void> _chooseFunction(
   ControlConditionGroup rule, {
   ControlAction? replace,
+  String? quickCategory,
+  String? quickSelection,
 }) async {
-  final category = await _choose<String>('Fonksiyon grubu', [
+  final category = quickCategory ?? await _choose<String>('Fonksiyon grubu', [
     ('timers', 'ZAMAN FONKSİYONLARI'),
     ('counters', 'SAYAÇLAR'),
+    ('outputs', 'ÇIKIŞ KONTROLÜ'),
   ]);
 
   if (category == null || !mounted) return;
@@ -582,7 +589,37 @@ Future<void> _chooseFunction(
     return;
   }
 
-  final selected = await _choose<String>('Sayaç fonksiyonu', [
+  if (category == 'outputs') {
+    final selected = quickSelection ?? await _choose<String>('Çıkış kontrolü', [
+      ('on', 'ON'),
+      ('off', 'OFF'),
+      ('set', 'SET'),
+      ('reset', 'RESET'),
+      ('toggle', 'TOGGLE'),
+    ]);
+    if (selected == null || !mounted) return;
+    setState(() {
+      final outputIndex = replace?.outputIndex ?? 1;
+      final action = switch (selected) {
+        'off' => ControlAction.output(outputIndex: outputIndex, outputState: false),
+        'set' => ControlAction.set(outputIndex: outputIndex),
+        'reset' => ControlAction.reset(outputIndex: outputIndex),
+        'toggle' => ControlAction.toggle(outputIndex: outputIndex),
+        _ => ControlAction.output(outputIndex: outputIndex),
+      };
+      if (replace == null) {
+        rule.actions.add(action);
+      } else {
+        final index = rule.actions.indexOf(replace);
+        if (index >= 0) rule.actions[index] = action;
+        _expandedActions.remove(replace);
+      }
+      _expandedActions.add(action);
+    });
+    return;
+  }
+
+  final selected = quickSelection ?? await _choose<String>('Sayaç fonksiyonu', [
     ('upDown', 'İleri / Geri Sayıcı'),
 		('hours', 'Çalışma Saati Sayacı'),
 		('threshold', 'Frekans Eşik Tetikleyici'),
@@ -1876,28 +1913,86 @@ if (!_collapsedConditions.contains(rule.id)) ...[
                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
               childrenPadding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
               children: [
-                Wrap(spacing: 6, runSpacing: 6, children: [
-                  for (final name in _timerFunctions)
-                    SizedBox(
-												width: 142,
-												height: 56,
-												child: OutlinedButton(
-                        onPressed: () => _selectTimer(rule, name),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: Text(
-  name,
-  textAlign: TextAlign.center,
-  maxLines: 2,
-  overflow: TextOverflow.ellipsis,
-  style: const TextStyle(fontSize: 11),
-),
-                      ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('ZAMAN FONKSİYONLARI',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
-                ]),
+                    Wrap(spacing: 6, runSpacing: 6, children: [
+                      for (final name in _timerFunctions)
+                        SizedBox(
+                          width: 142,
+                          height: 56,
+                          child: OutlinedButton(
+                            onPressed: () => _selectTimer(rule, name),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text(name, textAlign: TextAlign.center,
+                                maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11)),
+                          ),
+                        ),
+                    ]),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 18, bottom: 8),
+                      child: Text('SAYAÇLAR',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                    Wrap(spacing: 6, runSpacing: 6, children: [
+                      for (final item in <(String, String)>[
+                        ('upDown', 'İleri / Geri Sayıcı'),
+                        ('hours', 'Çalışma Saati Sayacı'),
+                        ('threshold', 'Frekans Eşik Tetikleyici'),
+                      ])
+                        SizedBox(
+                          width: 142,
+                          height: 56,
+                          child: OutlinedButton(
+                            onPressed: () => _chooseFunction(rule,
+                                quickCategory: 'counters', quickSelection: item.$1),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text(item.$2, textAlign: TextAlign.center,
+                                maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11)),
+                          ),
+                        ),
+                    ]),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 18, bottom: 8),
+                      child: Text('ÇIKIŞ KONTROLÜ',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                    Wrap(spacing: 6, runSpacing: 6, children: [
+                      for (final item in <(String, String)>[
+                        ('on', 'ON'), ('off', 'OFF'), ('set', 'SET'),
+                        ('reset', 'RESET'), ('toggle', 'TOGGLE'),
+                      ])
+                        SizedBox(
+                          width: 142,
+                          height: 56,
+                          child: OutlinedButton(
+                            onPressed: () => _chooseFunction(rule,
+                                quickCategory: 'outputs', quickSelection: item.$1),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text(item.$2, textAlign: TextAlign.center,
+                                maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11)),
+                          ),
+                        ),
+                    ]),
+                  ],
+                ),
               ],
               ),
             ),
@@ -2112,7 +2207,7 @@ for (var i = 0; i < _rules.length; i++) {
 
           ControlActionType.setLatch => ' SET',
           ControlActionType.resetLatch => ' RESET',
-          ControlActionType.toggleOutput => ' DEĞİŞTİR',
+          ControlActionType.toggleOutput => ' TOGGLE',
 
           ControlActionType.stairwayOutput =>
             ' MERDİVEN (T ${_seconds(action.durationMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)} / Tekrar ${action.stairRetrigger ? 'Açık' : 'Kapalı'})',

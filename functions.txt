@@ -2,15 +2,11 @@ Fonksiyon grubu
 ZAMAN FONKSİYONLARI
 SAYAÇLAR
 
-ZAMAN FONKSİYONLARI
-	Açılma Gecikmesi
-	Kapanma Gecikmesi
-	Açılma/Kapanma Gecikmesi
-	Kalıcı Açılma Gecikmesi
+ZAMAN FONKSİYONLARI	
+	Açma/Kapanma Gecikmesi
 	Darbe Rölesi
 	Kenar Tetiklemeli Darbe Rölesi
-	Asenkron Darbe Üreteci
-	Rastgele Zamanlı Darbe Üreteci
+	Asenkron Darbe Üreteci	
 	Merdive Otomatiği
 	Çok İşlevli Anahtar
 	Kronometre
@@ -23,12 +19,7 @@ SAYAÇLAR
 	
 ************
 TODO
-		
-		
-	Sanal giriş tanımlanması gereken fonksiyonlar: 
-		Açılma/Kapanma Gecikmesi 
-		
-		
+
 	
 	
 	
