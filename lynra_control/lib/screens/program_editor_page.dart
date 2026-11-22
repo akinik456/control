@@ -479,8 +479,19 @@ for (final condition in rule.conditions) {
         virtualToken(),
       if (action.type == ControlActionType.onOffDelay)
         resetToken(),
-      if (edgeTimer)
+      if (edgeTimer) ...[
         retriggerToken(),
+        _delayToken(
+          action.timerRepeat ? 'TEKRARLA: AÇIK' : 'TEKRARLA: KAPALI',
+          () => setState(() {
+            action.timerRepeat = !action.timerRepeat;
+            if (action.timerRepeat) {
+              if (action.timerTHMs < 1000) action.timerTHMs = 1000;
+              if (action.timerTLMs < 1000) action.timerTLMs = 1000;
+            }
+          }),
+        ),
+      ],
       if (retriggerable)
         retriggerToken(),
 
@@ -542,11 +553,13 @@ for (final condition in rule.conditions) {
                 : await _duration(
                     '${param.$1} – ${param.$2}',
                     current,
-                    minMs: action.type ==
-                                ControlActionType.edgeWipingRelay &&
-                            (param.$1 == 'TH' || param.$1 == 'TL')
-                        ? 1
-                        : 0,
+                    minMs: edgeTimer && action.timerRepeat &&
+                            (param.$1 == 'TH' || param.$1 == 'TA')
+                        ? 1000
+                        : action.type == ControlActionType.edgeWipingRelay &&
+                                (param.$1 == 'TH' || param.$1 == 'TL')
+                            ? 1
+                            : 0,
                   );
 
             if (next != null &&

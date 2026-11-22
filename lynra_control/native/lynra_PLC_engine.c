@@ -158,6 +158,8 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
               ((r->actions[a].type > LYNRA_TIMER_RANDOM_GENERATOR &&
                r->actions[a].type != LYNRA_TIMER_STOPWATCH))) ||
              r->actions[a].repeat > 1 ||
+             (r->actions[a].type == LYNRA_TIMER_ON_OFF_DELAY &&
+              r->actions[a].repeat && r->actions[a].tl_ms == 0) ||
 			 r->actions[a].retrigger > 1 ||
        (r->actions[a].type == LYNRA_TIMER_STOPWATCH &&
         r->actions[a].stopwatch_time_base > 2) ||
@@ -353,7 +355,7 @@ if (a->reset_input_index != 0) {
      if (trigger_event &&
          ((!s->started && !s->output_on) ||
           (a->retrigger && s->started && !s->output_on && s->pulse_phase == 0) ||
-          (!a->retrigger && s->output_on))) {
+          (!a->repeat && !a->retrigger && s->output_on))) {
        /* Retrigger ON: restart TH only while waiting (Q OFF).
           Retrigger OFF: ignore while waiting; restart after Q turns ON. */
       s->started = true;
@@ -362,20 +364,31 @@ if (a->reset_input_index != 0) {
        s->output_on = false;
       s->execution_state = LYNRA_EXEC_RUNNING;
     }
-    if (s->started && s->pulse_phase == 0 && now_ms - s->started_at >= a->th_ms) {
-      s->pulse_phase = 1;
-      s->output_on = true;
-      s->started_at += a->th_ms;
-      if (a->tl_ms == 0) {
-        s->started = false;
-        s->execution_state = LYNRA_EXEC_COMPLETED;
+    /* Catch up over elapsed TH/TA boundaries, including sparse scans. */
+    unsigned phase_guard = 0;
+    while (s->started && phase_guard++ < 1024) {
+      if (s->pulse_phase == 0) {
+        if (now_ms - s->started_at < a->th_ms) break;
+        s->started_at += a->th_ms;
+        s->pulse_phase = 1;
+        s->output_on = true;
+        if (a->tl_ms == 0) {
+          s->started = false;
+          s->execution_state = LYNRA_EXEC_COMPLETED;
+          break;
+        }
+      } else {
+        if (now_ms - s->started_at < a->tl_ms) break;
+        s->started_at += a->tl_ms;
+        s->output_on = false;
+        if (a->repeat) {
+          s->pulse_phase = 0;
+          s->execution_state = LYNRA_EXEC_RUNNING;
+        } else {
+          s->started = false;
+          s->execution_state = LYNRA_EXEC_COMPLETED;
+        }
       }
-    }
-    if (s->started && s->pulse_phase == 1 && a->tl_ms > 0 &&
-        now_ms - s->started_at >= a->tl_ms) {
-      s->started = false;
-      s->output_on = false;
-      s->execution_state = LYNRA_EXEC_COMPLETED;
     }
     on = s->output_on;
    }
@@ -1021,6 +1034,7 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
     parameters->count = 0;
     switch (a->type) {
     case LYNRA_TIMER_ON_OFF_DELAY:
+        DIAG_ADD(parameters, REPEAT, a->repeat);
         DIAG_ADD(parameters, RETRIGGER, a->retrigger);
         DIAG_ADD(parameters, TH_MS, a->th_ms);
         DIAG_ADD(parameters, TL_MS, a->tl_ms);

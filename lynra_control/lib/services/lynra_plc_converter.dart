@@ -143,7 +143,7 @@ if (source.type == ControlActionType.thresholdTrigger) {
     final repeatable =
     source.type == ControlActionType.edgeWipingRelay;
 
-target.repeat = repeatable && source.timerRepeat ? 1 : 0;
+target.repeat = (repeatable || source.type == ControlActionType.onOffDelay) && source.timerRepeat ? 1 : 0;
 target.retrigger = (
   source.type == ControlActionType.onOffDelay ||
   source.type == ControlActionType.retentiveOnDelay ||
