@@ -242,6 +242,7 @@ if (type == ControlActionType.thresholdTrigger) ...{
         if (timerTypes.contains(type)) ...{
           'timerTMs': timerTMs,
           if (const {
+              ControlActionType.onOffDelay,
               ControlActionType.retentiveOnDelay,
             ControlActionType.wipingRelay,
             ControlActionType.edgeWipingRelay,

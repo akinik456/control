@@ -155,8 +155,7 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
 				r->actions[a].threshold_off > 9999)) ||
 			 r->actions[a].virtual_start > 1 ||
              (r->actions[a].virtual_start &&
-              (r->actions[a].type == LYNRA_TIMER_ON_OFF_DELAY ||
-               (r->actions[a].type > LYNRA_TIMER_RANDOM_GENERATOR &&
+              ((r->actions[a].type > LYNRA_TIMER_RANDOM_GENERATOR &&
                r->actions[a].type != LYNRA_TIMER_STOPWATCH))) ||
              r->actions[a].repeat > 1 ||
 			 r->actions[a].retrigger > 1 ||
@@ -307,8 +306,9 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
      /* Virtual startup applies only to supported timer types. */
      const bool physical_active = active;
      const bool virtual_enabled = a->virtual_start &&
-         a->type >= LYNRA_TIMER_RETENTIVE_ON_DELAY &&
-         a->type <= LYNRA_TIMER_RANDOM_GENERATOR;
+         (a->type == LYNRA_TIMER_ON_OFF_DELAY ||
+          (a->type >= LYNRA_TIMER_RETENTIVE_ON_DELAY &&
+           a->type <= LYNRA_TIMER_RANDOM_GENERATOR));
      bool virtual_event = false;
      if (virtual_enabled && !s->physical_taken_over) {
          if (physical_active) {
@@ -334,7 +334,34 @@ if (a->reset_input_index != 0) {
         (inputs & mask) != 0 &&
         (e->previous_inputs & mask) == 0;
 }
-   if (a->type == LYNRA_TIMER_ON_OFF_DELAY) {
+   if (a->type == LYNRA_TIMER_ON_OFF_DELAY && r->condition_count == 1 &&
+       (r->conditions[0].trigger == LYNRA_TRIGGER_RISING ||
+        r->conditions[0].trigger == LYNRA_TRIGGER_FALLING)) {
+    /* EDGE: wait TH, ON for TA (stored in tl_ms). TA=0 holds ON until reset. */
+    if (trigger_event && !s->started && !s->output_on) {
+      s->started = true;
+      s->started_at = now_ms;
+      s->pulse_phase = 0;
+      s->execution_state = LYNRA_EXEC_RUNNING;
+    }
+    if (s->started && s->pulse_phase == 0 && now_ms - s->started_at >= a->th_ms) {
+      s->pulse_phase = 1;
+      s->output_on = true;
+      s->started_at += a->th_ms;
+      if (a->tl_ms == 0) {
+        s->started = false;
+        s->execution_state = LYNRA_EXEC_COMPLETED;
+      }
+    }
+    if (s->started && s->pulse_phase == 1 && a->tl_ms > 0 &&
+        now_ms - s->started_at >= a->tl_ms) {
+      s->started = false;
+      s->output_on = false;
+      s->execution_state = LYNRA_EXEC_COMPLETED;
+    }
+    on = s->output_on;
+   }
+   else if (a->type == LYNRA_TIMER_ON_OFF_DELAY) {
     // Each input transition restarts its own delay; opposite transitions cancel it.
     if (active != s->prev_match || !s->started) {
      s->started = true;

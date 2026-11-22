@@ -359,6 +359,7 @@ for (final condition in rule.conditions) {
     'T' => action.timerTMs,
     'TH' => action.timerTHMs,
     'TL' => action.timerTLMs,
+		'TA' => action.timerTLMs,
     'N' => action.timerN,
     'T!' => action.timerWarningBeforeMs,
     'T!L' => action.timerWarningOffMs,
@@ -370,6 +371,7 @@ for (final condition in rule.conditions) {
       case 'T': action.timerTMs = value;
       case 'TH': action.timerTHMs = value;
       case 'TL': action.timerTLMs = value;
+			case 'TA': action.timerTLMs = value;
       case 'N': action.timerN = value;
       case 'T!': action.timerWarningBeforeMs = value;
       case 'T!L': action.timerWarningOffMs = value;
@@ -387,7 +389,8 @@ for (final condition in rule.conditions) {
     _ => [],
   };
 
-  Widget _timerParameterPreview(ControlAction action) {
+  Widget _timerParameterPreview(ControlConditionGroup rule, ControlAction action) {
+   final edgeTimer = action.type == ControlActionType.onOffDelay && rule.conditions.length == 1 && (rule.conditions.first.trigger == ConditionTrigger.risingEdge || rule.conditions.first.trigger == ConditionTrigger.fallingEdge);
   final name = _timerName(action);
 
   Widget retriggerToken() => _delayToken(
@@ -467,6 +470,7 @@ for (final condition in rule.conditions) {
     runSpacing: 6,
     children: [
       if (const {
+        ControlActionType.onOffDelay,
         ControlActionType.wipingRelay,
         ControlActionType.edgeWipingRelay,
         ControlActionType.asynchronousPulse,
@@ -490,8 +494,7 @@ for (final condition in rule.conditions) {
           resetToken(),
       ],
 
-      if (action.type == ControlActionType.onOffDelay ||
-          action.type == ControlActionType.edgeWipingRelay) ...[
+      if (action.type == ControlActionType.edgeWipingRelay) ...[
         _delayToken(
           'TH: ${action.timerTHRandom ? "RASTGELE" : "SABİT"}',
           () async {
@@ -515,7 +518,14 @@ for (final condition in rule.conditions) {
           },
         ),
       ],
-      for (final param in _timerParams(name))
+      for (final param in (
+  edgeTimer
+      ? <(String, String)>[
+          ('TH', 'Açma gecikmesi'),
+          ('TA', 'Aktif kalma süresi (0 = RESET gelene kadar ON)'),
+        ]
+      : _timerParams(name)
+))
         _delayToken(
           param.$1 == 'N'
               ? 'N=${action.timerN}'
@@ -560,6 +570,7 @@ for (final condition in rule.conditions) {
     ],
   );
 }
+
 Future<void> _chooseFunction(
   ControlConditionGroup rule, {
   ControlAction? replace,
@@ -728,7 +739,7 @@ final v = await _choose<ConditionTrigger>('Giriş koşulu', [
     (ConditionTrigger.highLevel, 'ON '),
     if (!onOnly) (ConditionTrigger.lowLevel, 'OFF '),
   ],
-  if (edgeOnly) ...[
+  if (edgeOnly || rule.actions.any((a) => a.type == ControlActionType.onOffDelay)) ...[
     (ConditionTrigger.risingEdge, 'ON olursa (yükselen kenar)'),
     if (!rule.actions.any((a) => a.type == ControlActionType.stairwayTimer))
       (ConditionTrigger.fallingEdge, 'OFF olursa (düşen kenar)'),
@@ -1030,7 +1041,10 @@ Widget _counterValueToken(
     }
   });
 }
-  Widget _actionDelayPreview(ControlAction action) {
+  Widget _actionDelayPreview(
+		ControlConditionGroup rule,
+		ControlAction action,
+	) {
   if (action.type == ControlActionType.delay) {
     return const SizedBox.shrink();
   }
@@ -1131,7 +1145,7 @@ _counterInputToken(
     );
   }
 
-  return _timerParameterPreview(action);
+  return _timerParameterPreview(rule, action);
 }
 
   // Grouped conditions are editor-only until the runtime converter supports them.
@@ -1851,7 +1865,7 @@ if (!_collapsedConditions.contains(rule.id)) ...[
 
     if (expanded && action.type != ControlActionType.delay) ...[
       const SizedBox(height: 8),
-      _actionDelayPreview(action),
+      _actionDelayPreview(rule, action),
     ],
   ],
 ),

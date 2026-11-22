@@ -17,7 +17,7 @@ target_compile_options(lynra_PLC_engine PRIVATE
 
 
 if(NOT ANDROID)
-    add_executable(test_lynra_timer_unified test_lynra_timer_unified.c)
-    target_link_libraries(test_lynra_timer_unified PRIVATE lynra_PLC_engine)
+    add_executable(test_onoff_virtual test_onoff_virtual.c)
+    target_link_libraries(test_onoff_virtual PRIVATE lynra_PLC_engine)
 endif()
 

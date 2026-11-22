@@ -208,14 +208,15 @@ target.thresholdOff =
         ? source.thresholdOff : 0;
 
     target.virtualStart =
-        const {
-          ControlActionType.retentiveOnDelay,
-          ControlActionType.wipingRelay,
-          ControlActionType.edgeWipingRelay,
-          ControlActionType.asynchronousPulse,
-          ControlActionType.randomGenerator,
-          ControlActionType.stopwatchTimer,
-        }.contains(source.type) && source.virtualStart ? 1 : 0;
+			const {
+				ControlActionType.onOffDelay,
+				ControlActionType.retentiveOnDelay,
+				ControlActionType.wipingRelay,
+				ControlActionType.edgeWipingRelay,
+				ControlActionType.asynchronousPulse,
+				ControlActionType.randomGenerator,
+				ControlActionType.stopwatchTimer,
+			}.contains(source.type) && source.virtualStart ? 1 : 0;
 				
   }
 
