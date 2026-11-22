@@ -262,7 +262,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   // until their distinct data model and runtime behavior are implemented.
   static const _timerFunctions = <String>[
     'Açma / Kapanma Gecikmesi',
-    'Kalıcı Açma Gecikmesi',
     'Darbe Rölesi',
     'Kenar Tetiklemeli Darbe Rölesi',
     'Asenkron Darbe Üreteci',
@@ -273,7 +272,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 
   ControlActionType _timerType(String name) => switch (name) {
     'Açma / Kapanma Gecikmesi' => ControlActionType.onOffDelay,
-    'Kalıcı Açma Gecikmesi' => ControlActionType.retentiveOnDelay,
     'Darbe Rölesi' => ControlActionType.wipingRelay,
     'Kenar Tetiklemeli Darbe Rölesi' => ControlActionType.edgeWipingRelay,
     'Asenkron Darbe Üreteci' => ControlActionType.asynchronousPulse,
@@ -289,7 +287,6 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       final action = ControlAction.timer(_timerType(name),
           outputIndex: replace?.outputIndex ?? 1);
 					final edgeOnly =
-    action.type == ControlActionType.retentiveOnDelay ||
     action.type == ControlActionType.edgeWipingRelay ||
     action.type == ControlActionType.stairwayTimer;
 
@@ -319,10 +316,6 @@ for (final condition in rule.conditions) {
 				action.timerWarningBeforeMs = 3000;
 				action.timerWarningOffMs = 500;
 			}
-			if (action.type == ControlActionType.retentiveOnDelay) {
-				action.timerTMs = 10000;
-				action.resetInputIndex = 2;
-			}
 			if (action.type == ControlActionType.stopwatchTimer) {
 				action.timerTMs = 10000;
 				action.resetInputIndex = 2;
@@ -342,7 +335,6 @@ for (final condition in rule.conditions) {
     ControlActionType.onDelay => 'Açma Gecikmesi',
     ControlActionType.offDelay => 'Kapanma Gecikmesi',
     ControlActionType.onOffDelay => 'Açma / Kapanma Gecikmesi',
-    ControlActionType.retentiveOnDelay => 'Kalıcı Açma Gecikmesi',
     ControlActionType.wipingRelay => 'Darbe Rölesi',
     ControlActionType.edgeWipingRelay => 'Kenar Tetiklemeli Darbe Rölesi',
     ControlActionType.asynchronousPulse => 'Asenkron Darbe Üreteci',
@@ -380,7 +372,6 @@ for (final condition in rule.conditions) {
 
   List<(String, String)> _timerParams(String name) => switch (name) {
     'Açma / Kapanma Gecikmesi' => [('TH', 'ON gecikmesi'), ('TL', 'OFF gecikmesi')],
-    'Kalıcı Açma Gecikmesi' => [('T', 'Gecikme')],
     'Darbe Rölesi' => [('T', 'Darbe süresi')],
     'Kenar Tetiklemeli Darbe Rölesi' => [('TH', 'Darbe süresi'), ('TL', 'Ara süresi'), ('N', 'Darbe sayısı')],
     'Asenkron Darbe Üreteci' => [('TH', 'ON süresi'), ('TL', 'OFF süresi')],
@@ -432,19 +423,6 @@ for (final condition in rule.conditions) {
         action.virtualStart ? 'SANAL GİRİŞ: AÇIK' : 'SANAL GİRİŞ: KAPALI',
         () => setState(() => action.virtualStart = !action.virtualStart),
       );
-
-  if (action.type == ControlActionType.retentiveOnDelay) {
-    return Wrap(
-      spacing: 4,
-      runSpacing: 6,
-      children: [
-        virtualToken(),
-        resetToken(),
-        timeToken('Kalıcı Açma gecikmesi'),
-        retriggerToken(),
-      ],
-    );
-  }
 
   if (name == 'Kronometre') {
     return Wrap(
@@ -744,7 +722,6 @@ if (selected == 'threshold') {
       }, color: Colors.blue),
       _token(_triggerName(condition.trigger), () async {
         final edgeOnly = rule.actions.any((a) =>
-    a.type == ControlActionType.retentiveOnDelay ||
     a.type == ControlActionType.edgeWipingRelay ||
     a.type == ControlActionType.stairwayTimer);
         final onOnly = rule.actions.any((a) =>
@@ -2125,7 +2102,6 @@ for (var i = 0; i < _rules.length; i++) {
           ControlActionType.onDelay ||
           ControlActionType.offDelay ||
           ControlActionType.onOffDelay ||
-          ControlActionType.retentiveOnDelay ||
           ControlActionType.wipingRelay ||
           ControlActionType.edgeWipingRelay ||
           ControlActionType.asynchronousPulse ||

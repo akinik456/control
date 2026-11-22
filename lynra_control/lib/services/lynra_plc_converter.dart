@@ -108,7 +108,6 @@ if (source.type == ControlActionType.thresholdTrigger) {
     }
     target.type = switch (source.type) {
       ControlActionType.onOffDelay => 2,
-      ControlActionType.retentiveOnDelay => 3,
       ControlActionType.wipingRelay => 4,
       ControlActionType.edgeWipingRelay => 5,
       ControlActionType.asynchronousPulse => 6,
@@ -146,7 +145,6 @@ if (source.type == ControlActionType.thresholdTrigger) {
 target.repeat = (repeatable || source.type == ControlActionType.onOffDelay) && source.timerRepeat ? 1 : 0;
 target.retrigger = (
   source.type == ControlActionType.onOffDelay ||
-  source.type == ControlActionType.retentiveOnDelay ||
   source.type == ControlActionType.edgeWipingRelay ||
   source.type == ControlActionType.stairwayTimer
 ) && source.timerRetrigger ? 1 : 0;
@@ -156,7 +154,6 @@ target.resetInputIndex =
 		source.type == ControlActionType.upDownCounter ||
 		source.type == ControlActionType.hoursCounter ||
     source.type == ControlActionType.stopwatchTimer ||
-    source.type == ControlActionType.retentiveOnDelay ||
     (repeatable && source.timerRepeat)
         ? source.resetInputIndex
         : 0;
@@ -212,7 +209,6 @@ target.thresholdOff =
     target.virtualStart =
 			const {
 				ControlActionType.onOffDelay,
-				ControlActionType.retentiveOnDelay,
 				ControlActionType.wipingRelay,
 				ControlActionType.edgeWipingRelay,
 				ControlActionType.asynchronousPulse,

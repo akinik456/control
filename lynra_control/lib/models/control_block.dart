@@ -130,7 +130,7 @@ class ControlAction {
 	int thresholdOff = 5;
 
   static const Set<ControlActionType> timerTypes = {
-    ControlActionType.onOffDelay, ControlActionType.retentiveOnDelay,
+    ControlActionType.onOffDelay,
     ControlActionType.wipingRelay, ControlActionType.edgeWipingRelay,
     ControlActionType.asynchronousPulse, ControlActionType.randomGenerator,
     ControlActionType.stairwayTimer, ControlActionType.multipleFunctionTimer,
@@ -243,7 +243,6 @@ if (type == ControlActionType.thresholdTrigger) ...{
           'timerTMs': timerTMs,
           if (const {
               ControlActionType.onOffDelay,
-              ControlActionType.retentiveOnDelay,
             ControlActionType.wipingRelay,
             ControlActionType.edgeWipingRelay,
             ControlActionType.asynchronousPulse,
@@ -261,12 +260,10 @@ if (type == ControlActionType.thresholdTrigger) ...{
 					if (type == ControlActionType.edgeWipingRelay ||
     type == ControlActionType.stairwayTimer)
   'timerRepeat': timerRepeat,
-	if (type == ControlActionType.retentiveOnDelay ||
-    type == ControlActionType.edgeWipingRelay ||
+	if (type == ControlActionType.edgeWipingRelay ||
     type == ControlActionType.stairwayTimer)
   'timerRetrigger': timerRetrigger,
 					if (type == ControlActionType.stopwatchTimer ||
-    type == ControlActionType.retentiveOnDelay ||
     ((type == ControlActionType.edgeWipingRelay ||
       type == ControlActionType.stairwayTimer) && timerRepeat))
   'resetInputIndex': resetInputIndex,

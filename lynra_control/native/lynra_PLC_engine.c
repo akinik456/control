@@ -130,7 +130,6 @@ bool lynra_plc_load_rules(LynraPlcEngine *e, const LynraRule *rules, size_t coun
    if (commands) continue;
    for (unsigned a = 0; a < r->action_count; ++a)
     if ((r->actions[a].type != LYNRA_TIMER_ON_OFF_DELAY &&
-        r->actions[a].type != LYNRA_TIMER_RETENTIVE_ON_DELAY &&
         r->actions[a].type != LYNRA_TIMER_WIPING_RELAY &&
         r->actions[a].type != LYNRA_TIMER_EDGE_WIPING_RELAY &&
         r->actions[a].type != LYNRA_TIMER_ASYNC_PULSE &&
@@ -304,7 +303,6 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
    /* Rule-level trigger admission, separate from timer output state.
       A new activation is accepted when idle, or while running in REPEAT.
       LEVEL conditions generate a new event only after deactivation. */
-    bool accept_trigger = rule_accept_trigger;
      /* ON/OFF delay RESET has priority over virtual and physical triggers.
         A reset permanently consumes the one-shot virtual startup until
         the engine/program is reset, while physical inputs remain usable. */
@@ -321,7 +319,7 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
      const bool physical_active = active;
      const bool virtual_enabled = a->virtual_start &&
          (a->type == LYNRA_TIMER_ON_OFF_DELAY ||
-          (a->type >= LYNRA_TIMER_RETENTIVE_ON_DELAY &&
+          (a->type >= LYNRA_TIMER_WIPING_RELAY &&
            a->type <= LYNRA_TIMER_RANDOM_GENERATOR));
      bool virtual_event = false;
      if (virtual_enabled && !s->physical_taken_over) {
@@ -338,7 +336,6 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
      bool active = physical_active ||
          (virtual_enabled && !s->physical_taken_over);
      bool trigger_event = rule_accept_trigger || virtual_event;
-     accept_trigger = trigger_event;
  bool reset_rising = false;
 
 if (a->reset_input_index != 0) {
@@ -407,39 +404,6 @@ if (a->reset_input_index != 0) {
     s->execution_state = now_ms - s->started_at >= delay ?
       LYNRA_EXEC_COMPLETED : LYNRA_EXEC_RUNNING;
    }
-   if (a->type == LYNRA_TIMER_RETENTIVE_ON_DELAY) {
-    bool reset = a->reset_input_index != 0 &&
-        (inputs & (1u << (a->reset_input_index - 1))) != 0;
-
-    if (reset) {
-        s->started = false;
-        s->elapsed_ms = 0;
-        s->output_on = false;
-    } else if (!s->output_on) {
-        if (accept_trigger &&
-    ((a->retrigger && !s->output_on) ||
-     (!s->started && s->elapsed_ms == 0))) {
-            s->started = true;
-            s->started_at = now_ms;
-        }
-
-        if (s->started) {
-            uint64_t elapsed = now_ms - s->started_at;
-
-            if (elapsed >= a->t_ms) {
-                s->output_on = true;
-                s->started = false;
-                s->elapsed_ms = a->t_ms;
-            }
-        }
-    }
-
-    on = s->output_on;
-
-    s->execution_state = reset ? LYNRA_EXEC_IDLE :
-        s->output_on ? LYNRA_EXEC_COMPLETED :
-        s->started ? LYNRA_EXEC_RUNNING : LYNRA_EXEC_IDLE;
-}
    if (a->type == LYNRA_TIMER_WIPING_RELAY) {
     // Rising edge starts one pulse; a falling edge ends it immediately.
     // Holding the trigger HIGH cannot restart an expired pulse.
@@ -926,7 +890,6 @@ bool lynra_plc_get_action_state(const LynraPlcEngine *e, size_t rule_index,
  if (type != LYNRA_TIMER_STAIRWAY &&
      type != LYNRA_TIMER_MULTI_FUNCTION &&
      type != LYNRA_TIMER_STOPWATCH &&
-     type != LYNRA_TIMER_RETENTIVE_ON_DELAY &&
      type != LYNRA_TIMER_RANDOM_GENERATOR &&
      type != LYNRA_TIMER_ON_OFF_DELAY &&
      type != LYNRA_TIMER_EDGE_WIPING_RELAY &&
@@ -1041,12 +1004,6 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
         DIAG_ADD(parameters, TH_RANDOM, a->th_random);
         DIAG_ADD(parameters, TL_RANDOM, a->tl_random);
         return true;
-    case LYNRA_TIMER_RETENTIVE_ON_DELAY:
-        DIAG_ADD(parameters, TON_MS, a->t_ms);
-        DIAG_ADD(parameters, RESET_INPUT_INDEX, a->reset_input_index);
-        DIAG_ADD(parameters, RETRIGGER, a->retrigger);
-        DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
-        return true;
     case LYNRA_TIMER_WIPING_RELAY:
         DIAG_ADD(parameters, TON_MS, a->t_ms);
         DIAG_ADD(parameters, VIRTUAL_START, a->virtual_start);
@@ -1136,7 +1093,6 @@ bool lynra_plc_get_values(const LynraPlcEngine *e, size_t ri, size_t ai,
     case LYNRA_TIMER_ON_OFF_DELAY:
         DIAG_ADD(values, ELAPSED_MS, diag_u64(elapsed));
         break;
-    case LYNRA_TIMER_RETENTIVE_ON_DELAY:
     case LYNRA_TIMER_STOPWATCH: {
         uint64_t total = s->elapsed_ms;
         if (s->started && e->has_last_scan)
@@ -1233,12 +1189,12 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
     LynraAction next = *a;
     switch (field) {
     case LYNRA_FIELD_VIRTUAL_START:
-        if ((a->type < LYNRA_TIMER_RETENTIVE_ON_DELAY ||
+        if ((a->type < LYNRA_TIMER_WIPING_RELAY ||
              (a->type > LYNRA_TIMER_RANDOM_GENERATOR && a->type != LYNRA_TIMER_STOPWATCH)) || value < 0 || value > 1) return false;
         next.virtual_start = (uint8_t)value;
         break;
     case LYNRA_FIELD_TON_MS:
-        if ((a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION && a->type != LYNRA_TIMER_STOPWATCH) || value < 0 || value > UINT32_MAX) return false;
+        if ((a->type != LYNRA_TIMER_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY && a->type != LYNRA_TIMER_MULTI_FUNCTION && a->type != LYNRA_TIMER_STOPWATCH) || value < 0 || value > UINT32_MAX) return false;
         next.t_ms = (uint32_t)value;
         break;
     case LYNRA_FIELD_TH_MS:
@@ -1274,7 +1230,7 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
         next.repeat = (uint8_t)value;
         break;
     case LYNRA_FIELD_RETRIGGER:
-        if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY) || value < 0 || value > 255) return false;
+        if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY) || value < 0 || value > 255) return false;
         next.retrigger = (uint8_t)value;
         break;
     case LYNRA_FIELD_STOPWATCH_TIME_BASE:
@@ -1329,9 +1285,6 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
         break;
     case LYNRA_TIMER_STOPWATCH:
         if (next.stopwatch_time_base > 2) return false;
-        break;
-    case LYNRA_TIMER_RETENTIVE_ON_DELAY:
-        if (next.retrigger > 1) return false;
         break;
     case LYNRA_THRESHOLD_TRIGGER:
         if (next.threshold_gate_ms < 1000 || next.threshold_gate_ms > 100000 ||
