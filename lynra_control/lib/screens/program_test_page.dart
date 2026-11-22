@@ -20,11 +20,21 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
   Timer? _timer;
 	final AudioPlayer _relayPlayer = AudioPlayer();
 	final List<bool> _previousOutputs = List.filled(4, false);
+  // Keep the latest five transition timestamps for each physical I/O.
+  final Map<int, List<int>> _inputChangeMs = {};
+  final Map<int, List<int>> _outputChangeMs = {};
+
+  void _recordChange(Map<int, List<int>> history, int index) {
+    final ticks = history.putIfAbsent(index, () => <int>[]);
+    ticks.insert(0, _counterMs);
+    if (ticks.length > 5) ticks.removeLast();
+  }
 	bool _soundEnabled = true;
 	bool _autoTesting = false;
+  bool _autoPaused = false;
+  int _autoPauseAtMs = 0;
 	int _autoStep = 0;
 	int _autoStepStartMs = 0;
-	bool _paused = true;
 	double _testSpeed = 1.0;
 	bool _autoCompleted = false;
 
@@ -37,30 +47,58 @@ class _ProgramTestPageState extends State<ProgramTestPage> {
 bool _counterRunning = false;
   DateTime? _lastTick;
 	
-	List<int> get _usedInputs {
-  final indexes = <int>{};
+  // Collect every physical input referenced by a rule, including
+  // auxiliary timer/counter inputs that are not part of EGER conditions.
+  Map<int, Set<String>> _ruleInputRoles(ControlConditionGroup rule) {
+    final roles = <int, Set<String>>{};
 
-  for (final block in widget.program.controlBlocks) {
-    for (final rule in block.groups) {
-      final conditions = rule.conditionGroups.isNotEmpty
-    ? rule.conditionGroups
-        .expand((group) => group.conditions)
-        .toList()
-    : rule.conditions;
-          
-      for (final condition in conditions) {
-        indexes.add(condition.inputIndex);
-      }
-      for (final action in rule.actions) {
-        if (action.type == ControlActionType.stopwatchTimer) {
-          indexes.add(action.resetInputIndex);
-        }
+    void add(int index, String role) {
+      if (index < 1 || index > 4) return;
+      roles.putIfAbsent(index, () => <String>{}).add(role);
+    }
+
+    final conditions = rule.conditionGroups.isNotEmpty
+        ? rule.conditionGroups.expand((group) => group.conditions)
+        : rule.conditions;
+    for (final condition in conditions) {
+      add(condition.inputIndex, '');
+    }
+
+    for (final action in rule.actions) {
+      switch (action.type) {
+        case ControlActionType.upDownCounter:
+          add(action.counterInputIndex, 'Cnt');
+          add(action.directionInputIndex, 'Dir');
+          add(action.resetInputIndex, 'RESET');
+          break;
+        case ControlActionType.hoursCounter:
+          add(action.hoursEnableInputIndex, 'EN');
+          add(action.resetInputIndex, 'RESET');
+          add(action.hoursResetAllInputIndex, 'Ral');
+          break;
+        case ControlActionType.thresholdTrigger:
+          add(action.thresholdInputIndex, 'Fre');
+          break;
+        default:
+          // Timer RESET inputs (including stopwatch) are optional for
+          // some timer types; index 0 means no external input.
+          if (ControlAction.timerTypes.contains(action.type)) {
+            add(action.resetInputIndex, 'RESET');
+          }
       }
     }
+    return roles;
   }
 
-  return indexes.where((i) => i >= 1 && i <= 4).toList()..sort();
-}
+  List<int> get _usedInputs {
+    final indexes = <int>{};
+    for (final block in widget.program.controlBlocks) {
+      for (final rule in block.groups) {
+        indexes.addAll(_ruleInputRoles(rule).keys);
+      }
+    }
+    return indexes.toList()..sort();
+  }
 
 List<int> get _usedOutputs {
   final indexes = <int>{};
@@ -88,44 +126,52 @@ List<int> get _usedOutputs {
     );
   }
 
-  void _restart() {
-	final wasPaused = _paused;
+  // Reset the engine and I/O without changing the independent stopwatch.
+  void _resetSimulation({bool restartAuto = false}) {
     _engine?.dispose();
-		for (var i = 0; i < _previousOutputs.length; i++) {
-			_previousOutputs[i] = false;
-		}
+    for (var i = 0; i < _previousOutputs.length; i++) {
+      _previousOutputs[i] = false;
+    }
     _engine = LynraNativeEngine(widget.program);
-
     _nowMs = 0;
-		_paused = wasPaused;
-_autoTesting = false;
-_autoStep = 0;
-_autoStepStartMs = 0;
-_autoCompleted = false;
-_counterMs = 0;
-_counterRunning = false;
+    _inputChangeMs.clear();
+    _outputChangeMs.clear();
+    _autoTesting = restartAuto;
+    _autoPaused = false;
+    _autoPauseAtMs = 0;
+    _autoStep = 0;
+    _autoStepStartMs = 0;
+    _autoCompleted = false;
     _lastTick = DateTime.now();
-
     for (var i = 1; i <= 4; i++) {
       _inputs[i] = false;
     }
-
     _scan();
+    if (restartAuto) _applyAutoStep();
   }
-	
-	void _startAutoTest() {
-  setState(() {
-    _restart();
-		_counterMs = 0;
-_counterRunning = true;
-    _autoTesting = true;
-		_paused = false;
-		_autoCompleted = false;
-    _autoStep = 0;
-    _autoStepStartMs = 0;
-    _applyAutoStep();
-  });
-}
+
+  void _restart() {
+    _resetSimulation();
+    _counterMs = 0;
+    _counterRunning = false;
+  }
+
+  void _startAutoTest() {
+    setState(() {
+      _resetSimulation(restartAuto: true);
+      _counterMs = 0;
+      _counterRunning = true;
+    });
+  }
+
+  // Restart the sweep from step one if active, and reset the stopwatch.
+  // Preserve the stopwatch running/stopped state when using refresh.
+  void _resetSimulationButton() {
+    setState(() {
+      _resetSimulation(restartAuto: _autoTesting);
+      _counterMs = 0;
+    });
+  }
 
 // Insert an all-OFF interval between combinations so edge triggers
 // can be exercised again. This is an input sweep, not a PASS/FAIL test.
@@ -146,7 +192,9 @@ List<int> get _autoMasks {
 void _applyAutoStep() {
   final mask = _autoMasks[_autoStep];
   for (var i = 1; i <= 4; i++) {
-    _inputs[i] = (mask & (1 << (i - 1))) != 0;
+    final next = (mask & (1 << (i - 1))) != 0;
+    if (_inputs[i] != next) _recordChange(_inputChangeMs, i);
+    _inputs[i] = next;
   }
   _scan();
 }
@@ -174,17 +222,23 @@ int get _autoStepDurationMs {
     final elapsed = now.difference(_lastTick!).inMilliseconds;
     _lastTick = now;
 
-    if (elapsed <= 0 || _paused) return;
+    if (elapsed <= 0 || (_autoPaused && !_counterRunning)) return;
 
     setState(() {
-		if (_counterRunning) {
-  _counterMs += (elapsed * _testSpeed).round();
-}
-      final end = _nowMs + (elapsed * _testSpeed).round();
+      // Advance the visible stopwatch in sync with each engine scan.
+      // Previously it jumped to the end of the 50 ms frame before scanning,
+      // causing output transitions to inherit a timestamp from the future.
+      final advanceMs = (elapsed * _testSpeed).round();
+      final scanStartMs = _nowMs;
+      final counterStartMs = _counterMs;
+      final end = scanStartMs + advanceMs;
 
       while (_nowMs < end) {
         final step = (end - _nowMs).clamp(1, 10);
         _nowMs += step;
+        if (_counterRunning) {
+          _counterMs = counterStartMs + (_nowMs - scanStartMs);
+        }
         _scan();
       }		
 			if (_autoTesting &&
@@ -192,7 +246,6 @@ int get _autoStepDurationMs {
         if (_autoStep + 1 >= _autoMasks.length) {
           _autoTesting = false;
           _autoCompleted = true;
-          _counterRunning = false;
         } else {
           _autoStep++;
           _autoStepStartMs = _nowMs;
@@ -210,6 +263,7 @@ void _scan() {
     final current = _engine!.output(i);
 
     if (current != _previousOutputs[i - 1]) {
+      _recordChange(_outputChangeMs, i);
       relayState = current;
     }
 
@@ -232,6 +286,7 @@ void _scan() {
     if (_autoTesting) return;
     setState(() {
       _inputs[index] = !_inputs[index]!;
+      _recordChange(_inputChangeMs, index);
       _scan();
     });
   }
@@ -244,22 +299,31 @@ void _stopCounter() {
 }
 
 void _resetCounter() {
-  setState(() => _counterMs = 0);
-}
-	void _pauseTest() {
-  setState(() => _paused = true);
+  setState(() {
+    _counterMs = 0;
+    _inputChangeMs.clear();
+    _outputChangeMs.clear();
+  });
 }
 void _stopAutoTest() {
   setState(() {
     _autoTesting = false;
+    _autoPaused = true;
+    _autoPauseAtMs = _nowMs;
     _autoCompleted = false;
     _counterRunning = false;
   });
 }
-void _resumeTest() {
+
+void _resumeAutoTest() {
   setState(() {
+    // Manual stopwatch use while paused may have advanced engine time.
+    // Do not count that interval toward the current automatic step.
+    _autoStepStartMs += _nowMs - _autoPauseAtMs;
+    _autoPaused = false;
+    _autoTesting = true;
+    _counterRunning = true;
     _lastTick = DateTime.now();
-    _paused = false;
   });
 }
 
@@ -342,14 +406,27 @@ void _resumeTest() {
         ),
         const SizedBox(height: 8),
 
-FilledButton.tonalIcon(
-  onPressed: _autoTesting ? _stopAutoTest : _startAutoTest,
-  icon: Icon(
-    _autoTesting ? Icons.stop : Icons.auto_mode,
-  ),
-  label: Text(
-    _autoTesting ? 'Otomatik Durdur' : 'Otomatik Başlat',
-  ),
+Row(
+  mainAxisAlignment: MainAxisAlignment.center,
+  children: [
+    FilledButton.tonalIcon(
+      onPressed: _autoTesting
+          ? _stopAutoTest
+          : (_autoPaused ? _resumeAutoTest : _startAutoTest),
+      icon: Icon(_autoTesting
+          ? Icons.stop
+          : (_autoPaused ? Icons.play_arrow : Icons.auto_mode)),
+      label: Text(_autoTesting
+          ? 'Otomatik Durdur'
+          : (_autoPaused ? 'Otomatik Devam Et' : 'Otomatik Başlat')),
+    ),
+    const SizedBox(width: 8),
+    IconButton(
+      tooltip: _autoTesting ? 'Otomatik testi baştan başlat' : 'Simülasyonu sıfırla',
+      onPressed: _resetSimulationButton,
+      icon: const Icon(Icons.restart_alt),
+    ),
+  ],
 ),
 
 const SizedBox(height: 4),
@@ -379,25 +456,7 @@ Row(
   ],
 ),
 
-Row(
-  children: [
-    Expanded(
-      child: OutlinedButton.icon(
-        onPressed: _paused ? _resumeTest : _pauseTest,
-        icon: Icon(_paused ? Icons.play_arrow : Icons.pause),
-        label: Text(_paused ? 'Simülasyonu sürdür' : 'Simülasyonu duraklat'),
-      ),
-    ),
-    const SizedBox(width: 8),
-    IconButton(
-      tooltip: 'Simülasyonu sıfırla',
-      onPressed: () => setState(_restart),
-      icon: const Icon(Icons.restart_alt),
-    ),
-  ],
-),
-
-if (_autoTesting || _autoCompleted) ...[
+if (_autoTesting || _autoPaused || _autoCompleted) ...[
   Padding(
     padding: const EdgeInsets.symmetric(horizontal: 12),
     child: LinearProgressIndicator(
@@ -407,7 +466,7 @@ if (_autoTesting || _autoCompleted) ...[
   const SizedBox(height: 4),
   Text(
   _autoCompleted
-      ? 'Giriş taraması tamamlandı (otomatik doğrulama değildir)'
+      ? 'Giriş taraması tamamlandı '
       : 'Giriş adımı ${_autoStep + 1} / ${_autoMasks.length}',
 ),
 ],
@@ -436,22 +495,105 @@ Expanded(
     );
   }
 	
-	Widget _ruleCard(int ruleNumber, ControlConditionGroup rule) {
-  final conditions = rule.conditionGroups.isNotEmpty
-    ? rule.conditionGroups
-        .expand((group) => group.conditions)
-    : rule.conditions;
-
-final inputSet = conditions
-    .map((c) => c.inputIndex)
-    .toSet();
-
-  for (final action in rule.actions) {
-    if (action.type == ControlActionType.stopwatchTimer) {
-      inputSet.add(action.resetInputIndex);
-    }
+  String _timeText(int ms) {
+    if (ms % 1000 == 0) return '${ms ~/ 1000} sn';
+    return '${(ms / 1000).toStringAsFixed(3)} sn';
   }
-  final inputs = inputSet.where((i) => i >= 1 && i <= 4).toList()..sort();
+
+  String _actionTitle(ControlActionType type) => switch (type) {
+    ControlActionType.onOffDelay => 'Açma / Kapanma Gecikmesi',
+    ControlActionType.wipingRelay => 'Darbe Rölesi',
+    ControlActionType.edgeWipingRelay => 'Kenar Tetiklemeli Darbe',
+    ControlActionType.asynchronousPulse => 'Asenkron Darbe',
+    ControlActionType.randomGenerator => 'Rastgele Darbe',
+    ControlActionType.stairwayTimer => 'Merdiven Otomatiği',
+    ControlActionType.multipleFunctionTimer => 'Çok İşlevli Anahtar',
+    ControlActionType.stopwatchTimer => 'Kronometre',
+    ControlActionType.upDownCounter => 'İleri / Geri Sayıcı',
+    ControlActionType.hoursCounter => 'Çalışma Saati Sayacı',
+    ControlActionType.thresholdTrigger => 'Frekans Eşik Tetikleyici',
+    ControlActionType.setOutput => 'ON / OFF',
+    ControlActionType.setLatch => 'SET',
+    ControlActionType.resetLatch => 'RESET',
+    ControlActionType.toggleOutput => 'TOGGLE',
+    _ => type.name,
+  };
+
+  List<String> _actionParameters(ControlAction a) {
+    final p = <String>[];
+    void t(String key, int ms) => p.add('$key: ${_timeText(ms)}');
+    switch (a.type) {
+      case ControlActionType.onOffDelay:
+        t('TH', a.timerTHMs); t('TL', a.timerTLMs);
+        break;
+      case ControlActionType.wipingRelay:
+      case ControlActionType.stopwatchTimer:
+        t('T', a.timerTMs);
+        break;
+      case ControlActionType.edgeWipingRelay:
+      case ControlActionType.asynchronousPulse:
+      case ControlActionType.randomGenerator:
+        t('TH', a.timerTHMs); t('TL', a.timerTLMs);
+        break;
+      case ControlActionType.stairwayTimer:
+        t('T', a.timerTMs);
+        t('T!', a.timerWarningBeforeMs);
+        t('TA', a.timerWarningOffMs);
+        break;
+      case ControlActionType.multipleFunctionTimer:
+        t('T', a.timerTMs); t('TA', a.timerTLMs);
+        t('T!', a.timerWarningBeforeMs);
+        break;
+      case ControlActionType.upDownCounter:
+        p.add('Başlangıç: ${a.counterStartValue}');
+        p.add('ON: ${a.counterOn}'); p.add('OFF: ${a.counterOff}');
+        break;
+      case ControlActionType.hoursCounter:
+        t('Hedef', a.hoursTargetMs);
+        break;
+      case ControlActionType.thresholdTrigger:
+        t('G_T', a.thresholdGateMs);
+        p.add('ON: ${a.thresholdOn}'); p.add('OFF: ${a.thresholdOff}');
+        break;
+      default:
+        break;
+    }
+    if (ControlAction.timerTypes.contains(a.type)) {
+      if (a.timerTHRandom) p.add('TH: RANDOM');
+      if (a.timerTLRandom) p.add('TL: RANDOM');
+      if (a.timerRepeat) p.add('TEKRAR');
+      if (a.timerRetrigger) p.add('YENİDEN TETİKLE');
+      if (a.virtualStart) p.add('SANAL GİRİŞ');
+    }
+    return p;
+  }
+
+  Widget _ruleParameters(ControlConditionGroup rule) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final a in rule.actions) ...[
+          const SizedBox(height: 6),
+          Text('Q${a.outputIndex} · ${_actionTitle(a.type)}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          if (_actionParameters(a).isNotEmpty)
+            Wrap(
+              spacing: 6, runSpacing: 4,
+              children: [
+                for (final param in _actionParameters(a))
+                  Chip(label: Text(param, style: const TextStyle(fontSize: 11)),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero),
+              ],
+            ),
+        ],
+      ],
+    );
+  }
+
+	Widget _ruleCard(int ruleNumber, ControlConditionGroup rule) {
+  final inputRoles = _ruleInputRoles(rule);
+  final inputs = inputRoles.keys.toList()..sort();
 
   final outputs = rule.actions
       .where((a) => a.type != ControlActionType.delay)
@@ -476,6 +618,7 @@ final inputSet = conditions
           'KURAL $ruleNumber',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
+        _ruleParameters(rule),
         const SizedBox(height: 8),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -487,12 +630,10 @@ final inputSet = conditions
                     InkWell(
                       onTap: () => _setInput(i),
                       child: _ioCard(
-                        rule.actions.any((a) =>
-                            a.type == ControlActionType.stopwatchTimer &&
-                            a.resetInputIndex == i)
-                            ? 'I$i RESET' : 'I$i',
+                        _inputLabel(i, inputRoles[i]!),
                         _inputs[i]!,
                         isInput: true,
+                        changeMs: _inputChangeMs[i],
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -509,6 +650,7 @@ final inputSet = conditions
                       'Q$i',
                       _engine!.output(i),
                       isInput: false,
+                      changeMs: _outputChangeMs[i],
                     ),
                     const SizedBox(height: 8),
                   ],
@@ -522,16 +664,26 @@ final inputSet = conditions
   );
 }
 
+  String _inputLabel(int index, Set<String> roles) {
+    final labels = roles.where((role) => role.isNotEmpty).toList()..sort();
+    return labels.isEmpty ? 'I$index' : 'I$index ${labels.join('/')}';
+  }
+
   Widget _ioCard(
     String label,
     bool active, {
     required bool isInput,
+    List<int>? changeMs,
   }) {
     final color = isInput
         ? (active ? Colors.green : Colors.grey)
         : (active ? Colors.amber : Colors.red);
 
-    return Container(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
       width: 92,
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
@@ -555,6 +707,29 @@ final inputSet = conditions
           Text(active ? 'ON' : 'OFF'),
         ],
       ),
+    ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (changeMs == null || changeMs.isEmpty)
+                const Text('—', style: TextStyle(fontSize: 11))
+              else
+                for (final tick in changeMs)
+                  Text(
+                    (tick / 1000).toStringAsFixed(2),
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
