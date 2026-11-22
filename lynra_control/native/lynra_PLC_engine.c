@@ -303,6 +303,18 @@ bool lynra_plc_scan(LynraPlcEngine *e, uint64_t now_ms, uint32_t inputs) {
       A new activation is accepted when idle, or while running in REPEAT.
       LEVEL conditions generate a new event only after deactivation. */
     bool accept_trigger = rule_accept_trigger;
+     /* ON/OFF delay RESET has priority over virtual and physical triggers.
+        A reset permanently consumes the one-shot virtual startup until
+        the engine/program is reset, while physical inputs remain usable. */
+     if (a->type == LYNRA_TIMER_ON_OFF_DELAY &&
+         a->reset_input_index != 0 &&
+         (inputs & (1u << (a->reset_input_index - 1))) != 0) {
+         memset(s, 0, sizeof(*s));
+         s->virtual_started = true;
+         s->physical_taken_over = true;
+         s->execution_state = LYNRA_EXEC_IDLE;
+         continue;
+     }
      /* Virtual startup applies only to supported timer types. */
      const bool physical_active = active;
      const bool virtual_enabled = a->virtual_start &&
@@ -338,10 +350,16 @@ if (a->reset_input_index != 0) {
        (r->conditions[0].trigger == LYNRA_TRIGGER_RISING ||
         r->conditions[0].trigger == LYNRA_TRIGGER_FALLING)) {
     /* EDGE: wait TH, ON for TA (stored in tl_ms). TA=0 holds ON until reset. */
-    if (trigger_event && !s->started && !s->output_on) {
+     if (trigger_event &&
+         ((!s->started && !s->output_on) ||
+          (a->retrigger && s->started && !s->output_on && s->pulse_phase == 0) ||
+          (!a->retrigger && s->output_on))) {
+       /* Retrigger ON: restart TH only while waiting (Q OFF).
+          Retrigger OFF: ignore while waiting; restart after Q turns ON. */
       s->started = true;
       s->started_at = now_ms;
       s->pulse_phase = 0;
+       s->output_on = false;
       s->execution_state = LYNRA_EXEC_RUNNING;
     }
     if (s->started && s->pulse_phase == 0 && now_ms - s->started_at >= a->th_ms) {
@@ -1003,6 +1021,7 @@ bool lynra_plc_get_parameters(const LynraPlcEngine *e, size_t ri, size_t ai,
     parameters->count = 0;
     switch (a->type) {
     case LYNRA_TIMER_ON_OFF_DELAY:
+        DIAG_ADD(parameters, RETRIGGER, a->retrigger);
         DIAG_ADD(parameters, TH_MS, a->th_ms);
         DIAG_ADD(parameters, TL_MS, a->tl_ms);
         DIAG_ADD(parameters, TH_RANDOM, a->th_random);
@@ -1241,7 +1260,7 @@ bool lynra_plc_set_field(LynraPlcEngine *e, size_t ri, size_t ai,
         next.repeat = (uint8_t)value;
         break;
     case LYNRA_FIELD_RETRIGGER:
-        if ((a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY) || value < 0 || value > 255) return false;
+        if ((a->type != LYNRA_TIMER_ON_OFF_DELAY && a->type != LYNRA_TIMER_RETENTIVE_ON_DELAY && a->type != LYNRA_TIMER_EDGE_WIPING_RELAY && a->type != LYNRA_TIMER_STAIRWAY) || value < 0 || value > 255) return false;
         next.retrigger = (uint8_t)value;
         break;
     case LYNRA_FIELD_STOPWATCH_TIME_BASE:

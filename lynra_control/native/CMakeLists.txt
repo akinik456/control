@@ -17,7 +17,7 @@ target_compile_options(lynra_PLC_engine PRIVATE
 
 
 if(NOT ANDROID)
-    add_executable(test_onoff_virtual test_onoff_virtual.c)
-    target_link_libraries(test_onoff_virtual PRIVATE lynra_PLC_engine)
+    add_executable(test_onoff_retrigger_modes test_onoff_retrigger_modes.c)
+    target_link_libraries(test_onoff_retrigger_modes PRIVATE lynra_PLC_engine)
 endif()
 

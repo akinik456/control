@@ -145,12 +145,14 @@ if (source.type == ControlActionType.thresholdTrigger) {
 
 target.repeat = repeatable && source.timerRepeat ? 1 : 0;
 target.retrigger = (
+  source.type == ControlActionType.onOffDelay ||
   source.type == ControlActionType.retentiveOnDelay ||
   source.type == ControlActionType.edgeWipingRelay ||
   source.type == ControlActionType.stairwayTimer
 ) && source.timerRetrigger ? 1 : 0;
 
 target.resetInputIndex =
+    source.type == ControlActionType.onOffDelay ||
 		source.type == ControlActionType.upDownCounter ||
 		source.type == ControlActionType.hoursCounter ||
     source.type == ControlActionType.stopwatchTimer ||

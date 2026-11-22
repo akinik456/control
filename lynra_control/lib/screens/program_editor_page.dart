@@ -403,7 +403,7 @@ for (final condition in rule.conditions) {
       );
 
   Widget resetToken() => _delayToken(
-        'RESET: I${action.resetInputIndex}',
+        'RESET: ${action.resetInputIndex == 0 ? "YOK" : "I${action.resetInputIndex}"}',
         () async {
           final v = await _choose<int>('RESET girişi', [
             for (var i = 1; i <= 4; i++) (i, 'I$i'),
@@ -477,6 +477,10 @@ for (final condition in rule.conditions) {
         ControlActionType.randomGenerator,
       }.contains(action.type))
         virtualToken(),
+      if (action.type == ControlActionType.onOffDelay)
+        resetToken(),
+      if (edgeTimer)
+        retriggerToken(),
       if (retriggerable)
         retriggerToken(),
 
