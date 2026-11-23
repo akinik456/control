@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/control_block.dart';
 import '../models/control_program.dart';
 import '../core/widgets/control_circuit_painter.dart';
@@ -19,11 +21,13 @@ class ProgramEditorPage extends StatefulWidget {
 
 class _ProgramEditorPageState extends State<ProgramEditorPage> {
   final _name = TextEditingController(text: 'Yeni Program');
-  late final ControlProgram _program = ControlProgram(
+  late ControlProgram _program = ControlProgram(
     name: 'Yeni Program',
     controlBlocks: [ControlBlock(id: 'main', groups: [_makeRule()])],
   );
   int _id = 0;
+  String? _cloudProgramId;
+  bool _cloudSaving = false;
   // UI-only expansion state; does not change saved program data.
   final Set<String> _collapsedConditions = {'rule_1'};
   final Set<String> _collapsedGroups = {};
@@ -2431,6 +2435,131 @@ for (var i = 0; i < _rules.length; i++) {
     ));
   }
 
+  Future<void> _openFromCloud() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Buluttaki programlar için önce giriş yapın.')),
+      );
+      return;
+    }
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users').doc(user.uid).collection('programs')
+          .orderBy('updatedAt', descending: true).get();
+      if (!mounted) return;
+      if (snapshot.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bulutta kayıtlı program bulunamadı.')),
+        );
+        return;
+      }
+      final selected = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        builder: (ctx) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const ListTile(title: Text('Buluttaki Programlar',
+                  style: TextStyle(fontWeight: FontWeight.bold))),
+              Flexible(child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: snapshot.docs.length,
+                itemBuilder: (ctx, index) {
+                  final doc = snapshot.docs[index];
+                  return ListTile(
+                    leading: const Icon(Icons.description_outlined),
+                    title: Text(doc.data()['name'] as String? ?? 'Adsız Program'),
+                    onTap: () => Navigator.pop(ctx, doc.id),
+                  );
+                },
+              )),
+            ]),
+          ),
+        ),
+      );
+      if (selected == null || !mounted) return;
+      final doc = snapshot.docs.firstWhere((d) => d.id == selected);
+      final raw = doc.data()['program'];
+      if (raw is! Map) throw const FormatException('Program verisi bulunamadı.');
+      final loaded = ControlProgram.fromJson(Map<String, dynamic>.from(raw));
+      if (loaded.controlBlocks.isEmpty) {
+        throw const FormatException('Programda kontrol bloğu bulunamadı.');
+      }
+      final nextId = loaded.controlBlocks
+          .expand((b) => b.groups)
+          .map((r) => int.tryParse(RegExp(r'^rule_(\d+)$').firstMatch(r.id)?.group(1) ?? '') ?? 0)
+          .fold<int>(0, (a, b) => a > b ? a : b);
+      setState(() {
+        _program = loaded;
+        _name.text = loaded.name;
+        _cloudProgramId = doc.id;
+        _id = nextId;
+        _collapsedConditions.clear();
+        _collapsedGroups.clear();
+        _collapsedRules.clear();
+        _expandedActions.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Program buluttan açıldı.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Program açılamadı: $e')),
+      );
+    }
+  }
+
+  Future<void> _saveToCloud() async {
+    if (_cloudSaving) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Buluta kaydetmek için Hesabım bölümünden giriş yapın.')),
+      );
+      return;
+    }
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Önce program adı girin.')),
+      );
+      return;
+    }
+    setState(() => _cloudSaving = true);
+    try {
+      _program.name = name;
+      final collection = FirebaseFirestore.instance
+          .collection('users').doc(user.uid).collection('programs');
+      final doc = _cloudProgramId == null
+          ? collection.doc()
+          : collection.doc(_cloudProgramId);
+      final data = <String, dynamic>{
+        'name': name,
+        'program': _program.toJson(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (_cloudProgramId == null) {
+        data['createdAt'] = FieldValue.serverTimestamp();
+      }
+      await doc.set(data, SetOptions(merge: true));
+      _cloudProgramId = doc.id;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Program buluta kaydedildi.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Buluta kayıt başarısız: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _cloudSaving = false);
+    }
+  }
+
   void _showJson() {
     _program.name = _name.text.trim();
     final json = const JsonEncoder.withIndent('  ').convert(_program.toJson());
@@ -2496,6 +2625,20 @@ for (var i = 0; i < _rules.length; i++) {
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           ),
         ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(
+            onPressed: _cloudSaving ? null : _openFromCloud,
+            icon: const Icon(Icons.cloud_download_outlined),
+            label: const Text('Buluttan Aç'),
+          )),
+          const SizedBox(width: 8),
+          Expanded(child: OutlinedButton.icon(
+            onPressed: _cloudSaving ? null : _saveToCloud,
+            icon: const Icon(Icons.cloud_upload_outlined),
+            label: Text(_cloudSaving ? 'Kaydediliyor...' : 'Buluta Kaydet'),
+          )),
+        ]),
         const SizedBox(height: 10),
         Text('İfadelere dokunarak düzenleyin.',
           style: Theme.of(context).textTheme.bodySmall),

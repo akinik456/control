@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "278346307461",
+    "project_id": "lynracontrol",
+    "storage_bucket": "lynracontrol.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:278346307461:android:acf574939ac2b76b9016ec",
+        "android_client_info": {
+          "package_name": "com.example.lynra_control"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAPBL4gW-RsAqHih3GUX5Q_wv9S1Xf4fMc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

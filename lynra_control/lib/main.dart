@@ -1,5 +1,7 @@
 import '/services/lynra_plc_ffi.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_preferences.dart';
@@ -7,9 +9,13 @@ import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/program_editor_page.dart';
 import 'screens/ble_connection_page.dart';
+import 'screens/auth_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 LynraPlcFfi().printStructSizes();
 
   await AppPreferences.instance.load();
@@ -128,6 +134,15 @@ class HomePage extends StatelessWidget {
 									},
                   icon: const Icon(Icons.add),
                   label: Text(l10n.newProgram),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AuthPage()),
+                  ),
+                  icon: const Icon(Icons.account_circle_outlined),
+                  label: Text(isTurkish ? 'Hesabım' : 'My Account'),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
