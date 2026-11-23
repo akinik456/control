@@ -55,8 +55,12 @@ void restoreProgramFromFlash() {
     Serial.println("PLC RESTORE: ENGINE LOAD FAILED - STOP");
     return;
   }
-  plcStop();
-  Serial.println("PLC RESTORE: PROGRAM LOADED - STATE STOP");
+  if (plcRun()) {
+			Serial.println("PLC RESTORE: PROGRAM LOADED - STATE RUN");
+	} else {
+			plcStop();
+			Serial.println("PLC RESTORE: RUN FAILED - STATE STOP");
+	}
 }
 } // namespace
 

@@ -82,8 +82,8 @@ bool ControlProgram::fromJson(JsonVariantConst json)
 
                 int parsed = 0;
 
-                const char *logicNames[] = {"and", "or", "xor"};
-                if (!parseEnum(groupJson["logicOperator"], logicNames, 3, parsed))
+                const char *logicNames[] = {"and", "or", "xor", "nand", "nor", "not"};
+                if (!groupJson["logicOperator"].isNull() && !parseEnum(groupJson["logicOperator"], logicNames, 6, parsed))
                     return false;
                 group.logicOperator = static_cast<LogicOperator>(parsed);
 
@@ -115,14 +115,7 @@ bool ControlProgram::fromJson(JsonVariantConst json)
                 group.onDelayMs = groupJson["onDelayMs"] | 0;
                 group.offDelayMs = groupJson["offDelayMs"] | 0;
 
-                JsonArrayConst conditions =
-                    groupJson["conditions"].as<JsonArrayConst>();
-
-                if (conditions.isNull())
-                {
-                    return false;
-                }
-
+                auto readConditions = [&](JsonArrayConst conditions, std::vector<InputCondition>& dest)->bool {
                 const char *triggerNames[] = {
                     "highLevel",
                     "lowLevel",
@@ -170,9 +163,22 @@ bool ControlProgram::fromJson(JsonVariantConst json)
                             static_cast<ConditionTrigger>(triggerIndex);
                     }
 
-                    group.conditions.push_back(condition);
+                    dest.push_back(condition);
                 }
 
+                    return true;
+                };
+                auto readOps = [&](JsonVariantConst value, std::vector<LogicOperator>& dest)->bool {
+                    for (JsonVariantConst v : value.as<JsonArrayConst>()) { int n; if (!parseEnum(v, logicNames, 6, n)) return false; dest.push_back(static_cast<LogicOperator>(n)); } return true;
+                };
+                if (!readConditions(groupJson["conditions"].as<JsonArrayConst>(), group.conditions) || !readOps(groupJson["conditionOperators"], group.conditionOperators) || !readOps(groupJson["groupOperators"], group.groupOperators)) return false;
+                if (!groupJson["groupsOperator"].isNull()) { if (!parseEnum(groupJson["groupsOperator"], logicNames, 6, parsed)) return false; group.groupsOperator = static_cast<LogicOperator>(parsed); }
+                for (JsonObjectConst j : groupJson["conditionGroups"].as<JsonArrayConst>()) {
+                    ConditionSubgroup sub;
+                    if (!j["logicOperator"].isNull()) { if (!parseEnum(j["logicOperator"], logicNames, 6, parsed)) return false; sub.logicOperator = static_cast<LogicOperator>(parsed); }
+                    if (!readConditions(j["conditions"].as<JsonArrayConst>(), sub.conditions) || !readOps(j["conditionOperators"], sub.conditionOperators)) return false;
+                    group.conditionGroups.push_back(sub);
+                }
                 JsonArrayConst actions = groupJson["actions"].as<JsonArrayConst>();
 
                 if (actions.isNull())
@@ -186,7 +192,7 @@ bool ControlProgram::fromJson(JsonVariantConst json)
                     "setLatch",
                     "resetLatch",
                     "toggleOutput",
-                    "blinkOutput"};
+                    "blinkOutput", "onDelay", "offDelay", "onOffDelay", "wipingRelay", "edgeWipingRelay", "asynchronousPulse", "randomGenerator", "stairwayTimer", "multipleFunctionTimer", "stopwatchTimer", "upDownCounter", "hoursCounter", "thresholdTrigger"};
 
                 for (JsonObjectConst actionJson : actions)
                 {
@@ -195,7 +201,7 @@ bool ControlProgram::fromJson(JsonVariantConst json)
                     if (!parseEnum(
                             actionJson["type"],
                             actionNames,
-                            6,
+                            19,
                             actionType))
                     {
                         return false;
@@ -226,6 +232,33 @@ bool ControlProgram::fromJson(JsonVariantConst json)
                         }
                     }
 
+                    if (!actionJson["timerTMs"].isNull()) { if (!actionJson["timerTMs"].is<int64_t>()) return false; action.timerTMs = actionJson["timerTMs"].as<int64_t>(); }
+                    if (!actionJson["timerTHMs"].isNull()) { if (!actionJson["timerTHMs"].is<int64_t>()) return false; action.timerTHMs = actionJson["timerTHMs"].as<int64_t>(); }
+                    if (!actionJson["timerTLMs"].isNull()) { if (!actionJson["timerTLMs"].is<int64_t>()) return false; action.timerTLMs = actionJson["timerTLMs"].as<int64_t>(); }
+                    if (!actionJson["timerWarningBeforeMs"].isNull()) { if (!actionJson["timerWarningBeforeMs"].is<int64_t>()) return false; action.timerWarningBeforeMs = actionJson["timerWarningBeforeMs"].as<int64_t>(); }
+                    if (!actionJson["timerWarningOffMs"].isNull()) { if (!actionJson["timerWarningOffMs"].is<int64_t>()) return false; action.timerWarningOffMs = actionJson["timerWarningOffMs"].as<int64_t>(); }
+                    if (!actionJson["timerN"].isNull()) { if (!actionJson["timerN"].is<int64_t>()) return false; action.timerN = actionJson["timerN"].as<int64_t>(); }
+                    if (!actionJson["resetInputIndex"].isNull()) { if (!actionJson["resetInputIndex"].is<int64_t>()) return false; action.resetInputIndex = actionJson["resetInputIndex"].as<int64_t>(); }
+                    if (!actionJson["counterInputIndex"].isNull()) { if (!actionJson["counterInputIndex"].is<int64_t>()) return false; action.counterInputIndex = actionJson["counterInputIndex"].as<int64_t>(); }
+                    if (!actionJson["directionInputIndex"].isNull()) { if (!actionJson["directionInputIndex"].is<int64_t>()) return false; action.directionInputIndex = actionJson["directionInputIndex"].as<int64_t>(); }
+                    if (!actionJson["counterStartValue"].isNull()) { if (!actionJson["counterStartValue"].is<int64_t>()) return false; action.counterStartValue = actionJson["counterStartValue"].as<int64_t>(); }
+                    if (!actionJson["counterOn"].isNull()) { if (!actionJson["counterOn"].is<int64_t>()) return false; action.counterOn = actionJson["counterOn"].as<int64_t>(); }
+                    if (!actionJson["counterOff"].isNull()) { if (!actionJson["counterOff"].is<int64_t>()) return false; action.counterOff = actionJson["counterOff"].as<int64_t>(); }
+                    if (!actionJson["hoursEnableInputIndex"].isNull()) { if (!actionJson["hoursEnableInputIndex"].is<int64_t>()) return false; action.hoursEnableInputIndex = actionJson["hoursEnableInputIndex"].as<int64_t>(); }
+                    if (!actionJson["hoursResetAllInputIndex"].isNull()) { if (!actionJson["hoursResetAllInputIndex"].is<int64_t>()) return false; action.hoursResetAllInputIndex = actionJson["hoursResetAllInputIndex"].as<int64_t>(); }
+                    if (!actionJson["hoursTargetMs"].isNull()) { if (!actionJson["hoursTargetMs"].is<int64_t>()) return false; action.hoursTargetMs = actionJson["hoursTargetMs"].as<int64_t>(); }
+                    if (!actionJson["thresholdInputIndex"].isNull()) { if (!actionJson["thresholdInputIndex"].is<int64_t>()) return false; action.thresholdInputIndex = actionJson["thresholdInputIndex"].as<int64_t>(); }
+                    if (!actionJson["thresholdGateMs"].isNull()) { if (!actionJson["thresholdGateMs"].is<int64_t>()) return false; action.thresholdGateMs = actionJson["thresholdGateMs"].as<int64_t>(); }
+                    if (!actionJson["thresholdOn"].isNull()) { if (!actionJson["thresholdOn"].is<int64_t>()) return false; action.thresholdOn = actionJson["thresholdOn"].as<int64_t>(); }
+                    if (!actionJson["thresholdOff"].isNull()) { if (!actionJson["thresholdOff"].is<int64_t>()) return false; action.thresholdOff = actionJson["thresholdOff"].as<int64_t>(); }
+                    action.timerTHRandom = actionJson["timerTHRandom"] | false;
+                    action.timerTLRandom = actionJson["timerTLRandom"] | false;
+                    action.timerRepeat = actionJson["timerRepeat"] | false;
+                    action.timerRetrigger = actionJson["timerRetrigger"] | false;
+                    action.virtualStart = actionJson["virtualStart"] | false;
+                    action.stopwatchTimeBase = actionJson["stopwatchTimeBase"] | "seconds";
+                    if (action.type == ControlActionType::UpDownCounter || action.type == ControlActionType::HoursCounter || action.type == ControlActionType::ThresholdTrigger) action.resetInputIndex = actionJson["resetInputIndex"] | 3;
+                    if (action.type == ControlActionType::OnDelay || action.type == ControlActionType::OffDelay) { action.timerTHMs = action.type == ControlActionType::OnDelay ? action.timerTMs : 0; action.timerTLMs = action.type == ControlActionType::OffDelay ? action.timerTMs : 0; action.timerTMs = 0; action.type = ControlActionType::OnOffDelay; }
                     group.actions.push_back(action);
                 }
 
@@ -268,7 +301,7 @@ bool ControlProgram::validate(String &error) const
 
             ruleIds.push_back(rule.id);
 
-            if (rule.conditions.empty() || rule.actions.empty())
+            if ((rule.conditions.empty() && rule.conditionGroups.empty()) || rule.actions.empty())
             {
                 error = "Empty conditions/actions: " + rule.id;
                 return false;
@@ -290,6 +323,7 @@ bool ControlProgram::validate(String &error) const
                 }
             }
 
+            for (const auto &sub : rule.conditionGroups) { if (sub.conditions.empty()) { error = "Empty subgroup"; return false; } for (const auto &c : sub.conditions) if (c.inputIndex < 1 || c.inputIndex > 4) { error = "Invalid subgroup input"; return false; } }
             for (const auto &action : rule.actions)
             {
                 if (action.type != ControlActionType::Delay &&

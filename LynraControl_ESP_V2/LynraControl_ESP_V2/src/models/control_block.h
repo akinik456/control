@@ -8,7 +8,7 @@ enum class LogicOperator
 {
     And,
     Or,
-    Xor
+    Xor, Nand, Nor, Not
 };
 
 // Output behavior
@@ -26,7 +26,7 @@ enum class ControlActionType
     SetLatch,
     ResetLatch,
     ToggleOutput,
-    BlinkOutput
+    BlinkOutput, OnDelay, OffDelay, OnOffDelay, WipingRelay, EdgeWipingRelay, AsynchronousPulse, RandomGenerator, StairwayTimer, MultipleFunctionTimer, StopwatchTimer, UpDownCounter, HoursCounter, ThresholdTrigger
 };
 
 // Rule execution policies
@@ -79,8 +79,38 @@ struct ControlAction
     bool outputState = true;
     int durationMs = 0;
     int offDurationMs = 0;
+    int64_t timerTMs = 0;
+    int64_t timerTHMs = 0;
+    int64_t timerTLMs = 0;
+    int64_t timerWarningBeforeMs = 0;
+    int64_t timerWarningOffMs = 0;
+    int64_t timerN = 1;
+    int64_t resetInputIndex = 2;
+    int64_t counterInputIndex = 1;
+    int64_t directionInputIndex = 2;
+    int64_t counterStartValue = 0;
+    int64_t counterOn = 10;
+    int64_t counterOff = 5;
+    int64_t hoursEnableInputIndex = 1;
+    int64_t hoursResetAllInputIndex = 3;
+    int64_t hoursTargetMs = 3600000;
+    int64_t thresholdInputIndex = 1;
+    int64_t thresholdGateMs = 1000;
+    int64_t thresholdOn = 10;
+    int64_t thresholdOff = 5;
+    bool timerTHRandom = false;
+    bool timerTLRandom = false;
+    bool timerRepeat = false;
+    bool timerRetrigger = false;
+    bool virtualStart = false;
+    String stopwatchTimeBase = "seconds";
 };
 
+struct ConditionSubgroup {
+ LogicOperator logicOperator = LogicOperator::And;
+ std::vector<InputCondition> conditions;
+ std::vector<LogicOperator> conditionOperators;
+};
 // One EGER-ISE rule
 struct ControlConditionGroup
 {
@@ -90,6 +120,9 @@ struct ControlConditionGroup
 
     std::vector<InputCondition> conditions;
     std::vector<ControlAction> actions;
+    std::vector<ConditionSubgroup> conditionGroups;
+    std::vector<LogicOperator> conditionOperators, groupOperators;
+    LogicOperator groupsOperator = LogicOperator::Or;
 
     OutputBehavior outputBehavior = OutputBehavior::FollowCondition;
 
