@@ -14,8 +14,9 @@ import 'program_test_page.dart';
 
 /// Structured EGER-ISE editor. No free-form program text or block cards.
 class ProgramEditorPage extends StatefulWidget {
-  const ProgramEditorPage({super.key, this.openCloudOnStart = false});
+  const ProgramEditorPage({super.key, this.openCloudOnStart = false, this.initialActionsOpen = false});
   final bool openCloudOnStart;
+  final bool initialActionsOpen;
   @override
   State<ProgramEditorPage> createState() => _ProgramEditorPageState();
 }
@@ -30,6 +31,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   String? _cloudProgramId;
   bool _cloudSaving = false;
   bool _programActionsOpen = false;
+  String? _savedFingerprint;
   // UI-only expansion state; does not change saved program data.
   final Set<String> _collapsedConditions = {'rule_1'};
   final Set<String> _collapsedGroups = {};
@@ -39,6 +41,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   @override
   void initState() {
     super.initState();
+    _programActionsOpen = widget.initialActionsOpen;
     if (widget.openCloudOnStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openFromCloud();
@@ -2447,81 +2450,204 @@ for (var i = 0; i < _rules.length; i++) {
     ));
   }
 
+  String _fingerprint() {
+    final data = Map<String, dynamic>.from(_program.toJson());
+    data['name'] = _name.text.trim();
+    return jsonEncode(data);
+  }
+
+  bool get _hasUnsavedChanges =>
+      _savedFingerprint == null || _fingerprint() != _savedFingerprint;
+
+  Future<bool> _confirmDiscardChanges() async {
+    if (!_hasUnsavedChanges) return true;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Kaydedilmemiş değişiklikler'),
+        content: const Text('Mevcut programdaki kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Devam Et')),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
   Future<void> _openFromCloud() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Buluttaki programlar için önce giriş yapın.')),
+        const SnackBar(content: Text('Programlarım için önce giriş yapın.')),
       );
       return;
     }
+    final collection = FirebaseFirestore.instance
+        .collection('users').doc(user.uid).collection('programs');
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users').doc(user.uid).collection('programs')
-          .orderBy('updatedAt', descending: true).get();
+      final snapshot = await collection.orderBy('updatedAt', descending: true).get();
       if (!mounted) return;
-      if (snapshot.docs.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bulutta kayıtlı program bulunamadı.')),
-        );
-        return;
-      }
-      final selected = await showModalBottomSheet<String>(
+      var docs = snapshot.docs.toList();
+      await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        builder: (ctx) => SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const ListTile(title: Text('Buluttaki Programlar',
-                  style: TextStyle(fontWeight: FontWeight.bold))),
-              Flexible(child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: snapshot.docs.length,
-                itemBuilder: (ctx, index) {
-                  final doc = snapshot.docs[index];
-                  return ListTile(
-                    leading: const Icon(Icons.description_outlined),
-                    title: Text(doc.data()['name'] as String? ?? 'Adsız Program'),
-                    onTap: () => Navigator.pop(ctx, doc.id),
-                  );
-                },
-              )),
-            ]),
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (sheetContext, refresh) => SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.8),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Row(children: [
+                  const Expanded(child: ListTile(title: Text('Programlarım',
+                      style: TextStyle(fontWeight: FontWeight.bold)))),
+                  IconButton(tooltip: 'Kapat', icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(sheetContext)),
+                ]),
+                Flexible(child: docs.isEmpty
+                    ? const Padding(padding: EdgeInsets.all(24), child: Text('Kayıtlı program bulunamadı.'))
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: docs.length,
+                        itemBuilder: (ctx, index) {
+                          final doc = docs[index];
+                          final data = doc.data();
+                          final name = data['name'] as String? ?? 'Adsız Program';
+                          final timestamp = data['updatedAt'];
+                          final date = timestamp is Timestamp ? timestamp.toDate() : null;
+                          final dateText = date == null ? 'Tarih bilinmiyor'
+                              : '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year} '
+                                '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+                          return ListTile(
+                            leading: const Icon(Icons.description_outlined),
+                            title: Text(name),
+                            subtitle: Text('Son değişiklik: $dateText'),
+                            onTap: () async {
+                              if (!await _confirmDiscardChanges() || !mounted) return;
+                              try {
+                                final raw = doc.data()['program'];
+                                if (raw is! Map) throw const FormatException('Program verisi bulunamadı.');
+                                final loaded = ControlProgram.fromJson(Map<String, dynamic>.from(raw));
+                                if (loaded.controlBlocks.isEmpty) {
+                                  throw const FormatException('Programda kontrol bloğu bulunamadı.');
+                                }
+                                final nextId = loaded.controlBlocks.expand((b) => b.groups)
+                                    .map((r) => int.tryParse(RegExp(r'^rule_(\d+)$').firstMatch(r.id)?.group(1) ?? '') ?? 0)
+                                    .fold<int>(0, (a, b) => a > b ? a : b);
+                                setState(() {
+                                  _program = loaded;
+                                  _name.text = loaded.name;
+                                  _cloudProgramId = doc.id;
+                                  _id = nextId;
+                                  _collapsedConditions.clear();
+                                  _collapsedGroups.clear();
+                                  _collapsedRules..clear()
+                                      ..addAll(loaded.controlBlocks.expand((b) => b.groups).map((r) => r.id));
+                                  _expandedActions.clear();
+                                  _savedFingerprint = _fingerprint();
+                                });
+                                if (sheetContext.mounted) Navigator.pop(sheetContext);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Program buluttan açıldı.')),
+                                );
+                              } catch (e) {
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Program açılamadı: $e')),
+                                );
+                              }
+                            },
+                            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                              IconButton(
+                                tooltip: 'Yeniden adlandır',
+                                icon: const Icon(Icons.edit_outlined),
+                                onPressed: () async {
+                                  var entered = name;
+                                  final renamed = await showDialog<String>(
+                                    context: sheetContext,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Program adını değiştir'),
+                                      content: TextFormField(initialValue: name, autofocus: true,
+                                          decoration: const InputDecoration(labelText: 'Program adı'),
+                                          onChanged: (v) => entered = v),
+                                      actions: [
+                                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
+                                        FilledButton(onPressed: () {
+                                          if (entered.trim().isNotEmpty) Navigator.pop(ctx, entered.trim());
+                                        }, child: const Text('Kaydet')),
+                                      ],
+                                    ),
+                                  );
+                                  if (renamed == null || !sheetContext.mounted) return;
+                                  try {
+                                    final raw = data['program'];
+                                    if (raw is! Map) throw const FormatException('Program verisi bulunamadı.');
+                                    final updatedProgram = Map<String, dynamic>.from(raw);
+                                    updatedProgram['name'] = renamed;
+                                    await collection.doc(doc.id).update({
+                                      'name': renamed, 'program': updatedProgram,
+                                      'updatedAt': FieldValue.serverTimestamp(),
+                                    });
+                                    if (!sheetContext.mounted) return;
+                                    final refreshed = await collection.orderBy('updatedAt', descending: true).get();
+                                    if (!sheetContext.mounted) return;
+                                    refresh(() => docs = refreshed.docs.toList());
+                                    if (_cloudProgramId == doc.id && mounted) {
+                                      final wasDirty = _hasUnsavedChanges;
+                                      setState(() {
+                                        _name.text = renamed;
+                                        _program.name = renamed;
+                                        if (!wasDirty) _savedFingerprint = _fingerprint();
+                                      });
+                                    }
+                                  } catch (e) {
+                                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Ad değiştirilemedi: $e')),
+                                    );
+                                  }
+                                },
+                              ),
+                              IconButton(
+                                tooltip: 'Sil',
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                onPressed: () async {
+                                  final confirmed = await showDialog<bool>(
+                                    context: sheetContext,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Programı sil'),
+                                      content: Text('"$name" buluttan kalıcı olarak silinsin mi?'),
+                                      actions: [
+                                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+                                        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sil')),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirmed != true || !sheetContext.mounted) return;
+                                  try {
+                                    await collection.doc(doc.id).delete();
+                                    if (!sheetContext.mounted) return;
+                                    refresh(() => docs.removeWhere((d) => d.id == doc.id));
+                                    if (_cloudProgramId == doc.id && mounted) {
+                                      setState(() { _cloudProgramId = null; _savedFingerprint = null; });
+                                    }
+                                  } catch (e) {
+                                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Program silinemedi: $e')),
+                                    );
+                                  }
+                                },
+                              ),
+                            ]),
+                          );
+                        },
+                      )),
+              ]),
+            ),
           ),
         ),
-      );
-      if (selected == null || !mounted) return;
-      final doc = snapshot.docs.firstWhere((d) => d.id == selected);
-      final raw = doc.data()['program'];
-      if (raw is! Map) throw const FormatException('Program verisi bulunamadı.');
-      final loaded = ControlProgram.fromJson(Map<String, dynamic>.from(raw));
-      if (loaded.controlBlocks.isEmpty) {
-        throw const FormatException('Programda kontrol bloğu bulunamadı.');
-      }
-      final nextId = loaded.controlBlocks
-          .expand((b) => b.groups)
-          .map((r) => int.tryParse(RegExp(r'^rule_(\d+)$').firstMatch(r.id)?.group(1) ?? '') ?? 0)
-          .fold<int>(0, (a, b) => a > b ? a : b);
-      setState(() {
-        _program = loaded;
-        _name.text = loaded.name;
-        _cloudProgramId = doc.id;
-        _id = nextId;
-        _collapsedConditions.clear();
-        _collapsedGroups.clear();
-        _collapsedRules
-          ..clear()
-          ..addAll(loaded.controlBlocks.expand((b) => b.groups).map((r) => r.id));
-        _expandedActions.clear();
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Program buluttan açıldı.')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Program açılamadı: $e')),
+        SnackBar(content: Text('Programlar yüklenemedi: $e')),
       );
     }
   }
@@ -2556,6 +2682,7 @@ for (var i = 0; i < _rules.length; i++) {
       );
       _name.text = 'Yeni Program';
       _cloudProgramId = null;
+      _savedFingerprint = null;
       _collapsedConditions
         ..clear()
         ..add('rule_1');
@@ -2664,7 +2791,11 @@ for (var i = 0; i < _rules.length; i++) {
       }
       await doc.set(data, SetOptions(merge: true));
       _cloudProgramId = doc.id;
-      if (asNew) _name.text = name;
+      _savedFingerprint = _fingerprint();
+      if (asNew) {
+        _name.text = name;
+        _savedFingerprint = _fingerprint();
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Program buluta kaydedildi.')),
@@ -2777,9 +2908,9 @@ for (var i = 0; i < _rules.length; i++) {
                 child: const Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.cloud_download_outlined, size: 20),
+                    Icon(Icons.folder_open_outlined, size: 20),
                     SizedBox(height: 3),
-                    Text('Buluttan Aç', maxLines: 1, softWrap: false,
+                    Text('Programlarım', maxLines: 1, softWrap: false,
                         style: TextStyle(fontSize: 11)),
                   ],
                 ),

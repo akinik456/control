@@ -4,10 +4,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 
+import 'l10n/app_localizations.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_preferences.dart';
 import 'core/theme/app_theme.dart';
-import 'l10n/app_localizations.dart';
 import 'screens/program_editor_page.dart';
 import 'screens/ble_connection_page.dart';
 import 'screens/auth_page.dart';
@@ -54,8 +54,7 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-	final l10n = AppLocalizations.of(context)!;
-    final prefs = AppPreferences.instance;
+	    final prefs = AppPreferences.instance;
     final isTurkish = prefs.isTurkish;
 
     return Scaffold(
@@ -162,45 +161,16 @@ class HomePage extends StatelessWidget {
                 ),
                 const SizedBox(height: 40),
                 FilledButton.icon(
-                  onPressed: () {
-										Navigator.push(
-											context,
-											MaterialPageRoute(
-												builder: (_) => const ProgramEditorPage(),
-											),
-										);
-									},
-                  icon: const Icon(Icons.add),
-                  label: Text(l10n.newProgram),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ProgramEditorPage(initialActionsOpen: true),
+                    ),
+                  ),
+                  icon: const Icon(Icons.edit_note),
+                  label: const Text('Program'),
                 ),
                 const SizedBox(height: 12),
-                StreamBuilder<User?>(
-                  stream: FirebaseAuth.instance.authStateChanges(),
-                  initialData: FirebaseAuth.instance.currentUser,
-                  builder: (context, snapshot) {
-                    final user = snapshot.data;
-                    return OutlinedButton.icon(
-                      onPressed: () {
-                        if (user == null) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const AuthPage()),
-                          );
-                        } else {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const ProgramEditorPage(openCloudOnStart: true),
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.folder_outlined),
-                      label: Text(l10n.myPrograms),
-                    );
-                  },
-                ),
-								const SizedBox(height: 12),
 								OutlinedButton.icon(
 									onPressed: () {
 										Navigator.push(
