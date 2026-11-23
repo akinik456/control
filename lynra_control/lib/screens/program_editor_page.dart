@@ -14,7 +14,8 @@ import 'program_test_page.dart';
 
 /// Structured EGER-ISE editor. No free-form program text or block cards.
 class ProgramEditorPage extends StatefulWidget {
-  const ProgramEditorPage({super.key});
+  const ProgramEditorPage({super.key, this.openCloudOnStart = false});
+  final bool openCloudOnStart;
   @override
   State<ProgramEditorPage> createState() => _ProgramEditorPageState();
 }
@@ -28,11 +29,22 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   int _id = 0;
   String? _cloudProgramId;
   bool _cloudSaving = false;
+  bool _programActionsOpen = false;
   // UI-only expansion state; does not change saved program data.
   final Set<String> _collapsedConditions = {'rule_1'};
   final Set<String> _collapsedGroups = {};
 	final Set<ControlAction> _expandedActions = {};
-	final Set<String> _collapsedRules = {};
+	final Set<String> _collapsedRules = {'rule_1'};
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.openCloudOnStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openFromCloud();
+      });
+    }
+  }
 
   String _conditionText(InputCondition c) {
   final text = switch (c.trigger) {
@@ -2498,7 +2510,9 @@ for (var i = 0; i < _rules.length; i++) {
         _id = nextId;
         _collapsedConditions.clear();
         _collapsedGroups.clear();
-        _collapsedRules.clear();
+        _collapsedRules
+          ..clear()
+          ..addAll(loaded.controlBlocks.expand((b) => b.groups).map((r) => r.id));
         _expandedActions.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2510,6 +2524,81 @@ for (var i = 0; i < _rules.length; i++) {
         SnackBar(content: Text('Program açılamadı: $e')),
       );
     }
+  }
+
+  Future<void> _newProgram() async {
+    if (_cloudSaving) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Yeni Program'),
+        content: const Text(
+          'Yeni program oluşturulsun mu? Kaydedilmemiş değişiklikler kaybolabilir.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yeni Oluştur'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _id = 0;
+      _program = ControlProgram(
+        name: 'Yeni Program',
+        controlBlocks: [ControlBlock(id: 'main', groups: [_makeRule()])],
+      );
+      _name.text = 'Yeni Program';
+      _cloudProgramId = null;
+      _collapsedConditions
+        ..clear()
+        ..add('rule_1');
+      _collapsedGroups.clear();
+      _collapsedRules
+        ..clear()
+        ..add('rule_1');
+      _expandedActions.clear();
+    });
+  }
+
+  Future<void> _renameProgram() async {
+    var enteredName = _name.text;
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Program adını değiştir'),
+        content: TextFormField(
+          initialValue: enteredName,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Program adı'),
+          onChanged: (value) => enteredName = value,
+          onFieldSubmitted: (value) {
+            if (value.trim().isNotEmpty) Navigator.pop(ctx, value.trim());
+          },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
+          FilledButton(
+            onPressed: () {
+              final value = enteredName.trim();
+              if (value.isNotEmpty) Navigator.pop(ctx, value);
+            },
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+    if (newName == null || !mounted) return;
+    setState(() {
+      _name.text = newName;
+      _program.name = newName;
+    });
   }
 
   Future<void> _saveAsToCloud() async {
@@ -2610,11 +2699,23 @@ for (var i = 0; i < _rules.length; i++) {
     body: Center(child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 760),
       child: ListView(padding: const EdgeInsets.all(14), children: [
-				Row(
+        OutlinedButton.icon(
+          onPressed: () => setState(() => _programActionsOpen = !_programActionsOpen),
+          icon: Icon(_programActionsOpen ? Icons.expand_less : Icons.expand_more),
+          label: const Text('Program İşlemleri'),
+          style: OutlinedButton.styleFrom(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          ),
+        ),
+        if (_programActionsOpen) ...[
+          const SizedBox(height: 8),
+          				Row(
 					children: [
 						Expanded(
 							child: OutlinedButton.icon(
 								onPressed: () {
+                  setState(() => _programActionsOpen = false);
 									_program.name = _name.text.trim();
 									Navigator.of(context).push(
 										MaterialPageRoute<void>(
@@ -2629,7 +2730,7 @@ for (var i = 0; i < _rules.length; i++) {
 						const SizedBox(width: 8),
 						Expanded(
 							child: OutlinedButton.icon(
-								onPressed: _openSummary,
+								onPressed: () { setState(() => _programActionsOpen = false); _openSummary(); },
 								icon: const Icon(Icons.description_outlined, size: 18),
 								label: const Text('Özet'),
 							),
@@ -2637,7 +2738,7 @@ for (var i = 0; i < _rules.length; i++) {
 						const SizedBox(width: 8),
 						Expanded(
 							child: OutlinedButton.icon(
-								onPressed: _showJson,
+								onPressed: () { setState(() => _programActionsOpen = false); _showJson(); },
 								icon: const Icon(Icons.data_object, size: 18),
 								label: const Text('JSON'),
 							),
@@ -2645,43 +2746,146 @@ for (var i = 0; i < _rules.length; i++) {
 					],
 				),
 				const SizedBox(height: 16),
-        TextField(
-          controller: _name,
-          decoration: InputDecoration(
-            labelText: 'Program adı',
-            prefixIcon: const Icon(Icons.edit_outlined),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _newProgram(); },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+                  minimumSize: const Size(0, 44),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add_circle_outline, size: 20),
+                    SizedBox(height: 3),
+                    Text('Yeni Program', maxLines: 1, softWrap: false,
+                        style: TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _openFromCloud(); },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+                  minimumSize: const Size(0, 44),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_download_outlined, size: 20),
+                    SizedBox(height: 3),
+                    Text('Buluttan Aç', maxLines: 1, softWrap: false,
+                        style: TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _saveToCloud(); },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+                  minimumSize: const Size(0, 44),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_upload_outlined, size: 20),
+                    const SizedBox(height: 3),
+                    Text(_cloudSaving ? 'Kaydediliyor...' : 'Kaydet',
+                        maxLines: 1, softWrap: false,
+                        style: const TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _saveAsToCloud(); },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+                  minimumSize: const Size(0, 44),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.copy_outlined, size: 20),
+                    SizedBox(height: 3),
+                    Text('Farklı Kaydet', maxLines: 1, softWrap: false,
+                        style: TextStyle(fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
+        ],
         const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: OutlinedButton.icon(
-            onPressed: _cloudSaving ? null : _openFromCloud,
-            icon: const Icon(Icons.cloud_download_outlined),
-            label: const Text('Buluttan Aç'),
-          )),
-          const SizedBox(width: 8),
-          Expanded(child: OutlinedButton.icon(
-            onPressed: _cloudSaving ? null : _saveToCloud,
-            icon: const Icon(Icons.cloud_upload_outlined),
-            label: Text(_cloudSaving ? 'Kaydediliyor...' : 'Buluta Kaydet'),
-          )),
-        ]),
-        const SizedBox(height: 8),
         SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: _cloudSaving ? null : _saveAsToCloud,
-            icon: const Icon(Icons.copy_outlined),
-            label: const Text('Farklı Kaydet'),
+          height: 42,
+          child: LayoutBuilder(
+            builder: (context, constraints) => Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: constraints.maxWidth * 0.52,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: InkWell(
+                      onTap: _renameProgram,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.edit_outlined, size: 18, color: Colors.cyan),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                _name.text,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.cyan,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Text(
+                      'İfadelere dokunarak düzenleyin.',
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 10),
-        Text('İfadelere dokunarak düzenleyin.', 
-          style: Theme.of(context).textTheme.bodySmall),
-        const SizedBox(height: 14),
+        const SizedBox(height: 2),
         for (var i = 0; i < _rules.length; i++) _ruleEditor(_rules[i], i),
         const SizedBox(height: 4),
         FilledButton.icon(

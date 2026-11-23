@@ -1,6 +1,7 @@
 import '/services/lynra_plc_ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 
 import 'core/theme/app_colors.dart';
@@ -19,6 +20,8 @@ Future<void> main() async {
 LynraPlcFfi().printStructSizes();
 
   await AppPreferences.instance.load();
+  // Şimdilik uygulama Türkçe başlasın; dil seçimi korunur.
+  await AppPreferences.instance.setLanguage('tr');
 
   runApp(const LynraControlApp());
 }
@@ -57,6 +60,14 @@ class HomePage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: isTurkish ? 'Hesabım' : 'My Account',
+          icon: const Icon(Icons.account_circle_outlined),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AuthPage()),
+          ),
+        ),
         title: const Text('Lynra Control'),
         actions: [
           IconButton(
@@ -86,6 +97,33 @@ class HomePage extends StatelessWidget {
             ],
           ),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+          child: StreamBuilder<User?>(
+            stream: FirebaseAuth.instance.authStateChanges(),
+            initialData: FirebaseAuth.instance.currentUser,
+            builder: (context, snapshot) {
+              final user = snapshot.data;
+              final accountName = user?.displayName?.trim().isNotEmpty == true
+                  ? user!.displayName!
+                  : user?.email ?? (isTurkish ? 'Misafir' : 'Guest');
+              return Text(
+                accountName,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).appBarTheme.titleTextStyle ??
+                    Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+              );
+            },
+          ),
+        ),
       ),
       body: Center(
         child: ConstrainedBox(
@@ -136,19 +174,31 @@ class HomePage extends StatelessWidget {
                   label: Text(l10n.newProgram),
                 ),
                 const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AuthPage()),
-                  ),
-                  icon: const Icon(Icons.account_circle_outlined),
-                  label: Text(isTurkish ? 'Hesabım' : 'My Account'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: null,
-                  icon: const Icon(Icons.folder_outlined),
-                  label: Text(l10n.myPrograms),
+                StreamBuilder<User?>(
+                  stream: FirebaseAuth.instance.authStateChanges(),
+                  initialData: FirebaseAuth.instance.currentUser,
+                  builder: (context, snapshot) {
+                    final user = snapshot.data;
+                    return OutlinedButton.icon(
+                      onPressed: () {
+                        if (user == null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const AuthPage()),
+                          );
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ProgramEditorPage(openCloudOnStart: true),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.folder_outlined),
+                      label: Text(l10n.myPrograms),
+                    );
+                  },
                 ),
 								const SizedBox(height: 12),
 								OutlinedButton.icon(
