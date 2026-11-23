@@ -337,7 +337,7 @@ async function loadSharedProgram() {
   $('programDescription').textContent = 'Firestore bağlantısı kuruluyor.';
   try {
     const id = new URLSearchParams(window.location.search).get('id');
-    if (!id || !/^[A-Za-z0-9]{20}$/.test(id))
+    if (!id || !/^[A-Za-z0-9]{1,128}$/.test(id))
       throw new Error('Geçersiz program bağlantısı');
     const url = 'https://firestore.googleapis.com/v1/projects/lynracontrol/databases/(default)/documents/sharedPrograms/' + encodeURIComponent(id);
     const response = await fetch(url, {cache: 'no-store', referrerPolicy: 'no-referrer'});
