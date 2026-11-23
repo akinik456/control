@@ -2512,7 +2512,36 @@ for (var i = 0; i < _rules.length; i++) {
     }
   }
 
-  Future<void> _saveToCloud() async {
+  Future<void> _saveAsToCloud() async {
+    if (_cloudSaving) return;
+    var enteredName = '${_name.text.trim()} Kopya';
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Farklı Kaydet'),
+        content: TextFormField(
+          initialValue: enteredName,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Yeni program adı'),
+          onChanged: (value) => enteredName = value,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
+          FilledButton(
+            onPressed: () {
+              final value = enteredName.trim();
+              if (value.isNotEmpty) Navigator.pop(ctx, value);
+            },
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+    if (newName == null || !mounted) return;
+    await _saveToCloud(asNew: true, newName: newName);
+  }
+
+  Future<void> _saveToCloud({bool asNew = false, String? newName}) async {
     if (_cloudSaving) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -2521,7 +2550,7 @@ for (var i = 0; i < _rules.length; i++) {
       );
       return;
     }
-    final name = _name.text.trim();
+    final name = (newName ?? _name.text).trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Önce program adı girin.')),
@@ -2533,7 +2562,7 @@ for (var i = 0; i < _rules.length; i++) {
       _program.name = name;
       final collection = FirebaseFirestore.instance
           .collection('users').doc(user.uid).collection('programs');
-      final doc = _cloudProgramId == null
+      final doc = asNew || _cloudProgramId == null
           ? collection.doc()
           : collection.doc(_cloudProgramId);
       final data = <String, dynamic>{
@@ -2541,11 +2570,12 @@ for (var i = 0; i < _rules.length; i++) {
         'program': _program.toJson(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      if (_cloudProgramId == null) {
+      if (asNew || _cloudProgramId == null) {
         data['createdAt'] = FieldValue.serverTimestamp();
       }
       await doc.set(data, SetOptions(merge: true));
       _cloudProgramId = doc.id;
+      if (asNew) _name.text = name;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Program buluta kaydedildi.')),
@@ -2639,8 +2669,17 @@ for (var i = 0; i < _rules.length; i++) {
             label: Text(_cloudSaving ? 'Kaydediliyor...' : 'Buluta Kaydet'),
           )),
         ]),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _cloudSaving ? null : _saveAsToCloud,
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('Farklı Kaydet'),
+          ),
+        ),
         const SizedBox(height: 10),
-        Text('İfadelere dokunarak düzenleyin.',
+        Text('İfadelere dokunarak düzenleyin.', 
           style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 14),
         for (var i = 0; i < _rules.length; i++) _ruleEditor(_rules[i], i),
