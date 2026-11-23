@@ -28,7 +28,7 @@
 <body>
 <main>
   <h1>LynraControl</h1>
-  <p class="sub">Web Bluetooth · PLC program aktarım testi</p>
+  <p class="sub">Web Bluetooth · Program güncelleme</p>
 
   <section>
     <h2>Bağlantı</h2>
@@ -281,12 +281,12 @@ async function disconnect() {
   onDisconnected();
 }
 async function sendProgram() {
-  if (!connected || busy) return;
+  if (!connected || busy || shareLoading || shareInvalid || !sharedProgram) return;
   if (!confirm((sharedProgram ? 'Paylaşılan program' : 'Test programı') + ' PLC’ye yüklensin mi? Mevcut program değişebilir.')) return;
   setBusy(true);
   setProgress(0);
   try {
-    const program = sharedProgram ?? JSON.parse($('testProgram').textContent);
+    const program = sharedProgram;
     const bytes = new TextEncoder().encode(JSON.stringify(program));
     if (!bytes.length || bytes.length > 32768) throw new Error('Program boyutu geçersiz');
     const programCRC = calculateCRC32(bytes);
@@ -327,52 +327,31 @@ async function plcCommand(type, name) {
     setBusy(false);
   }
 }
-// Flutter link format: #p=<Base64URL(GZIP(UTF-8 JSON))>.
-// The link is only decoded and displayed; it never triggers BLE writes.
+// Firestore share links: ?id=<document ID>. No automatic BLE writes.
 async function loadSharedProgram() {
   sharedProgram = null;
   shareInvalid = false;
-  const fragment = window.location.hash.slice(1);
-  const params = new URLSearchParams(fragment);
-  const payload = params.get('p');
-  if (!payload) {
-    if (fragment) {
-      shareInvalid = true;
-      $('programHeading').textContent = 'Geçersiz program bağlantısı';
-      $('programDescription').textContent = 'Linkte geçerli bir program bulunamadı.';
-      message('Geçersiz program bağlantısı.');
-    }
-    updateButtons();
-    return;
-  }
   shareLoading = true;
   updateButtons();
+  $('programHeading').textContent = 'Program okunuyor...';
+  $('programDescription').textContent = 'Firestore bağlantısı kuruluyor.';
   try {
-    if (!/^[A-Za-z0-9_-]+$/.test(payload) || payload.length > 60000)
-      throw new Error('Link verisi geçersiz veya çok uzun');
-    if (typeof DecompressionStream === 'undefined')
-      throw new Error('Tarayıcı GZIP çözmeyi desteklemiyor; güncel Android Chrome kullanın');
-    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const binary = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
-    const compressed = Uint8Array.from(binary, c => c.charCodeAt(0));
-    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('gzip'));
-    const reader = stream.getReader();
-    const chunks = [];
-    let total = 0;
-    while (true) {
-      const {value, done} = await reader.read();
-      if (done) break;
-      total += value.length;
-      if (total > 32768) {
-        await reader.cancel();
-        throw new Error('Program 32768 bayt sınırını aşıyor');
-      }
-      chunks.push(value);
+    const id = new URLSearchParams(window.location.search).get('id');
+    if (!id || !/^[A-Za-z0-9]{20}$/.test(id))
+      throw new Error('Geçersiz program bağlantısı');
+    const url = 'https://firestore.googleapis.com/v1/projects/lynracontrol/databases/(default)/documents/sharedPrograms/' + encodeURIComponent(id);
+    const response = await fetch(url, {cache: 'no-store', referrerPolicy: 'no-referrer'});
+    if (!response.ok) {
+      if (response.status === 403 || response.status === 404)
+        throw new Error('Program bulunamadı veya bağlantının süresi dolmuş');
+      throw new Error('Firestore HTTP ' + response.status);
     }
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-    const program = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes));
+    const doc = await response.json();
+    const json = doc.fields?.programJson?.stringValue;
+    if (typeof json !== 'string') throw new Error('Program verisi bulunamadı');
+    const total = new TextEncoder().encode(json).length;
+    if (!total || total > 32768) throw new Error('Program boyutu geçersiz');
+    const program = JSON.parse(json);
     if (!program || typeof program !== 'object' || Array.isArray(program) ||
         program.formatVersion !== 2 || !Array.isArray(program.controlBlocks))
       throw new Error('PLC program formatı geçersiz');
@@ -382,12 +361,12 @@ async function loadSharedProgram() {
       'Program: ' + (typeof program.name === 'string' ? program.name : 'Adsız') +
       ' (' + total + ' bayt). Yükleme mevcut PLC programını değiştirebilir.';
     $('sendBtn').textContent = 'Paylaşılan Programı Yükle';
-    message('Linkteki program okundu. PLC’ye bağlanıp yüklemeyi onaylayabilirsiniz.');
+    message('Firestore programı okundu. PLC’ye bağlanıp yüklemeyi onaylayabilirsiniz.');
   } catch (err) {
     shareInvalid = true;
     $('programHeading').textContent = 'Program bağlantısı okunamadı';
     $('programDescription').textContent = 'Program yükleme kapatıldı. Lütfen geçerli bir link açın.';
-    message('Link çözme hatası: ' + err.message);
+    message('Program okuma hatası: ' + err.message);
   } finally {
     shareLoading = false;
     updateButtons();

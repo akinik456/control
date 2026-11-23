@@ -2059,35 +2059,55 @@ if (!_collapsedConditions.contains(rule.id)) ...[
   // Program is embedded in the URL; no Firebase or additional package needed.
   // Browser counterpart must decode Base64URL and decompress gzip.
   Future<void> _createShareLink() async {
-    _program.name = _name.text.trim();
-    final jsonBytes = utf8.encode(jsonEncode(_program.toJson()));
-    final compressed = gzip.encode(jsonBytes);
-    final payload = base64UrlEncode(compressed).replaceAll('=', '');
-    final link = 'https://lynra.app/plc/#p=$payload';
+  final user = FirebaseAuth.instance.currentUser;
+
+  if (user == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Link oluşturmak için giriş yapmalısınız.'),
+      ),
+    );
+    return;
+  }
+
+  _program.name = _name.text.trim();
+
+  final name = _program.name;
+  final programJson = jsonEncode(_program.toJson());
+
+  try {
+    final doc = FirebaseFirestore.instance
+        .collection('sharedPrograms')
+        .doc();
+
+    await doc.set({
+      'ownerId': user.uid,
+      'name': name,
+      'programJson': programJson,
+      'createdAt': FieldValue.serverTimestamp(),
+      'expiresAt': Timestamp.fromDate(
+        DateTime.now().add(const Duration(days: 7)),
+      ),
+    });
+
+    final link = 'https://lynra.app/plc/?id=${doc.id}';
 
     if (!mounted) return;
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Program Linki'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Program: ${_program.name}'),
-              const SizedBox(height: 8),
-              Text('JSON: ${jsonBytes.length} bayt · Sıkıştırılmış: ${compressed.length} bayt'),
-              const SizedBox(height: 12),
-              const Text('Linki kopyalayıp WhatsApp üzerinden gönderebilirsin.'),
-              const SizedBox(height: 8),
-              SelectableText(link, maxLines: 4),
-              if (link.length > 8000) ...[
-                const SizedBox(height: 12),
-                const Text('Uyarı: Bu link çok uzun. Bazı uygulamalarda paylaşım sorunları olabilir.'),
-              ],
-            ],
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Program: $name'),
+            const SizedBox(height: 8),
+            const Text('Geçerlilik süresi: 7 gün'),
+            const SizedBox(height: 12),
+            SelectableText(link),
+          ],
         ),
         actions: [
           TextButton(
@@ -2096,11 +2116,19 @@ if (!_collapsedConditions.contains(rule.id)) ...[
           ),
           FilledButton.icon(
             onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: link));
-              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+              await Clipboard.setData(
+                ClipboardData(text: link),
+              );
+
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop();
+              }
+
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Program linki kopyalandı')),
+                  const SnackBar(
+                    content: Text('Program linki kopyalandı'),
+                  ),
                 );
               }
             },
@@ -2110,8 +2138,16 @@ if (!_collapsedConditions.contains(rule.id)) ...[
         ],
       ),
     );
-  }
+  } catch (e) {
+    if (!mounted) return;
 
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Link oluşturulamadı: $e'),
+      ),
+    );
+  }
+}
   void _openSummary() {
     final primary = Theme.of(context).colorScheme.primary;
     final base = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
