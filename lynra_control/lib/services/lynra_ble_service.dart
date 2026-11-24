@@ -53,6 +53,9 @@ class LynraBleService extends ChangeNotifier {
   void _resetEvents() {
     eventCursor = 0; eventCount = 0; eventLossCount = 0; ioEvents.clear();
   }
+  int? _readSeq;
+  int? _readType;
+  Completer<List<int>>? _readResponse;
   int? _ioSeq;
   Completer<void>? _ioResponse;
 
@@ -151,6 +154,14 @@ class LynraBleService extends ChangeNotifier {
         (value[18] << 8) |
         (value[19] << 16) |
         (value[20] << 24);
+    if (type == 0x41 || type == 0x43) {
+      final response = _readResponse;
+      if (isConnected && !_disposed && seq == _readSeq && type == _readType &&
+          response != null && !response.isCompleted) {
+        response.complete(value.sublist(23, 23 + payloadLength));
+      }
+      return;
+    }
     if (type == 0x35) {
       if (seq != _ioSeq || !isConnected || _disposed || payloadLength < 6) return;
       int u32(int o) => value[o] | (value[o+1]<<8) | (value[o+2]<<16) | (value[o+3]<<24);
@@ -476,6 +487,70 @@ class LynraBleService extends ChangeNotifier {
       debugPrint('PLC COMMAND ERROR: $e');
     } finally {
       if (!_disposed) _update(() => commandBusy = false);
+    }
+  }
+
+  Future<List<int>> _requestProgramPacket(BluetoothCharacteristic rx,
+      int type, List<int> payload) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (_disposed || !isConnected || connectedRx != rx) {
+        throw StateError('BLE bağlantısı kesildi.');
+      }
+      final seq = nextSeq++;
+      final response = Completer<List<int>>();
+      _readSeq = seq;
+      _readType = type + 1;
+      _readResponse = response;
+      try {
+        await rx.write(buildFrame(type, seq, payload));
+        return await response.future.timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        debugPrint('PROGRAM READ TIMEOUT: $seq');
+      } finally {
+        _readSeq = null;
+        _readType = null;
+        _readResponse = null;
+      }
+    }
+    throw StateError('Program okuma zaman aşımı.');
+  }
+
+  Future<ControlProgram> readProgram() async {
+    final rx = connectedRx;
+    if (_disposed || !isConnected || rx == null || connecting ||
+        commandBusy || pendingAck != null) {
+      throw StateError('Cihaz hazır değil.');
+    }
+    _update(() => commandBusy = true);
+    try {
+      while (_ioResponse != null && isConnected && !_disposed) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      int u32(List<int> b, int o) => b[o] | (b[o+1]<<8) |
+          (b[o+2]<<16) | (b[o+3]<<24);
+      final info = await _requestProgramPacket(rx, 0x40, []);
+      if (info.length != 8) throw const FormatException('Program bilgisi geçersiz.');
+      final size = u32(info, 0), crc = u32(info, 4);
+      if (size == 0) throw StateError('Cihazda kayıtlı program yok.');
+      if (size > 32768) throw const FormatException('Program boyutu geçersiz.');
+      final bytes = <int>[];
+      while (bytes.length < size) {
+        final offset = bytes.length;
+        final count = size - offset > 200 ? 200 : size - offset;
+        final chunk = await _requestProgramPacket(rx, 0x42,
+            [for (var i=0; i<4; i++) (offset >> (8*i)) & 255]);
+        if (chunk.length != count + 4 || u32(chunk, 0) != offset) {
+          throw const FormatException('Program paketi geçersiz.');
+        }
+        bytes.addAll(chunk.sublist(4));
+      }
+      if (calculateCRC32(bytes) != crc) throw const FormatException('Program CRC hatası.');
+      final program = ControlProgram.fromJson(Map<String, dynamic>.from(jsonDecode(utf8.decode(bytes)) as Map));
+      if (program.controlBlocks.isEmpty) throw const FormatException('Kontrol bloğu bulunamadı.');
+      debugPrint('PROGRAM READ OK: SIZE=$size CRC=${crc.toRadixString(16)}');
+      return program;
+    } finally {
+      _update(() => commandBusy = false);
     }
   }
 

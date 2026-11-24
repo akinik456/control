@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/lynra_ble_service.dart';
+import '../models/control_program.dart';
 
 class LiveMonitorPage extends StatefulWidget {
   const LiveMonitorPage({super.key});
@@ -11,6 +12,19 @@ class LiveMonitorPage extends StatefulWidget {
 
 class _LiveMonitorPageState extends State<LiveMonitorPage> {
   final LynraBleService _ble = LynraBleService();
+
+  ControlProgram? _deviceProgram;
+  String? _readError;
+  bool _readStarted = false;
+
+  Future<void> _readDeviceProgram() async {
+    try {
+      final program = await _ble.readProgram();
+      if (mounted && _ble.isConnected) setState(() => _deviceProgram = program);
+    } catch (e) {
+      if (mounted && _ble.isConnected) setState(() => _readError = e.toString());
+    }
+  }
 
   Timer? _ioTimer;
   int? _startMs;
@@ -80,6 +94,9 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
     setState(() {
       final ms = _ble.deviceTimeMs;
       if (!_ble.isConnected) {
+        _deviceProgram = null;
+        _readError = null;
+        _readStarted = false;
         _startMs = null;
         _lastMs = null;
         _resetChangeTimes();
@@ -94,6 +111,10 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         _lastMs = null;
       }
     });
+    if (_ble.isConnected && !_ble.connecting && !_ble.commandBusy && !_readStarted) {
+      _readStarted = true;
+      unawaited(_readDeviceProgram());
+    }
   }
 
   @override
@@ -274,7 +295,15 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         const Divider(height: 28),
         Text('Fonksiyonlar', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
-        const Text('Program bilgisi henüz alınmadı.'),
+        if (_deviceProgram != null) ...[
+          Text('Program: ${_deviceProgram!.name}'),
+          for (final block in _deviceProgram!.controlBlocks)
+            for (final rule in block.groups)
+              for (final action in rule.actions)
+                Text('Q${action.outputIndex} • ${action.type.name}'),
+        ] else Text(_readError ?? (_ble.isConnected ? 'Program okunuyor...' : 'Program bilgisi henüz alınmadı.')),
+        if (_readError != null && canCommand)
+          TextButton(onPressed: () { setState(() => _readError = null); unawaited(_readDeviceProgram()); }, child: const Text('Tekrar oku')),
         const Divider(height: 28),
         Text('Olay kaydı: ${_ble.eventCount}  •  Taşma: ${_ble.eventLossCount}'),
         Text('Zaman diyagramı', style: theme.textTheme.titleMedium),

@@ -11,6 +11,7 @@ import '../core/theme/app_colors.dart';
 import 'program_simulator_page.dart';
 import 'ble_connection_page.dart';
 import 'program_test_page.dart';
+import '../services/lynra_ble_service.dart';
 
 /// Structured EGER-ISE editor. No free-form program text or block cards.
 class ProgramEditorPage extends StatefulWidget {
@@ -2092,22 +2093,21 @@ if (!_collapsedConditions.contains(rule.id)) ...[
 
     final link = 'https://lynra.app/plc/?id=${doc.id}';
 
+    final shareText = 'LynraControl – Program Paylaşımı\n\n'
+        'Program adı: $name\n\n'
+        'Bu programı LynraControl akıllı rölenize Bluetooth üzerinden ' 
+        'yükleyebilirsiniz. Uygulama yüklemeniz gerekmez.\n\n'
+        '$link\n\n'
+        'Paylaşım bağlantısı 7 gün geçerlidir.';
+
     if (!mounted) return;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Program Linki'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Program: $name'),
-            const SizedBox(height: 8),
-            const Text('Geçerlilik süresi: 7 gün'),
-            const SizedBox(height: 12),
-            SelectableText(link),
-          ],
+        content: SingleChildScrollView(
+          child: SelectableText(shareText),
         ),
         actions: [
           TextButton(
@@ -2117,7 +2117,7 @@ if (!_collapsedConditions.contains(rule.id)) ...[
           FilledButton.icon(
             onPressed: () async {
               await Clipboard.setData(
-                ClipboardData(text: link),
+                ClipboardData(text: shareText),
               );
 
               if (dialogContext.mounted) {
@@ -2127,13 +2127,13 @@ if (!_collapsedConditions.contains(rule.id)) ...[
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Program linki kopyalandı'),
+                    content: Text('Paylaşım metni kopyalandı'),
                   ),
                 );
               }
             },
             icon: const Icon(Icons.copy),
-            label: const Text('Linki Kopyala'),
+            label: const Text('Paylaşım Metnini Kopyala'),
           ),
         ],
       ),
@@ -2509,6 +2509,28 @@ for (var i = 0; i < _rules.length; i++) {
       ),
     );
     return result == true;
+  }
+
+  Future<void> _openFromDevice() async {
+    if (!await _confirmDiscardChanges() || !mounted) return;
+    final loaded = await Navigator.of(context).push<ControlProgram>(
+      MaterialPageRoute(builder: (_) => const _DeviceProgramReadPage()),
+    );
+    if (!mounted || loaded == null) return;
+    final nextId = loaded.controlBlocks.expand((b) => b.groups)
+        .map((r) => int.tryParse(RegExp(r'^rule_(\d+)$').firstMatch(r.id)?.group(1) ?? '') ?? 0)
+        .fold<int>(0, (a, b) => a > b ? a : b);
+    setState(() {
+      _program = loaded;
+      _name.text = loaded.name;
+      _cloudProgramId = null;
+      _savedFingerprint = null;
+      _id = nextId;
+      _collapsedConditions.clear();
+      _collapsedGroups.clear();
+      _collapsedRules..clear()..addAll(loaded.controlBlocks.expand((b) => b.groups).map((r) => r.id));
+      _expandedActions.clear();
+    });
   }
 
   Future<void> _openFromCloud() async {
@@ -2993,6 +3015,11 @@ for (var i = 0; i < _rules.length; i++) {
             ),
           ],
         ),
+        OutlinedButton.icon(
+          onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _openFromDevice(); },
+          icon: const Icon(Icons.bluetooth),
+          label: const Text('Cihazdan Program Al'),
+        ),
         ],
         const SizedBox(height: 10),
         SizedBox(
@@ -3101,4 +3128,61 @@ class _BlinkWavePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BlinkWavePainter oldDelegate) => false;
+}
+
+class _DeviceProgramReadPage extends StatefulWidget {
+  const _DeviceProgramReadPage();
+  @override
+  State<_DeviceProgramReadPage> createState() => _DeviceProgramReadPageState();
+}
+
+class _DeviceProgramReadPageState extends State<_DeviceProgramReadPage> {
+  final _ble = LynraBleService();
+  String? _error;
+  @override
+  void initState() {
+    super.initState();
+    _ble.addListener(_refresh);
+  }
+  void _refresh() { if (mounted) setState(() {}); }
+  @override
+  void dispose() {
+    _ble.removeListener(_refresh);
+    _ble.dispose();
+    super.dispose();
+  }
+  Future<void> _read() async {
+    setState(() => _error = null);
+    try {
+      final program = await _ble.readProgram();
+      if (mounted) Navigator.pop(context, program);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+  @override
+  Widget build(BuildContext context) {
+    final busy = _ble.connecting || _ble.commandBusy;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Cihazdan Program Al')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Text('BLE: ${_ble.status}'),
+        if (!_ble.isConnected) ...[
+          FilledButton(onPressed: busy || _ble.scanning ? null : _ble.scan,
+            child: Text(_ble.scanning ? 'Aranıyor...' : 'Cihaz Ara')),
+          for (final result in _ble.devices)
+            RadioListTile<String>(title: const Text('LynraControl'),
+              subtitle: Text(result.device.remoteId.toString()),
+              value: result.device.remoteId.toString(),
+              groupValue: _ble.selectedDevice?.remoteId.toString(),
+              onChanged: busy ? null : (_) => _ble.selectDevice(result.device)),
+        ],
+        OutlinedButton(onPressed: busy || _ble.scanning || (!_ble.isConnected && _ble.selectedDevice == null) ? null : _ble.connectOrDisconnect,
+          child: Text(_ble.isConnected ? 'Bağlantıyı Kes' : 'Bağlan')),
+        FilledButton(onPressed: _ble.isConnected && !busy ? _read : null,
+          child: Text(_ble.commandBusy ? 'Program okunuyor...' : 'Programı Al')),
+        if (_error != null) Text(_error!),
+      ]),
+    );
+  }
 }

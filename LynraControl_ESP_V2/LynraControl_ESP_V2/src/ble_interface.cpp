@@ -25,6 +25,8 @@ static uint32_t expectedProgramSize = 0;
 static uint32_t expectedProgramCRC = 0;
 static uint32_t receivedProgramSize = 0;
 
+static size_t readProgramSize = 0;
+static uint32_t readProgramCRC = 0;
 static bool restartPending = false;
 static uint32_t restartRequestedMs = 0;
 static bool programTransferActive = false;
@@ -52,6 +54,7 @@ class ServerCallbacks : public BLEServerCallbacks
         if (transferMutex != nullptr &&
             xSemaphoreTake(transferMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
         {
+            readProgramSize = 0;
             if (programTransferActive)
             {
                 programTransferActive = false;
@@ -174,6 +177,54 @@ static void sendEvents(uint32_t seq, uint32_t cursor)
     for (int i=0;i<4;++i) frame[23+len+i]=crc>>(8*i);
     tx->setValue(frame,27+len); tx->notify();
 }
+// Program readback: request/response, one chunk per request.
+// The existing upload buffer is reused only outside programming sessions.
+static void sendReadFrame(uint8_t type, uint32_t seq,
+                          const uint8_t *payload, uint16_t len)
+{
+    if (!tx || len > 204) return;
+    uint8_t frame[27 + 204] = {};
+    frame[0]=0x4C; frame[1]=0x43; frame[2]=1; frame[3]=23;
+    frame[16]=type; frame[21]=len & 255; frame[22]=len >> 8;
+    for (int i=0;i<4;++i) frame[17+i]=seq>>(8*i);
+    memcpy(frame+23,payload,len);
+    const uint32_t crc=LynraProtocol::calculateCRC32(frame+2,21+len);
+    for (int i=0;i<4;++i) frame[23+len+i]=crc>>(8*i);
+    tx->setValue(frame,27+len); tx->notify();
+}
+
+static void sendProgramInfo(uint32_t seq)
+{
+    readProgramSize=0;
+    readProgramCRC=0;
+    size_t length=0;
+    if (PlcProgramStore::load(programBuffer,MAX_PROGRAM_SIZE,length)) {
+        readProgramSize=length;
+        readProgramCRC=LynraProtocol::calculateCRC32(programBuffer,length);
+    }
+    uint8_t payload[8]={};
+    for (int i=0;i<4;++i) {
+        payload[i]=uint32_t(readProgramSize)>>(8*i);
+        payload[4+i]=readProgramCRC>>(8*i);
+    }
+    sendReadFrame(0x41,seq,payload,sizeof(payload));
+    Serial.printf("PROGRAM READ: SIZE=%lu CRC=%08lX\n",
+                  (unsigned long)readProgramSize,(unsigned long)readProgramCRC);
+}
+
+static void sendProgramChunk(uint32_t seq,uint32_t offset)
+{
+    uint8_t payload[204]={};
+    for (int i=0;i<4;++i) payload[i]=offset>>(8*i);
+    size_t count=0;
+    if (offset < readProgramSize) {
+        count=readProgramSize-offset;
+        if (count>200) count=200;
+        memcpy(payload+4,programBuffer+offset,count);
+    }
+    sendReadFrame(0x43,seq,payload,4+count);
+}
+
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
     void onWrite(BLECharacteristic *characteristic) override
@@ -240,6 +291,21 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 return;
             }
 
+            if (type == 0x40 || type == 0x42)
+            {
+                if (!programTransferActive) {
+                    if (type == 0x40 && value.size() == 27)
+                        sendProgramInfo(seq);
+                    else if (type == 0x42 && value.size() == 31) {
+                        uint32_t offset=0;
+                        for (int i=0;i<4;++i) offset |= uint32_t(data[23+i]) << (8*i);
+                        sendProgramChunk(seq,offset);
+                    }
+                }
+                xSemaphoreGive(transferMutex);
+                return;
+            }
+
             // Read-only query; response itself confirms receipt.
             if (type == 0x34)
             {
@@ -302,6 +368,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                         if (size > 0 && size <= MAX_PROGRAM_SIZE &&
                             plcBeginProgramming())
                         {
+                            readProgramSize = 0;
                             expectedProgramSize = size;
                             expectedProgramCRC = crc;
                             receivedProgramSize = 0;
