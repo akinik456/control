@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/lynra_ble_service.dart';
 import '../models/control_program.dart';
+import '../models/control_block.dart';
 
 class LiveMonitorPage extends StatefulWidget {
   const LiveMonitorPage({super.key});
@@ -54,19 +55,69 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
     }
   }
 
-  Widget _functionValues((int, int) key) {
+  String _seconds(int ms) => '${(ms / 1000).toStringAsFixed(3)} sn';
+
+  String _hours(int ms) => '${ms ~/ 3600000}sa ${(ms % 3600000) ~/ 60000}dk ${(ms % 60000) ~/ 1000}sn';
+
+  String _functionName(ControlAction a) => switch (a.type) {
+    ControlActionType.setOutput => a.outputState ? 'ON' : 'OFF',
+    ControlActionType.setLatch => 'SET',
+    ControlActionType.resetLatch => 'RESET',
+    ControlActionType.toggleOutput => 'TOGGLE',
+    ControlActionType.onDelay => 'Açma Gecikmesi',
+    ControlActionType.offDelay => 'Kapanma Gecikmesi',
+    ControlActionType.onOffDelay => 'Açma / Kapanma Gecikmesi',
+    ControlActionType.wipingRelay => 'Darbe Rölesi',
+    ControlActionType.edgeWipingRelay => 'Kenar Tetiklemeli Darbe Rölesi',
+    ControlActionType.asynchronousPulse => 'Asenkron Darbe Üreteci',
+    ControlActionType.randomGenerator => 'Rastgele Üreteç',
+    ControlActionType.stairwayTimer => 'Merdiven Otomatiği',
+    ControlActionType.multipleFunctionTimer => 'Çok İşlevli Anahtar',
+    ControlActionType.stopwatchTimer => 'Kronometre',
+    ControlActionType.upDownCounter => 'İleri / Geri Sayıcı',
+    ControlActionType.hoursCounter => 'Çalışma Saati Sayacı',
+    ControlActionType.thresholdTrigger => 'Frekans Eşik Tetikleyici',
+    _ => 'Eski fonksiyon (${a.type.name})',
+  };
+
+  List<String> _parameters(ControlConditionGroup rule, ControlAction a) {
+    final edge = rule.conditions.length == 1 &&
+        (rule.conditions.first.trigger == ConditionTrigger.risingEdge ||
+         rule.conditions.first.trigger == ConditionTrigger.fallingEdge);
+    final th = 'TH: ${_seconds(a.timerTHMs)}';
+    final tl = 'TL: ${_seconds(a.timerTLMs)}';
+    final t = 'T: ${_seconds(a.timerTMs)}';
+    final reset = 'RESET: ${a.resetInputIndex == 0 ? "YOK" : "I${a.resetInputIndex}"}';
+    final warning = ['T!: ${_seconds(a.timerWarningBeforeMs)}', 'T!L: ${_seconds(a.timerWarningOffMs)}'];
+    return switch (a.type) {
+      ControlActionType.onOffDelay => [th, edge ? 'TA: ${_seconds(a.timerTLMs)}' : tl, reset],
+      ControlActionType.wipingRelay => [t],
+      ControlActionType.edgeWipingRelay => [th, tl, 'N: ${a.timerN}', if (a.timerTHRandom) 'TH rastgele', if (a.timerTLRandom) 'TL rastgele'],
+      ControlActionType.asynchronousPulse || ControlActionType.randomGenerator => [th, tl],
+      ControlActionType.stairwayTimer => [t, ...warning],
+      ControlActionType.multipleFunctionTimer => [t, tl, ...warning],
+      ControlActionType.stopwatchTimer => [t, reset],
+      ControlActionType.upDownCounter => ['Sayma: I${a.counterInputIndex}', 'Yön: I${a.directionInputIndex}', reset, 'Başlangıç: ${a.counterStartValue}', 'ON: ${a.counterOn}', 'OFF: ${a.counterOff}'],
+      ControlActionType.hoursCounter => ['Etkinleştir: I${a.hoursEnableInputIndex}', reset, 'Hedef: ${_hours(a.hoursTargetMs)}'],
+      ControlActionType.thresholdTrigger => ['Giriş: I${a.thresholdInputIndex}', 'G_T: ${_seconds(a.thresholdGateMs)}', 'ON: ${a.thresholdOn}', 'OFF: ${a.thresholdOff}'],
+      _ => [],
+    };
+  }
+
+  Widget _functionValues((int, int) key, ControlAction action) {
     final values = _ble.actionValues[key];
     if (values == null) return Text(_ble.actionErrors[key] ?? 'Değer bekleniyor...');
+    final theme = Theme.of(context);
     String format(int id, int value) {
-      final seconds = '${(value / 1000).toStringAsFixed(3)} sn';
+      final seconds = _seconds(value);
       return switch (id) {
         7 => 'CV: $value',
         9 => 'Geçen süre: $seconds',
         14 => 'Darbe: $value',
         31 => switch (value) {0 => 'Bekliyor', 1 => 'Çalışıyor', 2 => 'Tamamlandı', _ => 'Durum: $value'},
-        32 => 'Geçen süre: $seconds',
-        33 => 'Toplam süre: $seconds',
-        34 => 'Son ölçüm: $value darbe',
+        32 => 'CV: ${_hours(value)}',
+        33 => 'Toplam: ${_hours(value)}',
+        34 => 'Son ölçüm: $value darbe${action.thresholdGateMs > 0 ? " • ${(value * 1000 / action.thresholdGateMs).toStringAsFixed(2)} Hz" : ""}',
         35 => 'Çıkış: ${value == 0 ? "OFF" : "ON"}',
         36 => 'Kalan süre: $seconds',
         37 => 'Rastgele bekleme: ${value == 0 ? "OFF" : "ON"}',
@@ -74,7 +125,18 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         _ => 'Alan $id: $value',
       };
     }
-    return Text(values.entries.map((e) => format(e.key, e.value)).join('  •  '));
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Wrap(spacing: 16, runSpacing: 4, children: [
+        for (final e in values.entries)
+          if (e.key != 31 && e.key != 35)
+            Text(format(e.key, e.value), style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+      ]),
+      const SizedBox(height: 4),
+      Wrap(spacing: 12, runSpacing: 4, children: [
+        if (values.containsKey(31)) Text(format(31, values[31]!)),
+        if (values.containsKey(35)) Text(format(35, values[35]!), style: TextStyle(color: values[35] != 0 ? Colors.green : null, fontWeight: FontWeight.bold)),
+      ]),
+    ]);
   }
 
   List<Widget> _functions() {
@@ -84,11 +146,22 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
       for (final rule in block.groups) {
         for (var ai = 0; ai < rule.actions.length; ai++) {
           final action = rule.actions[ai];
-          widgets.add(Padding(padding: const EdgeInsets.symmetric(vertical: 5),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Q${action.outputIndex} • ${action.type.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              _functionValues((ri, ai)),
-            ])));
+          final params = _parameters(rule, action);
+          widgets.add(Card(
+            margin: const EdgeInsets.symmetric(vertical: 5),
+            child: Padding(padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Q${action.outputIndex} • ${_functionName(action)}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                Text('Kural ${ri + 1} / Fonksiyon ${ai + 1}', style: Theme.of(context).textTheme.bodySmall),
+                if (params.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 12, runSpacing: 4, children: [for (final p in params) Text(p, style: Theme.of(context).textTheme.bodySmall)]),
+                ],
+                const Divider(height: 16),
+                _functionValues((ri, ai), action),
+              ]),
+            ),
+          ));
         }
         ri++;
       }
