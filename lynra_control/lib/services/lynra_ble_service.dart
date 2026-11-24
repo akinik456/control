@@ -44,6 +44,14 @@ class LynraBleService extends ChangeNotifier {
 
   int? inputMask;
   int? outputMask;
+  int? deviceTimeMs;
+  int eventCursor = 0;
+  int eventCount = 0;
+  int eventLossCount = 0;
+  final List<({int ms, int inputs, int outputs})> ioEvents = [];
+  void _resetEvents() {
+    eventCursor = 0; eventCount = 0; eventLossCount = 0; ioEvents.clear();
+  }
   int? _ioSeq;
   Completer<void>? _ioResponse;
 
@@ -58,8 +66,19 @@ class LynraBleService extends ChangeNotifier {
     try {
       await rx.write(buildFrame(0x32, seq, []));
       await response.future.timeout(const Duration(milliseconds: 600));
+      if (!_disposed && isConnected && !connecting && !commandBusy && pendingAck == null) {
+        final eventResponse = Completer<void>();
+        final eventSeq = nextSeq++;
+        _ioSeq = eventSeq;
+        _ioResponse = eventResponse;
+        try {
+          await rx.write(buildFrame(0x34, eventSeq,
+            [for (int i=0;i<4;i++) (eventCursor >> (8*i)) & 255]));
+          await eventResponse.future.timeout(const Duration(milliseconds: 600));
+        } catch (_) { debugPrint('IO EVENTS: timeout/write error; retry cursor=$eventCursor'); }
+      }
     } catch (_) {
-      _update(() { inputMask = null; outputMask = null; });
+      _update(() { inputMask = null; outputMask = null; deviceTimeMs = null; });
     } finally {
       _ioSeq = null;
       _ioResponse = null;
@@ -131,11 +150,39 @@ class LynraBleService extends ChangeNotifier {
         (value[18] << 8) |
         (value[19] << 16) |
         (value[20] << 24);
+    if (type == 0x35) {
+      if (seq != _ioSeq || !isConnected || _disposed || payloadLength < 6) return;
+      int u32(int o) => value[o] | (value[o+1]<<8) | (value[o+2]<<16) | (value[o+3]<<24);
+      final first = u32(23), lost = value[27], count = value[28];
+      if (count > 10 || payloadLength != 6 + count*16 || lost > 1) return;
+      if (eventCursor != 0 && lost == 0 && first != eventCursor) return;
+      _update(() {
+        if (lost != 0) { eventLossCount++; ioEvents.clear(); debugPrint('IO EVENTS: BUFFER OVERFLOW'); }
+        for (int j=0;j<count;j++) {
+          final o = 29+j*16;
+          final ms = u32(o) | (u32(o+4)<<32);
+          final inputs = u32(o+8), outputs = u32(o+12);
+          ioEvents.add((ms: ms, inputs: inputs, outputs: outputs));
+          debugPrint('IO EVENT #${(first+j)&0xffffffff} MS=$ms IN=$inputs OUT=$outputs');
+        }
+        eventCount += count;
+        eventCursor = (first+count)&0xffffffff;
+        if (ioEvents.length > 2048) ioEvents.removeRange(0, ioEvents.length-2048);
+      });
+      final response = _ioResponse;
+      if (response != null && !response.isCompleted) response.complete();
+      return;
+    }
     if (type == 0x33) {
-      if (payloadLength != 8 || seq != _ioSeq || !isConnected || _disposed) return;
+      if ((payloadLength != 8 && payloadLength != 16) || seq != _ioSeq || !isConnected || _disposed) return;
       int readMask(int offset) => value[offset] | (value[offset+1] << 8) |
           (value[offset+2] << 16) | (value[offset+3] << 24);
-      _update(() { inputMask = readMask(23); outputMask = readMask(27); });
+      _update(() {
+        inputMask = readMask(23);
+        outputMask = readMask(27);
+        deviceTimeMs = payloadLength == 16
+            ? readMask(31) | (readMask(35) << 32) : null;
+      });
       final response = _ioResponse;
       if (response != null && !response.isCompleted) response.complete();
       return;
@@ -252,7 +299,7 @@ class LynraBleService extends ChangeNotifier {
     if (connecting || isConnected) return;
     _update(() {
       connecting = true;
-      inputMask = null; outputMask = null;
+      inputMask = null; outputMask = null; deviceTimeMs = null;
       status = 'Connecting...';
       plcStatus = 'Unknown';
     });
@@ -289,7 +336,8 @@ class LynraBleService extends ChangeNotifier {
           debugPrint('ESP32 DISCONNECTED');
           connectedDevice = null;
           connectedRx = null;
-          inputMask = null; outputMask = null;
+          inputMask = null; outputMask = null; deviceTimeMs = null;
+          _resetEvents();
           isConnected = false;
           pendingAck = null;
           pendingSeq = null;
@@ -321,7 +369,8 @@ class LynraBleService extends ChangeNotifier {
         _update(() {
           connectedDevice = null;
           connectedRx = null;
-          inputMask = null; outputMask = null;
+          inputMask = null; outputMask = null; deviceTimeMs = null;
+          _resetEvents();
           isConnected = false;
           status = 'Connection failed';
           plcStatus = 'Unknown';
@@ -347,7 +396,8 @@ class LynraBleService extends ChangeNotifier {
       connectionSubscription = null;
       connectedDevice = null;
       connectedRx = null;
-      inputMask = null; outputMask = null;
+      inputMask = null; outputMask = null; deviceTimeMs = null;
+      _resetEvents();
       isConnected = false;
       pendingAck = null;
       pendingSeq = null;

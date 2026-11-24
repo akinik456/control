@@ -13,6 +13,13 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
   final LynraBleService _ble = LynraBleService();
 
   Timer? _ioTimer;
+  int? _startMs;
+  int? _lastMs;
+
+  String get _elapsed {
+    if (_startMs == null || _lastMs == null) return "—";
+    return "${((_lastMs! - _startMs!) / 1000).toStringAsFixed(3)} sn";
+  }
 
   @override
   void initState() {
@@ -24,7 +31,21 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
   }
 
   void _refresh() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {
+      final ms = _ble.deviceTimeMs;
+      if (!_ble.isConnected) {
+        _startMs = null;
+        _lastMs = null;
+      } else if (ms != null) {
+        if (_startMs == null || (_lastMs != null && ms < _lastMs!)) {
+          _startMs = ms;
+        }
+        _lastMs = ms;
+      } else {
+        _lastMs = null;
+      }
+    });
   }
 
   @override
@@ -103,6 +124,8 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
           )),
         ]),
         const Divider(height: 28),
+        Text('İzleme süresi: $_elapsed', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
         Text('Girişler', style: theme.textTheme.titleMedium),
         _signals('I'),
         const SizedBox(height: 8),
@@ -113,39 +136,112 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         const SizedBox(height: 8),
         const Text('Program bilgisi henüz alınmadı.'),
         const Divider(height: 28),
+        Text('Olay kaydı: ${_ble.eventCount}  •  Taşma: ${_ble.eventLossCount}'),
         Text('Zaman diyagramı', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         SizedBox(height: 330, child: CustomPaint(
-          painter: _EmptyTimingPainter(theme.colorScheme.onSurface),
+          painter: _LiveTimingPainter(
+            ink: theme.colorScheme.onSurface,
+            nowMs: _ble.isConnected ? _lastMs : null,
+            startMs: _startMs,
+            events: List.of(_ble.ioEvents),
+            lossCount: _ble.eventLossCount,
+          ),
           child: const SizedBox.expand(),
         )),
-        Text(_ble.isConnected ? 'Zaman diyagramı henüz etkin değil.' : 'İzlemek için cihaza bağlanın.',
+        Text(!_ble.isConnected ? 'İzlemek için cihaza bağlanın.' :
+          _ble.eventLossCount > 0 ? 'Veri kaybı oluştu. Yalnızca eldeki kayıtlar çiziliyor.' :
+          'Son 10 sn • Yeşil: girişler • Mavi: çıkışlar',
           style: theme.textTheme.bodySmall),
       ]),
     );
   }
 }
 
-class _EmptyTimingPainter extends CustomPainter {
+class _LiveTimingPainter extends CustomPainter {
   final Color ink;
-  _EmptyTimingPainter(this.ink);
+  final int? nowMs;
+  final int? startMs;
+  final List<({int ms, int inputs, int outputs})> events;
+  final int lossCount;
+
+  _LiveTimingPainter({required this.ink, required this.nowMs,
+    required this.startMs, required this.events, required this.lossCount});
 
   @override
   void paint(Canvas canvas, Size size) {
-    const left = 38.0;
+    const left = 38.0, top = 12.0, lane = 37.0;
+    final width = size.width - left - 12;
+    if (width <= 0) return;
+    final end = nowMs;
+    final begin = (end ?? 0) - 10000;
+    double x(int ms) => left + width * (ms - begin) / 10000;
     final axis = Paint()..color = ink.withValues(alpha: .18)..strokeWidth = 1;
-    for (var i = 0; i < 8; i++) {
-      final y = 12.0 + i * 37;
-      canvas.drawLine(Offset(left, y + 24), Offset(size.width - 12, y + 24), axis);
-      final label = TextPainter(
-        text: TextSpan(text: '${i < 4 ? 'I' : 'Q'}${i % 4 + 1}',
-          style: TextStyle(fontSize: 12, color: ink)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      label.paint(canvas, Offset(5, y + 5));
+    void label(String value, double px, double py, {double font = 12}) {
+      final tp = TextPainter(text: TextSpan(text: value,
+        style: TextStyle(fontSize: font, color: ink)),
+        textDirection: TextDirection.ltr)..layout();
+      tp.paint(canvas, Offset(px, py));
     }
+    for (var i = 0; i <= 10; i++) {
+      final px = left + width * i / 10;
+      canvas.drawLine(Offset(px, top), Offset(px, top + 7 * lane + 24), axis);
+    }
+    label('-10 sn', left, 309, font: 10);
+    label('-5 sn', left + width / 2 - 12, 309, font: 10);
+    label('0', left + width - 6, 309, font: 10);
+    for (var i = 0; i < 8; i++) {
+      final y = top + i * lane;
+      canvas.drawLine(Offset(left, y + 24), Offset(left + width, y + 24), axis);
+      label('${i < 4 ? 'I' : 'Q'}${i % 4 + 1}', 5, y + 5);
+    }
+    if (end == null || startMs == null || events.isEmpty) return;
+    final visibleStart = begin > startMs! ? begin : startMs!;
+    if (visibleStart > end) return;
+    final samples = events.where((e) => e.ms <= end).toList();
+    if (samples.isEmpty) return;
+    var first = 0;
+    while (first + 1 < samples.length && samples[first + 1].ms < visibleStart) {
+      first++;
+    }
+    final drawStart = samples[first].ms > visibleStart ? samples[first].ms : visibleStart;
+    bool state(({int ms, int inputs, int outputs}) e, int channel) =>
+      ((channel < 4 ? e.inputs : e.outputs) & (1 << (channel % 4))) != 0;
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(left, top, left + width, top + 7 * lane + 25));
+    const colors = <Color>[Colors.green, Colors.teal, Colors.lightGreen, Colors.lime,
+      Colors.blue, Colors.cyan, Colors.indigo, Colors.purple];
+    for (var j = first + 1; j < samples.length; j++) {
+      final e = samples[j];
+      if (e.ms < visibleStart) continue;
+      for (var i = 0; i < 8; i++) {
+        if (state(samples[j - 1], i) == state(e, i)) continue;
+        final paint = Paint()..color = colors[i].withValues(alpha: .55)..strokeWidth = 1;
+        for (double y = top; y < top + 7 * lane + 24; y += 7) {
+          canvas.drawLine(Offset(x(e.ms), y), Offset(x(e.ms), y + 3), paint);
+        }
+      }
+    }
+    for (var i = 0; i < 8; i++) {
+      final y = top + i * lane;
+      double level(bool on) => y + (on ? 4 : 22);
+      var previous = state(samples[first], i);
+      final path = Path()..moveTo(x(drawStart), level(previous));
+      for (var j = first + 1; j < samples.length; j++) {
+        final e = samples[j];
+        final next = state(e, i);
+        if (next == previous) continue;
+        path.lineTo(x(e.ms), level(previous));
+        path.lineTo(x(e.ms), level(next));
+        previous = next;
+      }
+      path.lineTo(x(end), level(previous));
+      canvas.drawPath(path, Paint()..color = (i < 4 ? Colors.green : Colors.blue)
+        ..strokeWidth = 2.2..style = PaintingStyle.stroke);
+    }
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _EmptyTimingPainter oldDelegate) => oldDelegate.ink != ink;
+  bool shouldRepaint(covariant _LiveTimingPainter oldDelegate) => true;
 }

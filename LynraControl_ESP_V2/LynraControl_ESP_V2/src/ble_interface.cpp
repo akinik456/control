@@ -1,3 +1,4 @@
+#include <esp_timer.h>
 #include "ble_interface.h"
 
 #include <ArduinoJson.h>
@@ -126,24 +127,43 @@ static void sendIoResponse(uint32_t seq)
 {
     uint32_t inputs, outputs;
     if (!tx || !plcReadIo(inputs, outputs)) return;
-    uint8_t frame[35] = {};
+    const uint64_t timeMs = static_cast<uint64_t>(esp_timer_get_time()) / 1000;
+    uint8_t frame[43] = {};
     frame[0] = 0x4C;
     frame[1] = 0x43;
     frame[2] = 1;
     frame[3] = 23;
     frame[16] = 0x33;
-    frame[21] = 8;
+    frame[21] = 16;
     for (int i = 0; i < 4; ++i)
     {
         frame[17+i] = (seq >> (8*i)) & 0xFF;
         frame[23+i] = (inputs >> (8*i)) & 0xFF;
         frame[27+i] = (outputs >> (8*i)) & 0xFF;
     }
-    const uint32_t crc = LynraProtocol::calculateCRC32(frame + 2, 29);
+    for (int i = 0; i < 8; ++i)
+        frame[31+i] = (timeMs >> (8*i)) & 0xFF;
+    const uint32_t crc = LynraProtocol::calculateCRC32(frame + 2, 37);
     for (int i = 0; i < 4; ++i)
-        frame[31+i] = (crc >> (8*i)) & 0xFF;
+        frame[39+i] = (crc >> (8*i)) & 0xFF;
     tx->setValue(frame, sizeof(frame));
     tx->notify();
+}
+extern bool plcReadEvents(uint32_t cursor, uint32_t &first, uint8_t &count,
+                          bool &lost, uint8_t *records);
+static void sendEvents(uint32_t seq, uint32_t cursor)
+{
+    uint8_t frame[27 + 6 + 160] = {};
+    uint32_t first; uint8_t count; bool lost;
+    if (!tx || !plcReadEvents(cursor, first, count, lost, frame + 29)) return;
+    const uint16_t len = 6 + 16 * count;
+    frame[0]=0x4C; frame[1]=0x43; frame[2]=1; frame[3]=23; frame[16]=0x35;
+    frame[21]=len & 255; frame[22]=len >> 8;
+    for (int i=0;i<4;++i) { frame[17+i]=seq>>(8*i); frame[23+i]=first>>(8*i); }
+    frame[27]=lost ? 1 : 0; frame[28]=count;
+    const uint32_t crc = LynraProtocol::calculateCRC32(frame+2,21+len);
+    for (int i=0;i<4;++i) frame[23+len+i]=crc>>(8*i);
+    tx->setValue(frame,27+len); tx->notify();
 }
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
@@ -183,6 +203,16 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 ((uint32_t)data[20] << 24);
 
             // Read-only query; response itself confirms receipt.
+            if (type == 0x34)
+            {
+                if (value.size() == 31 && !programTransferActive) {
+                    uint32_t cursor = 0;
+                    for (int i=0;i<4;++i) cursor |= uint32_t(data[23+i]) << (8*i);
+                    sendEvents(seq,cursor);
+                }
+                xSemaphoreGive(transferMutex);
+                return;
+            }
             if (type == 0x32)
             {
                 if (value.size() == 27 && !programTransferActive)

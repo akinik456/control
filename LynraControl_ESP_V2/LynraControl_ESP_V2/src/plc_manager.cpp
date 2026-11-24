@@ -2,6 +2,7 @@
 #include "plc_native/lynra_PLC_engine.h"
 
 #include <Arduino.h>
+#include <esp_timer.h>
 #include "plc_adapter.h"
 #include <vector>
 
@@ -20,6 +21,51 @@ static bool programLoaded = false;
 
 static constexpr uint8_t INPUT_PINS[4] = {32, 33, 25, 26};
 static constexpr uint8_t OUTPUT_PINS[4] = {16, 17, 18, 19};
+
+struct IoEvent { uint64_t ms; uint32_t inputs; uint32_t outputs; };
+static IoEvent ioRing[256];
+static uint32_t ioNext = 1;
+static uint32_t ioCount = 0;
+static_assert(sizeof(IoEvent) == 16, "IO event size");
+
+// Caller holds plcMutex. Capture actual GPIO levels, including STOP.
+static void recordIoLocked()
+{
+    IoEvent e = {static_cast<uint64_t>(esp_timer_get_time()) / 1000, 0, 0};
+    for (int i = 0; i < 4; ++i) {
+        if (digitalRead(INPUT_PINS[i]) == HIGH) e.inputs |= 1UL << i;
+        if (digitalRead(OUTPUT_PINS[i]) == HIGH) e.outputs |= 1UL << i;
+    }
+    if (ioCount) {
+        const IoEvent &last = ioRing[(ioNext - 2) & 255];
+        if (last.inputs == e.inputs && last.outputs == e.outputs) return;
+    }
+    ioRing[(ioNext - 1) & 255] = e;
+    ++ioNext;
+    if (ioCount < 256) ++ioCount;
+}
+
+bool plcReadEvents(uint32_t cursor, uint32_t &first, uint8_t &count,
+                   bool &lost, uint8_t *records)
+{
+    if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE) return false;
+    recordIoLocked();
+    const uint32_t oldest = ioNext - ioCount;
+    // Zero requests a baseline (latest state), not pre-connection history.
+    first = cursor == 0 ? ioNext - 1 : cursor;
+    lost = cursor != 0 && (ioNext - cursor > ioCount);
+    if (lost) first = oldest;
+    const uint32_t available = ioNext - first;
+    count = available > 10 ? 10 : static_cast<uint8_t>(available);
+    for (uint8_t j = 0; j < count; ++j) {
+        const IoEvent &e = ioRing[(first + j - 1) & 255];
+        uint8_t *p = records + j * 16;
+        for (int i = 0; i < 8; ++i) p[i] = e.ms >> (8*i);
+        for (int i = 0; i < 4; ++i) { p[8+i] = e.inputs >> (8*i); p[12+i] = e.outputs >> (8*i); }
+    }
+    xSemaphoreGive(plcMutex);
+    return true;
+}
 
 bool plcInit()
 {
@@ -99,6 +145,7 @@ void plcStop()
     for (int i = 0; i < 4; ++i)
         digitalWrite(OUTPUT_PINS[i], LOW);
 
+    recordIoLocked();
     xSemaphoreGive(plcMutex);
 
     Serial.println("PLC STATE: STOP");
@@ -143,6 +190,7 @@ void plcLoop()
         }
     }
 
+    recordIoLocked();
     xSemaphoreGive(plcMutex);
 }
 uint8_t plcGetStatus()
@@ -245,6 +293,7 @@ bool plcBeginProgramming()
         success = true;
     }
 
+    recordIoLocked();
     xSemaphoreGive(plcMutex);
 
     return success;
@@ -273,6 +322,7 @@ void plcAbortProgramming()
         Serial.println("PLC PROGRAMMING ABORTED - STATE: STOP");
     }
 
+    recordIoLocked();
     xSemaphoreGive(plcMutex);
 }
 bool plcFinishProgramming()
