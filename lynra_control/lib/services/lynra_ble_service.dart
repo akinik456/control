@@ -42,6 +42,7 @@ class LynraBleService extends ChangeNotifier {
   String status = 'Disconnected';
   String plcStatus = 'Unknown';
 
+  bool? manualMode;
   int? inputMask;
   int? outputMask;
   int? deviceTimeMs;
@@ -78,7 +79,7 @@ class LynraBleService extends ChangeNotifier {
         } catch (_) { debugPrint('IO EVENTS: timeout/write error; retry cursor=$eventCursor'); }
       }
     } catch (_) {
-      _update(() { inputMask = null; outputMask = null; deviceTimeMs = null; });
+      _update(() { inputMask = null; outputMask = null; deviceTimeMs = null; manualMode = null; });
     } finally {
       _ioSeq = null;
       _ioResponse = null;
@@ -174,13 +175,14 @@ class LynraBleService extends ChangeNotifier {
       return;
     }
     if (type == 0x33) {
-      if ((payloadLength != 8 && payloadLength != 16) || seq != _ioSeq || !isConnected || _disposed) return;
+      if ((payloadLength != 8 && payloadLength != 16 && payloadLength != 17) || seq != _ioSeq || !isConnected || _disposed) return;
       int readMask(int offset) => value[offset] | (value[offset+1] << 8) |
           (value[offset+2] << 16) | (value[offset+3] << 24);
       _update(() {
         inputMask = readMask(23);
         outputMask = readMask(27);
-        deviceTimeMs = payloadLength == 16
+        manualMode = payloadLength == 17 ? value[39] == 1 : null;
+        deviceTimeMs = payloadLength >= 16
             ? readMask(31) | (readMask(35) << 32) : null;
       });
       final response = _ioResponse;
@@ -299,7 +301,7 @@ class LynraBleService extends ChangeNotifier {
     if (connecting || isConnected) return;
     _update(() {
       connecting = true;
-      inputMask = null; outputMask = null; deviceTimeMs = null;
+      inputMask = null; outputMask = null; deviceTimeMs = null; manualMode = null;
       status = 'Connecting...';
       plcStatus = 'Unknown';
     });
@@ -336,7 +338,7 @@ class LynraBleService extends ChangeNotifier {
           debugPrint('ESP32 DISCONNECTED');
           connectedDevice = null;
           connectedRx = null;
-          inputMask = null; outputMask = null; deviceTimeMs = null;
+          inputMask = null; outputMask = null; deviceTimeMs = null; manualMode = null;
           _resetEvents();
           isConnected = false;
           pendingAck = null;
@@ -369,7 +371,7 @@ class LynraBleService extends ChangeNotifier {
         _update(() {
           connectedDevice = null;
           connectedRx = null;
-          inputMask = null; outputMask = null; deviceTimeMs = null;
+          inputMask = null; outputMask = null; deviceTimeMs = null; manualMode = null;
           _resetEvents();
           isConnected = false;
           status = 'Connection failed';
@@ -396,7 +398,7 @@ class LynraBleService extends ChangeNotifier {
       connectionSubscription = null;
       connectedDevice = null;
       connectedRx = null;
-      inputMask = null; outputMask = null; deviceTimeMs = null;
+      inputMask = null; outputMask = null; deviceTimeMs = null; manualMode = null;
       _resetEvents();
       isConnected = false;
       pendingAck = null;
@@ -408,6 +410,57 @@ class LynraBleService extends ChangeNotifier {
           plcStatus = 'Unknown';
         });
       }
+    }
+  }
+
+  Future<void> setManualMode(bool enabled) =>
+      _sendInputCommand(0x36, [enabled ? 1 : 0]);
+
+  Future<void> setManualInput(int index, bool on) =>
+      _sendInputCommand(0x37, [index, on ? 1 : 0]);
+
+  Future<void> _sendInputCommand(int type, List<int> payload) async {
+    final rx = connectedRx;
+    if (_disposed || !isConnected || rx == null || connecting ||
+        commandBusy || pendingAck != null || manualMode == null) return;
+    _update(() => commandBusy = true);
+    try {
+      // Let the outstanding polling write finish before sending a command.
+      while (_ioResponse != null && isConnected && !_disposed) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      if (_disposed || !isConnected || connectedRx != rx) return;
+      final seq = nextSeq++;
+      final ok = await sendWithAck(rx, buildFrame(type, seq, payload), seq);
+      debugPrint('INPUT COMMAND: ${ok ? "ACK" : "FAILED"}');
+    } catch (e) {
+      debugPrint('INPUT COMMAND ERROR: $e');
+    } finally {
+      if (!_disposed) {
+        _update(() { commandBusy = false; manualMode = null; });
+        await requestIo();
+      }
+    }
+  }
+
+  Future<void> restartDevice() async {
+    final rx = connectedRx;
+    if (_disposed || !isConnected || rx == null || connecting ||
+        commandBusy || pendingAck != null) return;
+    _update(() => commandBusy = true);
+    try {
+      while (_ioResponse != null && isConnected && !_disposed) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      if (_disposed || !isConnected || connectedRx != rx) return;
+      final seq = nextSeq++;
+      final ok = await sendWithAck(rx, buildFrame(0x38, seq, []), seq);
+      debugPrint('RESET: ${ok ? "ACK" : "RESULT UNKNOWN"}');
+      if (ok) await Future<void>.delayed(const Duration(milliseconds: 800));
+    } catch (e) {
+      debugPrint('RESET: RESULT UNKNOWN: $e');
+    } finally {
+      if (!_disposed) _update(() => commandBusy = false);
     }
   }
 

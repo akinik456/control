@@ -112,12 +112,17 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            Flexible(flex: 1, child: Chip(
+            Flexible(flex: 1, child: GestureDetector(
+              onTap: prefix == 'I' && _ble.manualMode == true && mask != null &&
+                  !_ble.commandBusy && !_ble.connecting && _ble.pendingAck == null
+                  ? () => _ble.setManualInput(i - 1, (mask & (1 << (i-1))) == 0)
+                  : null,
+              child: Chip(
               label: Text('$prefix$i  ${mask == null ? '—' : (mask & (1 << (i-1))) != 0 ? 'ON' : 'OFF'}'),
               backgroundColor: mask != null && (mask & (1 << (i-1))) != 0
                   ? (prefix == 'I' ? Colors.green : Colors.blue).withValues(alpha: .25)
                   : null,
-            )),
+            ))),
             const SizedBox(width: 6),
             Expanded(flex: 2, child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -129,7 +134,7 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
                       Expanded(child: Text(
                         j + 1 < times.length
                             ? ((times[j] - times[j + 1]) / 1000).toStringAsFixed(3)
-                            : '—',
+                            : ' ',
                         textAlign: TextAlign.end,
                         maxLines: 1,
                         style: const TextStyle(fontSize: 11, height: 1.15,
@@ -139,7 +144,7 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
                       Expanded(child: Text(
                         j < times.length
                             ? (times[j] / 1000).toStringAsFixed(3)
-                            : '—',
+                            : ' ',
                         textAlign: TextAlign.end,
                         maxLines: 1,
                         style: TextStyle(fontSize: 11, height: 1.15,
@@ -191,23 +196,68 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         ],
         const SizedBox(height: 8),
         Row(children: [
-          Expanded(child: OutlinedButton(
+          Expanded(flex: 2, child: OutlinedButton(
+            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 4)),
             onPressed: busy || _ble.scanning || (!_ble.isConnected && _ble.selectedDevice == null)
                 ? null : _ble.connectOrDisconnect,
-            child: Text(_ble.connecting ? 'Bekleyin...' : _ble.isConnected ? 'Kes' : 'Bağlan'),
+            child: Text(_ble.connecting ? 'Bekleyin...' : _ble.isConnected ? 'Bağlantıyı Kes' : 'Bağlan'),
           )),
           const SizedBox(width: 8),
           Expanded(child: FilledButton(
             onPressed: canCommand ? () => _ble.sendPlcCommand(0x20) : null,
+            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 2)),
             child: const Text('RUN'),
           )),
           const SizedBox(width: 8),
           Expanded(child: OutlinedButton(
             onPressed: canCommand ? () => _ble.sendPlcCommand(0x21) : null,
+            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 2)),
             child: const Text('STOP'),
+          )),
+          const SizedBox(width: 4),
+          Expanded(child: OutlinedButton(
+            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 2)),
+            onPressed: canCommand ? () async {
+              final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+                title: const Text('RESET'),
+                content: const Text('Cihaz yeniden başlayacak, BLE bağlantısı kopacak ve kayıtlı program fiziksel girişlerle otomatik çalışacak. Röle çıkışları değişebilir.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
+                  FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('RESET')),
+                ],
+              ));
+              if (!mounted || confirmed != true) return;
+              await _ble.restartDevice();
+            } : null,
+            child: const Text('RESET'),
           )),
         ]),
         const Divider(height: 28),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Fiziksel Girişler')),
+            ButtonSegment(value: true, label: Text('Manuel Girişler')),
+          ],
+          emptySelectionAllowed: true,
+          selected: _ble.manualMode == null ? <bool>{} : {_ble.manualMode!},
+          onSelectionChanged: canCommand && _ble.manualMode != null ? (selection) async {
+            if (selection.isEmpty) return;
+            final manual = selection.first;
+            if (manual) {
+              final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+                title: const Text('Manuel Girişler'),
+                content: const Text('Gerçek röle çıkışları değişebilir. BLE bağlantısı koparsa fiziksel girişlere otomatik dönülür. Yalnızca güvenli test ortamında kullanın.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
+                  FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Devam')),
+                ],
+              ));
+              if (!mounted || confirmed != true) return;
+            }
+            await _ble.setManualMode(manual);
+          } : null,
+        ),
+        const SizedBox(height: 8),
         Text('İzleme süresi: $_elapsed', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <esp_timer.h>
 #include "ble_interface.h"
 
@@ -24,12 +25,17 @@ static uint32_t expectedProgramSize = 0;
 static uint32_t expectedProgramCRC = 0;
 static uint32_t receivedProgramSize = 0;
 
+static bool restartPending = false;
+static uint32_t restartRequestedMs = 0;
 static bool programTransferActive = false;
 static bool hasLastDataSeq = false;
 static uint32_t lastDataSeq = 0;
 static uint32_t lastProgramPacketMs = 0;
 
 static constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
+
+extern bool plcSetManualMode(bool enabled);
+extern bool plcSetManualInput(uint8_t index, bool on);
 
 class ServerCallbacks : public BLEServerCallbacks
 {
@@ -55,6 +61,7 @@ class ServerCallbacks : public BLEServerCallbacks
             }
             xSemaphoreGive(transferMutex);
         }
+        plcSetManualMode(false);
         BLEDevice::startAdvertising();
         Serial.println("BLE ADVERTISING RESTARTED");
     }
@@ -121,20 +128,21 @@ static void sendPlcStatus(uint32_t seq)
                   frame[23], (unsigned long)seq);
 }
 // Declared here to avoid changing the existing project header.
-extern bool plcReadIo(uint32_t &inputs, uint32_t &outputs);
+extern bool plcReadIo(uint32_t &inputs, uint32_t &outputs, bool &manual);
 
 static void sendIoResponse(uint32_t seq)
 {
     uint32_t inputs, outputs;
-    if (!tx || !plcReadIo(inputs, outputs)) return;
+    bool manual;
+    if (!tx || !plcReadIo(inputs, outputs, manual)) return;
     const uint64_t timeMs = static_cast<uint64_t>(esp_timer_get_time()) / 1000;
-    uint8_t frame[43] = {};
+    uint8_t frame[44] = {};
     frame[0] = 0x4C;
     frame[1] = 0x43;
     frame[2] = 1;
     frame[3] = 23;
     frame[16] = 0x33;
-    frame[21] = 16;
+    frame[21] = 17;
     for (int i = 0; i < 4; ++i)
     {
         frame[17+i] = (seq >> (8*i)) & 0xFF;
@@ -143,9 +151,10 @@ static void sendIoResponse(uint32_t seq)
     }
     for (int i = 0; i < 8; ++i)
         frame[31+i] = (timeMs >> (8*i)) & 0xFF;
-    const uint32_t crc = LynraProtocol::calculateCRC32(frame + 2, 37);
+    frame[39] = manual ? 1 : 0;
+    const uint32_t crc = LynraProtocol::calculateCRC32(frame + 2, 38);
     for (int i = 0; i < 4; ++i)
-        frame[39+i] = (crc >> (8*i)) & 0xFF;
+        frame[40+i] = (crc >> (8*i)) & 0xFF;
     tx->setValue(frame, sizeof(frame));
     tx->notify();
 }
@@ -201,6 +210,35 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 ((uint32_t)data[18] << 8) |
                 ((uint32_t)data[19] << 16) |
                 ((uint32_t)data[20] << 24);
+
+            if (type == 0x38) {
+                if (value.size() == 27 && !programTransferActive) {
+                    if (!restartPending) {
+                        restartPending = true;
+                        restartRequestedMs = millis();
+                    }
+                    sendAck(seq);
+                }
+                xSemaphoreGive(transferMutex);
+                return;
+            }
+            if (restartPending) {
+                xSemaphoreGive(transferMutex);
+                return;
+            }
+
+            if (type == 0x36 || type == 0x37) {
+                bool ok = false;
+                if (!programTransferActive) {
+                    if (type == 0x36 && value.size() == 28 && data[23] <= 1)
+                        ok = plcSetManualMode(data[23] != 0);
+                    if (type == 0x37 && value.size() == 29 && data[23] < 4 && data[24] <= 1)
+                        ok = plcSetManualInput(data[23], data[24] != 0);
+                }
+                if (ok) sendAck(seq);
+                xSemaphoreGive(transferMutex);
+                return;
+            }
 
             // Read-only query; response itself confirms receipt.
             if (type == 0x34)
@@ -528,6 +566,14 @@ void bleLoop()
 
     if (xSemaphoreTake(transferMutex, pdMS_TO_TICKS(10)) != pdTRUE)
         return;
+
+    if (restartPending && (uint32_t)(millis() - restartRequestedMs) >= 300)
+    {
+        xSemaphoreGive(transferMutex);
+        Serial.println("SYSTEM RESTART REQUESTED");
+        ESP.restart();
+        return;
+    }
 
     if (programTransferActive &&
         (uint32_t)(millis() - lastProgramPacketMs) > PROGRAM_TIMEOUT_MS)

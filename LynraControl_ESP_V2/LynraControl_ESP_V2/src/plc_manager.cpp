@@ -22,18 +22,44 @@ static bool programLoaded = false;
 static constexpr uint8_t INPUT_PINS[4] = {32, 33, 25, 26};
 static constexpr uint8_t OUTPUT_PINS[4] = {16, 17, 18, 19};
 
+static bool manualMode = false;
+static uint32_t bleInputs = 0;
+static uint32_t effectiveInputsLocked() {
+    if (manualMode) return bleInputs;
+    uint32_t mask = 0;
+    for (int i = 0; i < 4; ++i)
+        if (digitalRead(INPUT_PINS[i]) == HIGH) mask |= 1UL << i;
+    return mask;
+}
+bool plcSetManualMode(bool enabled) {
+    if (!plcMutex || xSemaphoreTake(plcMutex, portMAX_DELAY) != pdTRUE) return false;
+    manualMode = enabled;
+    xSemaphoreGive(plcMutex);
+    return true;
+}
+bool plcSetManualInput(uint8_t index, bool on) {
+    if (index >= 4 || !plcMutex || xSemaphoreTake(plcMutex, portMAX_DELAY) != pdTRUE) return false;
+    const bool accepted = manualMode;
+    if (accepted) {
+        if (on) bleInputs |= 1UL << index;
+        else bleInputs &= ~(1UL << index);
+    }
+    xSemaphoreGive(plcMutex);
+    return accepted;
+}
+
 struct IoEvent { uint64_t ms; uint32_t inputs; uint32_t outputs; };
 static IoEvent ioRing[256];
 static uint32_t ioNext = 1;
 static uint32_t ioCount = 0;
 static_assert(sizeof(IoEvent) == 16, "IO event size");
 
-// Caller holds plcMutex. Capture actual GPIO levels, including STOP.
+// Caller holds plcMutex. Capture effective inputs and actual outputs.
 static void recordIoLocked()
 {
     IoEvent e = {static_cast<uint64_t>(esp_timer_get_time()) / 1000, 0, 0};
+    e.inputs = effectiveInputsLocked();
     for (int i = 0; i < 4; ++i) {
-        if (digitalRead(INPUT_PINS[i]) == HIGH) e.inputs |= 1UL << i;
         if (digitalRead(OUTPUT_PINS[i]) == HIGH) e.outputs |= 1UL << i;
     }
     if (ioCount) {
@@ -160,13 +186,7 @@ void plcLoop()
 
     if (nativeEngine != nullptr && plcState == PlcState::Run)
     {
-        uint32_t inputMask = 0;
-
-        for (int i = 0; i < 4; ++i)
-        {
-            if (digitalRead(INPUT_PINS[i]) == HIGH)
-                inputMask |= (1UL << i);
-        }
+        const uint32_t inputMask = effectiveInputsLocked();
 
         lynra_plc_scan(nativeEngine, millis(), inputMask);
 
@@ -354,14 +374,15 @@ bool plcFinishProgramming()
     return success;
 }
 
-bool plcReadIo(uint32_t &inputs, uint32_t &outputs)
+bool plcReadIo(uint32_t &inputs, uint32_t &outputs, bool &manual)
 {
     if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE)
         return false;
-    inputs = outputs = 0;
+    inputs = effectiveInputsLocked();
+    outputs = 0;
+    manual = manualMode;
     for (int i = 0; i < 4; ++i)
     {
-        if (digitalRead(INPUT_PINS[i]) == HIGH) inputs |= (1UL << i);
         if (digitalRead(OUTPUT_PINS[i]) == HIGH) outputs |= (1UL << i);
     }
     xSemaphoreGive(plcMutex);
