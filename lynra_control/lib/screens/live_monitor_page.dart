@@ -26,6 +26,76 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
     }
   }
 
+  int _actionCursor = 0;
+  bool _polling = false;
+  List<(int, int)> get _actionKeys {
+    final keys = <(int, int)>[];
+    var ri = 0;
+    for (final block in _deviceProgram?.controlBlocks ?? []) {
+      for (final rule in block.groups) {
+        for (var ai = 0; ai < rule.actions.length; ai++) {
+          keys.add((ri, ai));
+        }
+        ri++;
+      }
+    }
+    return keys;
+  }
+
+  Future<void> _poll() async {
+    if (_polling || !_ble.isConnected || _ble.connecting || _ble.commandBusy) return;
+    _polling = true;
+    try {
+      final keys = _actionKeys;
+      final key = keys.isEmpty ? null : keys[_actionCursor++ % keys.length];
+      await _ble.requestIo(action: key);
+    } finally {
+      _polling = false;
+    }
+  }
+
+  Widget _functionValues((int, int) key) {
+    final values = _ble.actionValues[key];
+    if (values == null) return Text(_ble.actionErrors[key] ?? 'Değer bekleniyor...');
+    String format(int id, int value) {
+      final seconds = '${(value / 1000).toStringAsFixed(3)} sn';
+      return switch (id) {
+        7 => 'CV: $value',
+        9 => 'Geçen süre: $seconds',
+        14 => 'Darbe: $value',
+        31 => switch (value) {0 => 'Bekliyor', 1 => 'Çalışıyor', 2 => 'Tamamlandı', _ => 'Durum: $value'},
+        32 => 'Geçen süre: $seconds',
+        33 => 'Toplam süre: $seconds',
+        34 => 'Son ölçüm: $value darbe',
+        35 => 'Çıkış: ${value == 0 ? "OFF" : "ON"}',
+        36 => 'Kalan süre: $seconds',
+        37 => 'Rastgele bekleme: ${value == 0 ? "OFF" : "ON"}',
+        38 => 'Sürekli ON: ${value == 0 ? "OFF" : "ON"}',
+        _ => 'Alan $id: $value',
+      };
+    }
+    return Text(values.entries.map((e) => format(e.key, e.value)).join('  •  '));
+  }
+
+  List<Widget> _functions() {
+    final widgets = <Widget>[];
+    var ri = 0;
+    for (final block in _deviceProgram!.controlBlocks) {
+      for (final rule in block.groups) {
+        for (var ai = 0; ai < rule.actions.length; ai++) {
+          final action = rule.actions[ai];
+          widgets.add(Padding(padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Q${action.outputIndex} • ${action.type.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              _functionValues((ri, ai)),
+            ])));
+        }
+        ri++;
+      }
+    }
+    return widgets;
+  }
+
   Timer? _ioTimer;
   int? _startMs;
   int? _lastMs;
@@ -85,7 +155,7 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
     super.initState();
     _ble.addListener(_refresh);
     _ioTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      unawaited(_ble.requestIo());
+      unawaited(_poll());
     });
   }
 
@@ -97,6 +167,7 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         _deviceProgram = null;
         _readError = null;
         _readStarted = false;
+        _actionCursor = 0;
         _startMs = null;
         _lastMs = null;
         _resetChangeTimes();
@@ -297,10 +368,7 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         const SizedBox(height: 8),
         if (_deviceProgram != null) ...[
           Text('Program: ${_deviceProgram!.name}'),
-          for (final block in _deviceProgram!.controlBlocks)
-            for (final rule in block.groups)
-              for (final action in rule.actions)
-                Text('Q${action.outputIndex} • ${action.type.name}'),
+          ..._functions(),
         ] else Text(_readError ?? (_ble.isConnected ? 'Program okunuyor...' : 'Program bilgisi henüz alınmadı.')),
         if (_readError != null && canCommand)
           TextButton(onPressed: () { setState(() => _readError = null); unawaited(_readDeviceProgram()); }, child: const Text('Tekrar oku')),

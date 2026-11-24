@@ -388,3 +388,32 @@ bool plcReadIo(uint32_t &inputs, uint32_t &outputs, bool &manual)
     xSemaphoreGive(plcMutex);
     return true;
 }
+
+// Read one action's diagnostic values without changing engine state.
+// Wire format: rule, action, status, type, count, repeated (field, int64 LE).
+uint16_t plcReadActionValues(uint8_t rule, uint8_t action, uint8_t *payload)
+{
+    payload[0] = rule; payload[1] = action;
+    payload[2] = 1; payload[3] = 0; payload[4] = 0;
+    if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+        return 5;
+    LynraActionType type;
+    LynraValues values;
+    uint16_t length = 5;
+    if (nativeEngine && programLoaded && plcState != PlcState::Programming &&
+        lynra_plc_get_action_info(nativeEngine, rule, action, &type, nullptr)) {
+        payload[3] = static_cast<uint8_t>(type);
+        payload[2] = 2; // Action exists, but no diagnostic values available.
+        if (lynra_plc_get_values(nativeEngine, rule, action, &values) && values.count <= 22) {
+            payload[2] = 0;
+            payload[4] = static_cast<uint8_t>(values.count);
+            for (size_t i = 0; i < values.count; ++i) {
+                payload[length++] = static_cast<uint8_t>(values.items[i].id);
+                const uint64_t bits = static_cast<uint64_t>(values.items[i].value);
+                for (int j = 0; j < 8; ++j) payload[length++] = bits >> (8*j);
+            }
+        }
+    }
+    xSemaphoreGive(plcMutex);
+    return length;
+}

@@ -193,6 +193,15 @@ static void sendReadFrame(uint8_t type, uint32_t seq,
     tx->setValue(frame,27+len); tx->notify();
 }
 
+extern uint16_t plcReadActionValues(uint8_t rule, uint8_t action, uint8_t *payload);
+
+static void sendActionValues(uint32_t seq, uint8_t rule, uint8_t action)
+{
+    uint8_t payload[204] = {};
+    const uint16_t length = plcReadActionValues(rule, action, payload);
+    sendReadFrame(0x45, seq, payload, length);
+}
+
 static void sendProgramInfo(uint32_t seq)
 {
     readProgramSize=0;
@@ -287,6 +296,14 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                         ok = plcSetManualInput(data[23], data[24] != 0);
                 }
                 if (ok) sendAck(seq);
+                xSemaphoreGive(transferMutex);
+                return;
+            }
+
+            if (type == 0x44)
+            {
+                if (!programTransferActive && value.size() == 29)
+                    sendActionValues(seq, data[23], data[24]);
                 xSemaphoreGive(transferMutex);
                 return;
             }

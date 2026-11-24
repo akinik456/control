@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -52,14 +53,59 @@ class LynraBleService extends ChangeNotifier {
   final List<({int ms, int inputs, int outputs})> ioEvents = [];
   void _resetEvents() {
     eventCursor = 0; eventCount = 0; eventLossCount = 0; ioEvents.clear();
+    actionValues.clear(); actionErrors.clear();
   }
+  final actionValues = <(int, int), Map<int, int>>{};
+  final actionErrors = <(int, int), String>{};
+
+  Future<void> _pollAction(BluetoothCharacteristic rx, (int, int) key) async {
+    final seq = nextSeq++;
+    final response = Completer<List<int>>();
+    _readSeq = seq;
+    _readType = 0x45;
+    _readResponse = response;
+    try {
+      await rx.write(buildFrame(0x44, seq, [key.$1, key.$2]));
+      final data = await response.future.timeout(const Duration(milliseconds: 600));
+      if (_disposed || !isConnected || connectedRx != rx) return;
+      if (data.length < 5 || data[0] != key.$1 || data[1] != key.$2 ||
+          data[4] > 22 || data.length != 5 + 9 * data[4]) {
+        throw const FormatException('Geçersiz değer paketi');
+      }
+      final values = <int, int>{};
+      final bytes = ByteData.sublistView(Uint8List.fromList(data));
+      for (var i = 0; i < data[4]; i++) {
+        final offset = 5 + i * 9;
+        values[data[offset]] = bytes.getInt64(offset + 1, Endian.little);
+      }
+      _update(() {
+        actionValues.remove(key);
+        actionErrors.remove(key);
+        if (data[2] == 0) {
+          actionValues[key] = values;
+        } else {
+          actionErrors[key] = data[2] == 2 ? 'Anlık değer yok' : 'Değer alınamadı';
+        }
+      });
+    } catch (_) {
+      if (isConnected && connectedRx == rx) _update(() {
+        actionValues.remove(key);
+        actionErrors[key] = 'Değer alınamadı';
+      });
+    } finally {
+      _readSeq = null;
+      _readType = null;
+      _readResponse = null;
+    }
+  }
+
   int? _readSeq;
   int? _readType;
   Completer<List<int>>? _readResponse;
   int? _ioSeq;
   Completer<void>? _ioResponse;
 
-  Future<void> requestIo() async {
+  Future<void> requestIo({(int, int)? action}) async {
     final rx = connectedRx;
     if (_disposed || !isConnected || connecting || commandBusy ||
         pendingAck != null || rx == null || _ioResponse != null) return;
@@ -80,6 +126,10 @@ class LynraBleService extends ChangeNotifier {
             [for (int i=0;i<4;i++) (eventCursor >> (8*i)) & 255]));
           await eventResponse.future.timeout(const Duration(milliseconds: 600));
         } catch (_) { debugPrint('IO EVENTS: timeout/write error; retry cursor=$eventCursor'); }
+      }
+      if (action != null && !_disposed && isConnected && connectedRx == rx &&
+          !connecting && !commandBusy && pendingAck == null) {
+        await _pollAction(rx, action);
       }
     } catch (_) {
       _update(() { inputMask = null; outputMask = null; deviceTimeMs = null; manualMode = null; });
@@ -154,7 +204,7 @@ class LynraBleService extends ChangeNotifier {
         (value[18] << 8) |
         (value[19] << 16) |
         (value[20] << 24);
-    if (type == 0x41 || type == 0x43) {
+    if (type == 0x41 || type == 0x43 || type == 0x45) {
       final response = _readResponse;
       if (isConnected && !_disposed && seq == _readSeq && type == _readType &&
           response != null && !response.isCompleted) {
@@ -480,6 +530,10 @@ class LynraBleService extends ChangeNotifier {
     if (!isConnected || rx == null || commandBusy || pendingAck != null) return;
     _update(() => commandBusy = true);
     try {
+      while (_ioResponse != null && isConnected && !_disposed) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      if (_disposed || !isConnected || connectedRx != rx) return;
       final seq = nextSeq++;
       final ok = await sendWithAck(rx, buildFrame(type, seq, []), seq);
       debugPrint('PLC ${type == 0x20 ? 'RUN' : 'STOP'}: ${ok ? 'ACK' : 'FAILED'}');
