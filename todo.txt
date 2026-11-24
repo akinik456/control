@@ -64,3 +64,10 @@ Mesela az önceki şemamızda Q1 hem Kural 1'de hem Kural 2'de kullanılıyor. B
 Bu sorunun cevabı hem simülatörde hem gerçek cihazda aynı olmalı.
 
 **************
+
+Bence kalan önemli işler
+1. Canlı izleme: Telefonda fiziksel girişleri, çıkışları, timer sürelerini ve sayaç değerlerini gerçek zamanlı görebilmek.
+2. RAM optimizasyonu: Şimdilik 8 kural ve 4 eylemle sınırlıyız. Dinamik bellek yönetimini değerlendirmeliyiz.
+3. Cihaz kapasitesinin sorgulanması: Telefon bağlandığı cihazın giriş, çıkış, kural ve eylem kapasitesini öğrenmeli.
+4. Kalıcı çalışma değerleri: Özellikle çalışma saati sayacının enerji kesildiğinde değerini kaybetmemesi.
+5. Link üzerinden program yükleme: Daha önce çalıştırdığımız Web BLE altyapısını güncel program yapımıza uyarlamak.

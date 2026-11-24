@@ -1,22 +1,25 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/control_program.dart';
 
-class BleConnectionPage extends StatefulWidget {
-  final ControlProgram? program;
+class LynraBleService extends ChangeNotifier {
+  bool _disposed = false;
 
-  const BleConnectionPage({super.key, this.program});
+  void _update(VoidCallback change) {
+    if (_disposed) return;
+    change();
+    notifyListeners();
+  }
 
-  @override
-  State<BleConnectionPage> createState() => _BleConnectionPageState();
-}
+  void selectDevice(BluetoothDevice device) {
+    _update(() => selectedDevice = device);
+  }
 
-class _BleConnectionPageState extends State<BleConnectionPage> {
   static const String serviceUuid = '8d21a100-64c2-4c3a-9d1e-123456789abc';
   static const String writeUuid = '8d21a101-64c2-4c3a-9d1e-123456789abc';
   static const String notifyUuid = '8d21a102-64c2-4c3a-9d1e-123456789abc';
@@ -34,6 +37,8 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
   Completer<void>? pendingAck;
   int? pendingSeq;
   int nextSeq = 1;
+  int? pendingStatusSeq;
+  Completer<int>? pendingStatus;
   String status = 'Disconnected';
   String plcStatus = 'Unknown';
 
@@ -113,8 +118,12 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
         2 => 'RUN',
         _ => 'Unknown',
       };
+      if (seq == pendingStatusSeq && pendingStatus != null &&
+          !pendingStatus!.isCompleted) {
+        pendingStatus!.complete(value[23]);
+      }
       debugPrint('PLC STATUS: $state');
-      if (mounted) setState(() => plcStatus = state);
+      if (!_disposed) _update(() => plcStatus = state);
       return;
     }
     if (type == 2) {
@@ -169,15 +178,15 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
       debugPrint('BLE permission denied');
       return;
     }
-    if (!mounted) return;
-    setState(() {
+    if (_disposed) return;
+    _update(() {
       scanning = true;
       devices.clear();
       selectedDevice = null;
     });
     final subscription = FlutterBluePlus.scanResults.listen((results) {
-      if (!mounted) return;
-      setState(() {
+      if (_disposed) return;
+      _update(() {
         devices
           ..clear()
           ..addAll(results.where((r) =>
@@ -192,7 +201,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
       debugPrint('BLE scan error: $e');
     } finally {
       await subscription.cancel();
-      if (mounted) setState(() => scanning = false);
+      if (!_disposed) _update(() => scanning = false);
     }
   }
 
@@ -208,7 +217,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
 
   Future<void> connect(BluetoothDevice device) async {
     if (connecting || isConnected) return;
-    setState(() {
+    _update(() {
       connecting = true;
       status = 'Connecting...';
       plcStatus = 'Unknown';
@@ -249,18 +258,20 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
           isConnected = false;
           pendingAck = null;
           pendingSeq = null;
-          if (mounted) setState(() {
+          if (!_disposed) _update(() {
             status = 'Disconnected';
             plcStatus = 'Unknown';
           });
         }
       });
 
-      if (!mounted) {
+      if (_disposed) {
+        await notifySubscription?.cancel();
+        await connectionSubscription?.cancel();
         await device.disconnect();
         return;
       }
-      setState(() {
+      _update(() {
         connectedDevice = device;
         connectedRx = rx;
         isConnected = true;
@@ -271,8 +282,8 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
       try {
         await device.disconnect();
       } catch (_) {}
-      if (mounted) {
-        setState(() {
+      if (!_disposed) {
+        _update(() {
           connectedDevice = null;
           connectedRx = null;
           isConnected = false;
@@ -281,14 +292,14 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
         });
       }
     } finally {
-      if (mounted) setState(() => connecting = false);
+      if (!_disposed) _update(() => connecting = false);
     }
   }
 
   Future<void> disconnect() async {
     final device = connectedDevice;
     if (device == null || connecting || commandBusy) return;
-    setState(() => connecting = true);
+    _update(() => connecting = true);
     try {
       await device.disconnect();
     } catch (e) {
@@ -303,8 +314,8 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
       isConnected = false;
       pendingAck = null;
       pendingSeq = null;
-      if (mounted) {
-        setState(() {
+      if (!_disposed) {
+        _update(() {
           connecting = false;
           status = 'Disconnected';
           plcStatus = 'Unknown';
@@ -316,7 +327,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
   Future<void> sendPlcCommand(int type) async {
     final rx = connectedRx;
     if (!isConnected || rx == null || commandBusy || pendingAck != null) return;
-    setState(() => commandBusy = true);
+    _update(() => commandBusy = true);
     try {
       final seq = nextSeq++;
       final ok = await sendWithAck(rx, buildFrame(type, seq, []), seq);
@@ -324,16 +335,15 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
     } catch (e) {
       debugPrint('PLC COMMAND ERROR: $e');
     } finally {
-      if (mounted) setState(() => commandBusy = false);
+      if (!_disposed) _update(() => commandBusy = false);
     }
   }
 
-  Future<void> sendProgram() async {
+  Future<void> sendProgram(ControlProgram? program) async {
     final rx = connectedRx;
-    final program = widget.program;
     if (!isConnected || rx == null || program == null ||
         commandBusy || pendingAck != null) return;
-    setState(() => commandBusy = true);
+    _update(() => commandBusy = true);
     try {
       final programBytes = utf8.encode(jsonEncode(program.toJson()));
       debugPrint('REAL PROGRAM SIZE: ${programBytes.length} bytes');
@@ -357,108 +367,43 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
         if (!await sendWithAck(rx, buildFrame(0x11, seq, chunk), seq)) return;
       }
       seq = nextSeq++;
-      final ok = await sendWithAck(rx, buildFrame(0x12, seq, []), seq);
-      debugPrint('PROGRAM END: ${ok ? 'ACK' : 'FAILED'}');
+      final endSeq = seq;
+      final statusResult = Completer<int>();
+      pendingStatusSeq = endSeq;
+      pendingStatus = statusResult;
+      try {
+        final ok = await sendWithAck(rx, buildFrame(0x12, endSeq, []), endSeq);
+        if (!ok) {
+          debugPrint('PROGRAM END: ACK NOT RECEIVED - RESULT UNKNOWN');
+          return;
+        }
+        // ACK confirms frame reception, not successful program activation.
+        final result = await statusResult.future.timeout(const Duration(seconds: 3));
+        if (result == 2) {
+          debugPrint('PROGRAM LOAD SUCCESS: PLC RUN');
+        } else {
+          debugPrint('PROGRAM LOAD FAILED: PLC STATUS=$result');
+        }
+      } on TimeoutException {
+        debugPrint('PROGRAM END: STATUS TIMEOUT - RESULT UNKNOWN');
+      } finally {
+        pendingStatusSeq = null;
+        pendingStatus = null;
+      }
     } catch (e) {
       debugPrint('PROGRAM SEND ERROR: $e');
     } finally {
-      if (mounted) setState(() => commandBusy = false);
+      if (!_disposed) _update(() => commandBusy = false);
     }
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    if (scanning) unawaited(FlutterBluePlus.stopScan());
     notifySubscription?.cancel();
     connectionSubscription?.cancel();
     connectedDevice?.disconnect();
     super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final busy = connecting || commandBusy || pendingAck != null;
-    final canCommand = isConnected && !busy;
-    return Scaffold(
-      appBar: AppBar(title: const Text('LynraControl BLE')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text('BLE: $status'),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text('PLC: $plcStatus',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: FilledButton.icon(
-              onPressed: scanning || busy || isConnected ? null : scan,
-              icon: const Icon(Icons.bluetooth_searching),
-              label: Text(scanning ? 'Aranıyor...' : 'Cihaz Ara'),
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: devices.length,
-              itemBuilder: (context, index) {
-                final device = devices[index].device;
-                return RadioListTile<String>(
-                  title: const Text('LynraControl'),
-                  subtitle: Text(device.remoteId.toString()),
-                  value: device.remoteId.toString(),
-                  groupValue: selectedDevice?.remoteId.toString(),
-                  onChanged: isConnected || busy
-                      ? null
-                      : (_) => setState(() => selectedDevice = device),
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                FilledButton(
-                  onPressed: busy || (!isConnected && selectedDevice == null)
-                      ? null
-                      : connectOrDisconnect,
-                  child: Text(connecting
-                      ? 'Please wait...'
-                      : isConnected ? 'Disconnect' : 'Connect'),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  onPressed: canCommand && widget.program != null
-                      ? sendProgram
-                      : null,
-                  child: const Text('Send Program'),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: canCommand ? () => sendPlcCommand(0x20) : null,
-                        child: const Text('RUN'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: canCommand ? () => sendPlcCommand(0x21) : null,
-                        child: const Text('STOP'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

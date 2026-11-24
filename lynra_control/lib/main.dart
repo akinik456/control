@@ -9,7 +9,7 @@ import 'core/theme/app_colors.dart';
 import 'core/theme/app_preferences.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/program_editor_page.dart';
-import 'screens/ble_connection_page.dart';
+import 'screens/live_monitor_page.dart';
 import 'screens/auth_page.dart';
 
 Future<void> main() async {
@@ -176,12 +176,12 @@ class HomePage extends StatelessWidget {
 										Navigator.push(
 											context,
 											MaterialPageRoute(
-												builder: (_) => const BleConnectionPage(),
+												builder: (_) => const LiveMonitorPage(),
 											),
 										);
 									},
-									icon: const Icon(Icons.bluetooth),
-									label: const Text('Cihaza Bağlan'),
+									icon: const Icon(Icons.monitor_heart_outlined),
+									label: Text(isTurkish ? 'Canlı İzle' : 'Live Monitor'),
 								),
               ],
             ),
