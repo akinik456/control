@@ -303,3 +303,17 @@ bool plcFinishProgramming()
 
     return success;
 }
+
+bool plcReadIo(uint32_t &inputs, uint32_t &outputs)
+{
+    if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+        return false;
+    inputs = outputs = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (digitalRead(INPUT_PINS[i]) == HIGH) inputs |= (1UL << i);
+        if (digitalRead(OUTPUT_PINS[i]) == HIGH) outputs |= (1UL << i);
+    }
+    xSemaphoreGive(plcMutex);
+    return true;
+}

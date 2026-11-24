@@ -119,6 +119,32 @@ static void sendPlcStatus(uint32_t seq)
     Serial.printf("BLE TX: STATUS=%u SEQ=%lu\n",
                   frame[23], (unsigned long)seq);
 }
+// Declared here to avoid changing the existing project header.
+extern bool plcReadIo(uint32_t &inputs, uint32_t &outputs);
+
+static void sendIoResponse(uint32_t seq)
+{
+    uint32_t inputs, outputs;
+    if (!tx || !plcReadIo(inputs, outputs)) return;
+    uint8_t frame[35] = {};
+    frame[0] = 0x4C;
+    frame[1] = 0x43;
+    frame[2] = 1;
+    frame[3] = 23;
+    frame[16] = 0x33;
+    frame[21] = 8;
+    for (int i = 0; i < 4; ++i)
+    {
+        frame[17+i] = (seq >> (8*i)) & 0xFF;
+        frame[23+i] = (inputs >> (8*i)) & 0xFF;
+        frame[27+i] = (outputs >> (8*i)) & 0xFF;
+    }
+    const uint32_t crc = LynraProtocol::calculateCRC32(frame + 2, 29);
+    for (int i = 0; i < 4; ++i)
+        frame[31+i] = (crc >> (8*i)) & 0xFF;
+    tx->setValue(frame, sizeof(frame));
+    tx->notify();
+}
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
     void onWrite(BLECharacteristic *characteristic) override
@@ -155,6 +181,15 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 ((uint32_t)data[18] << 8) |
                 ((uint32_t)data[19] << 16) |
                 ((uint32_t)data[20] << 24);
+
+            // Read-only query; response itself confirms receipt.
+            if (type == 0x32)
+            {
+                if (value.size() == 27 && !programTransferActive)
+                    sendIoResponse(seq);
+                xSemaphoreGive(transferMutex);
+                return;
+            }
 
             if (type == 0x01 || type == 0x31 ||
                 type == 0x20 || type == 0x21 ||

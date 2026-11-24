@@ -42,6 +42,30 @@ class LynraBleService extends ChangeNotifier {
   String status = 'Disconnected';
   String plcStatus = 'Unknown';
 
+  int? inputMask;
+  int? outputMask;
+  int? _ioSeq;
+  Completer<void>? _ioResponse;
+
+  Future<void> requestIo() async {
+    final rx = connectedRx;
+    if (_disposed || !isConnected || connecting || commandBusy ||
+        pendingAck != null || rx == null || _ioResponse != null) return;
+    final response = Completer<void>();
+    final seq = nextSeq++;
+    _ioSeq = seq;
+    _ioResponse = response;
+    try {
+      await rx.write(buildFrame(0x32, seq, []));
+      await response.future.timeout(const Duration(milliseconds: 600));
+    } catch (_) {
+      _update(() { inputMask = null; outputMask = null; });
+    } finally {
+      _ioSeq = null;
+      _ioResponse = null;
+    }
+  }
+
   int calculateCRC32(List<int> data) {
     int crc = 0xFFFFFFFF;
     for (final byte in data) {
@@ -107,6 +131,15 @@ class LynraBleService extends ChangeNotifier {
         (value[18] << 8) |
         (value[19] << 16) |
         (value[20] << 24);
+    if (type == 0x33) {
+      if (payloadLength != 8 || seq != _ioSeq || !isConnected || _disposed) return;
+      int readMask(int offset) => value[offset] | (value[offset+1] << 8) |
+          (value[offset+2] << 16) | (value[offset+3] << 24);
+      _update(() { inputMask = readMask(23); outputMask = readMask(27); });
+      final response = _ioResponse;
+      if (response != null && !response.isCompleted) response.complete();
+      return;
+    }
     if (type == 0x30) {
       if (payloadLength != 1) {
         debugPrint('BLE RX: INVALID STATUS LENGTH');
@@ -219,6 +252,7 @@ class LynraBleService extends ChangeNotifier {
     if (connecting || isConnected) return;
     _update(() {
       connecting = true;
+      inputMask = null; outputMask = null;
       status = 'Connecting...';
       plcStatus = 'Unknown';
     });
@@ -255,6 +289,7 @@ class LynraBleService extends ChangeNotifier {
           debugPrint('ESP32 DISCONNECTED');
           connectedDevice = null;
           connectedRx = null;
+          inputMask = null; outputMask = null;
           isConnected = false;
           pendingAck = null;
           pendingSeq = null;
@@ -286,6 +321,7 @@ class LynraBleService extends ChangeNotifier {
         _update(() {
           connectedDevice = null;
           connectedRx = null;
+          inputMask = null; outputMask = null;
           isConnected = false;
           status = 'Connection failed';
           plcStatus = 'Unknown';
@@ -311,6 +347,7 @@ class LynraBleService extends ChangeNotifier {
       connectionSubscription = null;
       connectedDevice = null;
       connectedRx = null;
+      inputMask = null; outputMask = null;
       isConnected = false;
       pendingAck = null;
       pendingSeq = null;
