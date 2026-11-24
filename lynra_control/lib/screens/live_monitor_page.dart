@@ -15,6 +15,51 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
   Timer? _ioTimer;
   int? _startMs;
   int? _lastMs;
+  final _changeTimes = List.generate(8, (_) => <int>[]);
+  int _processedEvents = 0;
+  int _seenLossCount = 0;
+  ({int ms, int inputs, int outputs})? _previousEvent;
+
+  void _resetChangeTimes() {
+    for (final times in _changeTimes) {
+      times.clear();
+    }
+    _processedEvents = 0;
+    _seenLossCount = _ble.eventLossCount;
+    _previousEvent = null;
+  }
+
+  void _updateChangeTimes() {
+    final start = _startMs;
+    if (start == null) return;
+    final events = _ble.ioEvents;
+    final count = _ble.eventCount;
+    if (_seenLossCount != _ble.eventLossCount || count < _processedEvents) {
+      _resetChangeTimes();
+    }
+    final first = count - events.length;
+    if (_processedEvents < first) {
+      _previousEvent = null;
+      _processedEvents = first;
+    }
+    for (var index = _processedEvents - first; index < events.length; index++) {
+      final event = events[index];
+      final previous = _previousEvent;
+      if (previous != null && event.ms >= start) {
+        final changedInputs = previous.inputs ^ event.inputs;
+        final changedOutputs = previous.outputs ^ event.outputs;
+        for (var channel = 0; channel < 8; channel++) {
+          final changed = channel < 4 ? changedInputs : changedOutputs;
+          if ((changed & (1 << (channel % 4))) == 0) continue;
+          final times = _changeTimes[channel];
+          times.insert(0, event.ms - start);
+          if (times.length > 5) times.removeLast();
+        }
+      }
+      _previousEvent = event;
+    }
+    _processedEvents = count;
+  }
 
   String get _elapsed {
     if (_startMs == null || _lastMs == null) return "—";
@@ -37,11 +82,14 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
       if (!_ble.isConnected) {
         _startMs = null;
         _lastMs = null;
+        _resetChangeTimes();
       } else if (ms != null) {
         if (_startMs == null || (_lastMs != null && ms < _lastMs!)) {
           _startMs = ms;
+          _resetChangeTimes();
         }
         _lastMs = ms;
+        _updateChangeTimes();
       } else {
         _lastMs = null;
       }
@@ -59,13 +107,49 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
   Widget _signals(String prefix) {
     final mask = !_ble.isConnected ? null :
         (prefix == 'I' ? _ble.inputMask : _ble.outputMask);
-    return Wrap(spacing: 8, runSpacing: 4, children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       for (var i = 1; i <= 4; i++)
-        Chip(
-          label: Text('$prefix$i  ${mask == null ? '—' : (mask & (1 << (i-1))) != 0 ? 'ON' : 'OFF'}'),
-          backgroundColor: mask != null && (mask & (1 << (i-1))) != 0
-              ? (prefix == 'I' ? Colors.green : Colors.blue).withValues(alpha: .25)
-              : null,
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            Flexible(flex: 1, child: Chip(
+              label: Text('$prefix$i  ${mask == null ? '—' : (mask & (1 << (i-1))) != 0 ? 'ON' : 'OFF'}'),
+              backgroundColor: mask != null && (mask & (1 << (i-1))) != 0
+                  ? (prefix == 'I' ? Colors.green : Colors.blue).withValues(alpha: .25)
+                  : null,
+            )),
+            const SizedBox(width: 6),
+            Expanded(flex: 2, child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var j = 0; j < 5; j++)
+                  Builder(builder: (context) {
+                    final times = _changeTimes[(prefix == 'I' ? 0 : 4) + i - 1];
+                    return Row(children: [
+                      Expanded(child: Text(
+                        j + 1 < times.length
+                            ? ((times[j] - times[j + 1]) / 1000).toStringAsFixed(3)
+                            : '—',
+                        textAlign: TextAlign.end,
+                        maxLines: 1,
+                        style: const TextStyle(fontSize: 11, height: 1.15,
+                          color: Colors.amber),
+                      )),
+                      const SizedBox(width: 4),
+                      Expanded(child: Text(
+                        j < times.length
+                            ? (times[j] / 1000).toStringAsFixed(3)
+                            : '—',
+                        textAlign: TextAlign.end,
+                        maxLines: 1,
+                        style: TextStyle(fontSize: 11, height: 1.15,
+                          color: j == 0 ? Theme.of(context).colorScheme.primary : null),
+                      )),
+                    ]);
+                  }),
+              ],
+            )),
+          ]),
         ),
     ]);
   }
@@ -106,18 +190,18 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
           Text('LynraControl — ${_ble.connectedDevice?.remoteId ?? ""}'),
         ],
         const SizedBox(height: 8),
-        OutlinedButton(
-          onPressed: busy || _ble.scanning || (!_ble.isConnected && _ble.selectedDevice == null)
-              ? null : _ble.connectOrDisconnect,
-          child: Text(_ble.connecting ? 'Bekleyin...' : _ble.isConnected ? 'Bağlantıyı Kes' : 'Bağlan'),
-        ),
-        const SizedBox(height: 8),
         Row(children: [
+          Expanded(child: OutlinedButton(
+            onPressed: busy || _ble.scanning || (!_ble.isConnected && _ble.selectedDevice == null)
+                ? null : _ble.connectOrDisconnect,
+            child: Text(_ble.connecting ? 'Bekleyin...' : _ble.isConnected ? 'Kes' : 'Bağlan'),
+          )),
+          const SizedBox(width: 8),
           Expanded(child: FilledButton(
             onPressed: canCommand ? () => _ble.sendPlcCommand(0x20) : null,
             child: const Text('RUN'),
           )),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(child: OutlinedButton(
             onPressed: canCommand ? () => _ble.sendPlcCommand(0x21) : null,
             child: const Text('STOP'),
@@ -126,11 +210,17 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
         const Divider(height: 28),
         Text('İzleme süresi: $_elapsed', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
-        Text('Girişler', style: theme.textTheme.titleMedium),
-        _signals('I'),
-        const SizedBox(height: 8),
-        Text('Çıkışlar', style: theme.textTheme.titleMedium),
-        _signals('Q'),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('Girişler', style: theme.textTheme.titleMedium),
+            _signals('I'),
+          ])),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('Çıkışlar', style: theme.textTheme.titleMedium),
+            _signals('Q'),
+          ])),
+        ]),
         const Divider(height: 28),
         Text('Fonksiyonlar', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
