@@ -2533,6 +2533,77 @@ for (var i = 0; i < _rules.length; i++) {
     });
   }
 
+  Future<void> _createReadRequest() async {
+    if (_cloudSaving) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Uzaktan program almak için giriş yapın.')),
+      );
+      return;
+    }
+    setState(() => _cloudSaving = true);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final token = await user.getIdToken();
+      if (token == null) throw Exception('Oturum doğrulanamadı.');
+      final request = await client.postUrl(Uri.parse(
+        'https://us-central1-lynracontrol.cloudfunctions.net/createReadRequest',
+      )).timeout(const Duration(seconds: 20));
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.write('{}');
+      final response = await request.close().timeout(const Duration(seconds: 40));
+      final body = await response.transform(utf8.decoder).join()
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        throw Exception(response.statusCode == 429
+            ? 'Çok fazla talep oluşturuldu. Daha sonra tekrar deneyin.'
+            : 'Talep oluşturulamadı (HTTP ${response.statusCode}).');
+      }
+      final data = jsonDecode(body);
+      final code = data['code'];
+      if (code is! String || !RegExp(r'^\d{6}$').hasMatch(code)) {
+        throw const FormatException('Geçersiz okuma kodu.');
+      }
+      if (!mounted || FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+      final shareText = 'LynraControl – Program Okuma Talebi\n\n'
+          'https://lynra.app/plc/read/\n\n'
+          'Okuma kodu: $code\n\n'
+          'Kodu doğrulayın, cihaza bağlanın, programı okuyun ve '
+          'Teknisyene Gönder butonuna basın.\n\n'
+          'Kod 30 dakika geçerlidir ve tek kullanımlıktır.';
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Uzaktan Program Al'),
+          content: SingleChildScrollView(child: SelectableText(shareText)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Kapat')),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: shareText));
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Okuma talebi kopyalandı.')),
+                );
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Kopyala'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Okuma talebi hatası: $e')),
+      );
+    } finally {
+      client.close(force: true);
+      if (mounted) setState(() => _cloudSaving = false);
+    }
+  }
+
   Future<void> _openFromCloud() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -3019,6 +3090,11 @@ for (var i = 0; i < _rules.length; i++) {
           onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _openFromDevice(); },
           icon: const Icon(Icons.bluetooth),
           label: const Text('Cihazdan Program Al'),
+        ),
+        OutlinedButton.icon(
+          onPressed: _cloudSaving ? null : _createReadRequest,
+          icon: const Icon(Icons.cloud_download_outlined),
+          label: const Text('Uzaktan Program Al'),
         ),
         ],
         const SizedBox(height: 10),
