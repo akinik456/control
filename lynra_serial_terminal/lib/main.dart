@@ -1,6 +1,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -47,6 +48,131 @@ class _TerminalPageState extends State<TerminalPage> {
   final _offset = TextEditingController(text: '0');
 
   String _log = '';
+  bool _reading = false;
+  int _received = 0, _total = 0;
+  Uint8List? _verifiedProgram;
+  Completer<String>? _reply;
+  String _rxLine = '';
+  bool get _ready => _connected && !_reading;
+
+  void _receive(Uint8List data) {
+    final text = ascii.decode(data, allowInvalid: true);
+    _appendLog(text);
+    for (final c in text.codeUnits) {
+      if (c == 13 || c == 10) {
+        final line = _rxLine;
+        _rxLine = '';
+        final reply = _reply;
+        if (reply != null && !reply.isCompleted &&
+            (line.startsWith('OK') || line.startsWith('ERR'))) {
+          reply.complete(line);
+        }
+      } else {
+        _rxLine += String.fromCharCode(c);
+        if (_rxLine.length > 4096) _rxLine = '';
+      }
+    }
+  }
+
+  Future<String> _request(String command) async {
+    final reply = Completer<String>();
+    _reply = reply;
+    try {
+      if (!_sendCommand(command, automatic: true)) {
+        throw Exception('Send failed');
+      }
+      final line = await reply.future.timeout(const Duration(seconds: 3));
+      if (line.startsWith('ERR')) throw Exception(line);
+      return line;
+    } finally {
+      _reply = null;
+    }
+  }
+
+  int _crc32(List<int> bytes) {
+    var crc = 0xFFFFFFFF;
+    for (final b in bytes) {
+      crc ^= b;
+      for (var i = 0; i < 8; i++) {
+        crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xEDB88320 : 0);
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
+  }
+
+  Future<void> _readProgram() async {
+    if (!_ready) return;
+    setState(() {
+      _reading = true;
+      _received = _total = 0;
+      _verifiedProgram = null;
+    });
+    try {
+      final info = await _request('GET PROGRAM INFO');
+      final m = RegExp(r'^OK SIZE=([0-9]+) CRC=([0-9A-Fa-f]{8})$').firstMatch(info);
+      if (m == null) throw Exception('Invalid program info');
+      final size = int.parse(m.group(1)!);
+      final crc = int.parse(m.group(2)!, radix: 16);
+      if (size <= 0 || size > 32768) throw Exception('Invalid program size');
+      if (!mounted) return;
+      setState(() => _total = size);
+      final bytes = BytesBuilder(copy: false);
+      while (bytes.length < size) {
+        final offset = bytes.length;
+        final line = await _request('GET PROGRAM DATA $offset');
+        final chunk = RegExp(r'^OK OFFSET=([0-9]+) COUNT=([0-9]+) DATA=([0-9A-Fa-f]+)$').firstMatch(line);
+        if (chunk == null) throw Exception('Invalid program data');
+        final count = int.parse(chunk.group(2)!);
+        final hex = chunk.group(3)!;
+        final expected = size - offset > 200 ? 200 : size - offset;
+        if (int.parse(chunk.group(1)!) != offset || count != expected || hex.length != count * 2) {
+          throw Exception('Invalid offset or count');
+        }
+        bytes.add(List<int>.generate(count, (i) => int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16)));
+        if (!mounted) return;
+        setState(() => _received = bytes.length);
+      }
+      final result = bytes.takeBytes();
+      if (result.length != size || _crc32(result) != crc) throw Exception('CRC32 mismatch');
+      jsonDecode(utf8.decode(result));
+      if (!mounted) return;
+      setState(() => _verifiedProgram = result);
+      _appendLog('\n[PROGRAM OK] $size bytes, CRC32 verified\n');
+    } catch (e) {
+      _appendLog('\n[PROGRAM ERROR] $e\n');
+    } finally {
+      if (mounted) setState(() => _reading = false);
+    }
+  }
+
+  Future<void> _saveProgram() async {
+    final bytes = _verifiedProgram;
+    if (bytes == null || _reading) return;
+    final controller = TextEditingController(text: '${Directory.current.path}${Platform.pathSeparator}lynra_program.json');
+    final path = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Save program JSON'),
+      content: TextField(controller: controller, decoration: const InputDecoration(labelText: 'Full file path')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Save')),
+      ],
+    ));
+    // Dispose after the dialog route has finished its closing animation.
+    Future<void>.delayed(const Duration(milliseconds: 500), controller.dispose);
+    if (path == null || path.isEmpty || !mounted) return;
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        _appendLog('\n[SAVE ERROR] File already exists; choose another path.\n');
+        return;
+      }
+      await file.writeAsBytes(bytes, flush: true);
+      _appendLog('\n[SAVED] ${file.path}\n');
+    } catch (e) {
+      _appendLog('\n[SAVE ERROR] $e\n');
+    }
+  }
+
 
   bool get _connected => _port != null;
 
@@ -109,10 +235,12 @@ class _TerminalPageState extends State<TerminalPage> {
 
       _subscription = _reader!.stream.listen(
         (data) {
-          _appendLog(ascii.decode(data, allowInvalid: true));
+          _receive(data);
         },
         onError: (Object error) {
           _appendLog('\n[RX ERROR] $error\n');
+          final reply = _reply;
+          if (reply != null && !reply.isCompleted) reply.completeError(error);
         },
       );
 
@@ -126,6 +254,9 @@ class _TerminalPageState extends State<TerminalPage> {
   }
 
   void _disconnect({bool silent = false}) {
+    final reply = _reply;
+    if (reply != null && !reply.isCompleted) reply.completeError(StateError('Disconnected'));
+    _rxLine = '';
     _subscription?.cancel();
     _subscription = null;
 
@@ -150,9 +281,9 @@ class _TerminalPageState extends State<TerminalPage> {
     if (_sendCommand(command)) _command.clear();
   }
 
-  bool _sendCommand(String command) {
+  bool _sendCommand(String command, {bool automatic = false}) {
 
-    if (!_connected || command.isEmpty) return false;
+    if (!_connected || command.isEmpty || (_reading && !automatic)) return false;
 
     try {
       final data = Uint8List.fromList(
@@ -188,7 +319,7 @@ class _TerminalPageState extends State<TerminalPage> {
 
   Widget _quick(String command, {String? label}) {
     return OutlinedButton(
-      onPressed: _connected ? () => _sendCommand(command) : null,
+      onPressed: _ready ? () => _sendCommand(command) : null,
       child: Text(label ?? command),
     );
   }
@@ -198,7 +329,7 @@ class _TerminalPageState extends State<TerminalPage> {
       width: 110,
       child: TextField(
         controller: controller,
-        enabled: _connected,
+        enabled: _ready,
         keyboardType: TextInputType.number,
         decoration: InputDecoration(labelText: label, isDense: true,
           border: const OutlineInputBorder()),
@@ -225,7 +356,7 @@ class _TerminalPageState extends State<TerminalPage> {
   Widget _parameterButton(String label, List<TextEditingController> fields,
       int min, int max) {
     return OutlinedButton(
-      onPressed: _connected
+      onPressed: _ready
           ? () => _parameterCommand(label, fields, min, max) : null,
       child: Text(label),
     );
@@ -239,6 +370,8 @@ class _TerminalPageState extends State<TerminalPage> {
           for (final cmd in ['GET INFO', 'GET STATE', 'GET IO', 'GET RULES',
             'GET ACTION ALL', 'GET PROGRAM INFO', 'RUN', 'STOP',
             'MANUAL ON', 'MANUAL OFF']) _quick(cmd),
+          FilledButton(onPressed: _ready ? _readProgram : null, child: const Text('READ PROGRAM')),
+          OutlinedButton(onPressed: !_reading && _verifiedProgram != null ? _saveProgram : null, child: const Text('SAVE JSON')),
         ]),
         const SizedBox(height: 8),
         Wrap(spacing: 12, runSpacing: 4, children: [
@@ -308,7 +441,7 @@ class _TerminalPageState extends State<TerminalPage> {
                 const Text('115200 / 8N1'),
                 const SizedBox(width: 16),
                 FilledButton(
-                  onPressed: _connected
+                  onPressed: _reading ? null : _connected
                       ? () => _disconnect()
                       : _selectedPort != null
                           ? _connect
@@ -332,6 +465,11 @@ class _TerminalPageState extends State<TerminalPage> {
               child: SingleChildScrollView(child: _quickPanel()),
             ),
             const SizedBox(height: 12),
+            if (_reading || _total > 0) ...[
+              LinearProgressIndicator(value: _total == 0 ? null : _received / _total),
+              Text('$_received / $_total bytes${_total > 0 ? " (${(_received * 100 / _total).floor()}%)" : ""}'),
+              const SizedBox(height: 8),
+            ],
             Expanded(
               flex: 2,
               child: Container(
@@ -361,7 +499,7 @@ class _TerminalPageState extends State<TerminalPage> {
                 Expanded(
                   child: TextField(
                     controller: _command,
-                    enabled: _connected,
+                    enabled: _ready,
                     onSubmitted: (_) => _send(),
                     decoration: const InputDecoration(
                       hintText: 'Enter command...',
@@ -371,7 +509,7 @@ class _TerminalPageState extends State<TerminalPage> {
                 ),
                 const SizedBox(width: 12),
                 FilledButton(
-                  onPressed: _connected ? _send : null,
+                  onPressed: _ready ? _send : null,
                   child: const Text('Send'),
                 ),
               ],
