@@ -8,6 +8,8 @@ bool take(TickType_t timeout);
 void give();
 // Caller must hold the shared recursive mutex.
 void setLock(Lock lock, Channel owner);
+Lock currentLock();
+Channel lockOwner();
 bool canControl(Channel channel);
 bool canManual(Channel channel, bool enable);
 void setManualOwner(Channel channel);

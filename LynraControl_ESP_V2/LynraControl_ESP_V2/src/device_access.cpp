@@ -9,6 +9,8 @@ bool init() { if (!mutex) mutex = xSemaphoreCreateRecursiveMutex(); return mutex
 bool take(TickType_t timeout) { return mutex && xSemaphoreTakeRecursive(mutex, timeout)==pdTRUE; }
 void give() { xSemaphoreGiveRecursive(mutex); }
 void setLock(Lock lock, Channel owner) { operation=lock; operationOwner=lock==Lock::None ? Channel::None : owner; }
+Lock currentLock() { return operation; }
+Channel lockOwner() { return operationOwner; }
 bool canControl(Channel channel) { return channel!=Channel::None && (operation==Lock::None || (operation==Lock::Program && operationOwner==channel)); }
 bool canManual(Channel channel, bool enable) {
     if (channel==Channel::None || operation!=Lock::None) return false;

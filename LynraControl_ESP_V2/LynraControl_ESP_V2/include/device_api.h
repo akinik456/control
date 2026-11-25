@@ -36,4 +36,14 @@ using DeviceData::ActionValues;
 bool readEvents(uint32_t cursor, IoEventBatch &batch);
 void readActionValues(uint8_t rule, uint8_t action, ActionValues &result);
 bool readRules(uint8_t *counts, size_t capacity, size_t &count);
+// Program transfers share one buffer; read snapshots belong to the requesting channel.
+bool programActive();
+bool beginProgram(DeviceAccess::Channel channel, uint32_t size, uint32_t crc);
+bool appendProgram(DeviceAccess::Channel channel, uint32_t seq, const uint8_t* data, size_t size);
+bool finishProgram(DeviceAccess::Channel channel);
+void abortProgram(DeviceAccess::Channel channel);
+void serviceProgramTimeout();
+void clearProgramRead(DeviceAccess::Channel channel);
+bool programInfo(DeviceAccess::Channel channel, uint32_t &size, uint32_t &crc);
+size_t programChunk(DeviceAccess::Channel channel, uint32_t offset, uint8_t* dest, size_t capacity);
 }

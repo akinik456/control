@@ -2,14 +2,10 @@
 #include "device_api.h"
 #include "ble_interface.h"
 
-#include <ArduinoJson.h>
-#include "models/control_program.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include "plc_manager.h"
-#include "plc_program_store.h"
 #include "firmware_update.h"
 #include <esp_ota_ops.h>
 
@@ -23,22 +19,8 @@ static uint8_t lastReportedPlcState = 0xFF;
 using DeviceAccess::Channel;
 using DeviceAccess::Lock;
 static constexpr Channel BLE_CHANNEL = Channel::Ble;
-static constexpr size_t MAX_PROGRAM_SIZE = 32768;
-
-static uint8_t programBuffer[MAX_PROGRAM_SIZE];
-
-static uint32_t expectedProgramSize = 0;
-static uint32_t expectedProgramCRC = 0;
-static uint32_t receivedProgramSize = 0;
-
-static size_t readProgramSize = 0;
-static uint32_t readProgramCRC = 0;
 static bool restartPending = false;
 static uint32_t restartRequestedMs = 0;
-static bool programTransferActive = false;
-static bool hasLastDataSeq = false;
-static uint32_t lastDataSeq = 0;
-static uint32_t lastProgramPacketMs = 0;
 
 static bool fwReady = false;
 static uint32_t fwSize = 0, fwLastMs = 0;
@@ -48,9 +30,10 @@ static uint16_t fwLastLength = 0;
 static uint8_t fwLastData[200];
 // Publish transaction state before releasing the shared mutex.
 static void unlockAccess() {
-    DeviceAccess::setLock(restartPending ? Lock::Restart :
-        (FirmwareUpdate::active() || fwReady) ? Lock::Firmware :
-        programTransferActive ? Lock::Program : Lock::None, BLE_CHANNEL);
+    if (restartPending) DeviceAccess::setLock(Lock::Restart, BLE_CHANNEL);
+    else if (FirmwareUpdate::active() || fwReady) DeviceAccess::setLock(Lock::Firmware, BLE_CHANNEL);
+    else if (DeviceAccess::currentLock()==Lock::Firmware && DeviceAccess::lockOwner()==BLE_CHANNEL)
+        DeviceAccess::setLock(Lock::None, Channel::None);
     DeviceAccess::give();
 }
 static void fwAbort() {
@@ -58,7 +41,7 @@ static void fwAbort() {
     fwSize = 0; fwLastLength = 0;
     Serial.println("FW ABORT: STOP");
 }
-static constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
+
 
 
 
@@ -90,14 +73,8 @@ class ServerCallbacks : public BLEServerCallbacks
             DeviceAccess::take(pdMS_TO_TICKS(1000)))
         {
             if (FirmwareUpdate::active()) fwAbort();
-            readProgramSize = 0;
-            if (programTransferActive)
-            {
-                programTransferActive = false;
-                hasLastDataSeq = false;
-                plcAbortProgramming();
-                Serial.println("PROGRAM TRANSFER ABORTED: BLE DISCONNECT");
-            }
+            DeviceApi::clearProgramRead(BLE_CHANNEL);
+            DeviceApi::abortProgram(BLE_CHANNEL);
             unlockAccess();
         }
         DeviceApi::releaseManual(BLE_CHANNEL);
@@ -246,13 +223,8 @@ static void sendActionValues(uint32_t seq, uint8_t rule, uint8_t action)
 
 static void sendProgramInfo(uint32_t seq)
 {
-    readProgramSize=0;
-    readProgramCRC=0;
-    size_t length=0;
-    if (PlcProgramStore::load(programBuffer,MAX_PROGRAM_SIZE,length)) {
-        readProgramSize=length;
-        readProgramCRC=LynraProtocol::calculateCRC32(programBuffer,length);
-    }
+    uint32_t readProgramSize=0, readProgramCRC=0;
+    if (!DeviceApi::programInfo(BLE_CHANNEL,readProgramSize,readProgramCRC)) return;
     uint8_t payload[8]={};
     for (int i=0;i<4;++i) {
         payload[i]=uint32_t(readProgramSize)>>(8*i);
@@ -267,12 +239,7 @@ static void sendProgramChunk(uint32_t seq,uint32_t offset)
 {
     uint8_t payload[204]={};
     for (int i=0;i<4;++i) payload[i]=offset>>(8*i);
-    size_t count=0;
-    if (offset < readProgramSize) {
-        count=readProgramSize-offset;
-        if (count>200) count=200;
-        memcpy(payload+4,programBuffer+offset,count);
-    }
+    size_t count=DeviceApi::programChunk(BLE_CHANNEL,offset,payload+4,200);
     sendReadFrame(0x43,seq,payload,4+count);
 }
 
@@ -296,7 +263,7 @@ static void handleFirmware(uint8_t type, uint32_t seq, const uint8_t* p, uint16_
     } else if (type==0x51 && n==4) {
         uint32_t size=fwU32(p);
         const auto* target=esp_ota_get_next_update_partition(nullptr);
-        if (programTransferActive || fwReady) err=ESP_ERR_INVALID_STATE;
+        if (DeviceApi::programActive() || fwReady) err=ESP_ERR_INVALID_STATE;
         else if (FirmwareUpdate::active()) {
             err=(size==fwSize && FirmwareUpdate::received()==0) ? ESP_OK : ESP_ERR_INVALID_STATE;
         } else if (!target || !size || size>target->size) err=ESP_ERR_INVALID_SIZE;
@@ -304,7 +271,7 @@ static void handleFirmware(uint8_t type, uint32_t seq, const uint8_t* p, uint16_
             DeviceApi::stop(BLE_CHANNEL);
             DeviceApi::setManualMode(BLE_CHANNEL, false);
             err=FirmwareUpdate::begin(size);
-            if (err==ESP_OK) { fwSize=size; fwLastLength=0; readProgramSize=0; }
+            if (err==ESP_OK) { fwSize=size; fwLastLength=0; DeviceApi::clearProgramRead(BLE_CHANNEL); }
         }
         value=FirmwareUpdate::received();
     } else if (type==0x52 && n>4 && n<=204 && FirmwareUpdate::active()) {
@@ -348,16 +315,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             return;
         }
         std::string value = characteristic->getValue();
-        if (programTransferActive &&
-            (uint32_t)(millis() - lastProgramPacketMs) > PROGRAM_TIMEOUT_MS)
-        {
-            programTransferActive = false;
-            hasLastDataSeq = false;
-
-            plcAbortProgramming();
-
-            Serial.println("PROGRAM TRANSFER TIMEOUT");
-        }
+        DeviceApi::serviceProgramTimeout();
 
         const uint8_t *data =
             reinterpret_cast<const uint8_t *>(value.data());
@@ -381,7 +339,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 unlockAccess(); return;
             }
             if (type == 0x38) {
-                if (value.size() == 27 && !programTransferActive) {
+                if (value.size() == 27 && !DeviceApi::programActive()) {
                     if (!restartPending) {
                         restartPending = true;
                         restartRequestedMs = millis();
@@ -398,7 +356,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
             if (type == 0x36 || type == 0x37) {
                 bool ok = false;
-                if (!programTransferActive) {
+                if (!DeviceApi::programActive()) {
                     if (type == 0x36 && value.size() == 28 && data[23] <= 1)
                         ok = DeviceApi::setManualMode(BLE_CHANNEL, data[23] != 0);
                     if (type == 0x37 && value.size() == 29 && data[23] < 4 && data[24] <= 1)
@@ -411,7 +369,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
             if (type == 0x44)
             {
-                if (!programTransferActive && value.size() == 29)
+                if (!DeviceApi::programActive() && value.size() == 29)
                     sendActionValues(seq, data[23], data[24]);
                 unlockAccess();
                 return;
@@ -419,7 +377,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
             if (type == 0x40 || type == 0x42)
             {
-                if (!programTransferActive) {
+                if (!DeviceApi::programActive()) {
                     if (type == 0x40 && value.size() == 27)
                         sendProgramInfo(seq);
                     else if (type == 0x42 && value.size() == 31) {
@@ -435,7 +393,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             // Read-only query; response itself confirms receipt.
             if (type == 0x34)
             {
-                if (value.size() == 31 && !programTransferActive) {
+                if (value.size() == 31 && !DeviceApi::programActive()) {
                     uint32_t cursor = 0;
                     for (int i=0;i<4;++i) cursor |= uint32_t(data[23+i]) << (8*i);
                     sendEvents(seq,cursor);
@@ -445,7 +403,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             }
             if (type == 0x32)
             {
-                if (value.size() == 27 && !programTransferActive)
+                if (value.size() == 27 && !DeviceApi::programActive())
                 {
                     // Report state changes from any channel before completing the IO poll.
                     if (DeviceApi::getState() != lastReportedPlcState)
@@ -466,223 +424,24 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                     lastReportedPlcState = 0xFF;
                 if (type == 0x20) // RUN
                 {
-                    if (!programTransferActive && DeviceApi::run(BLE_CHANNEL))
+                    if (!DeviceApi::programActive() && DeviceApi::run(BLE_CHANNEL))
                         Serial.println("PLC STATE: RUN (BLE)");
                     else
                         Serial.println("RUN REJECTED (BLE)");
                 }
                 else if (type == 0x21) // STOP
                 {
+                    DeviceApi::abortProgram(BLE_CHANNEL);
                     DeviceApi::stop(BLE_CHANNEL);
-                    programTransferActive = false;
-                    hasLastDataSeq = false;
                     Serial.println("PLC STATE: STOP (BLE)");
                 }
-                else if (type == 0x10) // PROGRAM_BEGIN
-                {
-                    const uint16_t payloadLength =
-                        (uint16_t)data[21] |
-                        ((uint16_t)data[22] << 8);
-
-                    if (payloadLength == 8)
-                    {
-                        const uint32_t size =
-                            (uint32_t)data[23] |
-                            ((uint32_t)data[24] << 8) |
-                            ((uint32_t)data[25] << 16) |
-                            ((uint32_t)data[26] << 24);
-
-                        const uint32_t crc =
-                            (uint32_t)data[27] |
-                            ((uint32_t)data[28] << 8) |
-                            ((uint32_t)data[29] << 16) |
-                            ((uint32_t)data[30] << 24);
-
-                        if (size > 0 && size <= MAX_PROGRAM_SIZE &&
-                            plcBeginProgramming())
-                        {
-                            readProgramSize = 0;
-                            expectedProgramSize = size;
-                            expectedProgramCRC = crc;
-                            receivedProgramSize = 0;
-                            programTransferActive = true;
-                            hasLastDataSeq = false;
-                            lastProgramPacketMs = millis();
-
-                            Serial.printf(
-                                "PROGRAM_BEGIN: SIZE=%lu CRC=%08lX\n",
-                                (unsigned long)size,
-                                (unsigned long)crc);
-                        }
-                        else
-                        {
-                            Serial.println("PROGRAM_BEGIN REJECTED");
-                        }
-                    }
-                    else
-                    {
-                        Serial.println("PROGRAM_BEGIN: INVALID LENGTH");
-                    }
-                }
-                else if (type == 0x11) // PROGRAM_DATA
-                {
-                    const uint16_t payloadLength =
-                        (uint16_t)data[21] |
-                        ((uint16_t)data[22] << 8);
-
-                    if (!programTransferActive)
-                    {
-                        Serial.println("PROGRAM_DATA: NO ACTIVE TRANSFER");
-                    }
-                    else if (hasLastDataSeq && seq == lastDataSeq)
-                    {
-                        Serial.printf("PROGRAM_DATA: DUPLICATE SEQ=%lu\n",
-                                      (unsigned long)seq);
-                    }
-                    else if (payloadLength >
-                             expectedProgramSize - receivedProgramSize)
-                    {
-                        programTransferActive = false;
-                        plcAbortProgramming();
-
-                        Serial.println("PROGRAM_DATA: SIZE OVERFLOW");
-                    }
-                    else
-                    {
-                        memcpy(
-                            programBuffer + receivedProgramSize,
-                            data + 23,
-                            payloadLength);
-
-                        receivedProgramSize += payloadLength;
-                        lastDataSeq = seq;
-                        hasLastDataSeq = true;
-                        lastProgramPacketMs = millis();
-
-                        Serial.printf(
-                            "PROGRAM_DATA: RECEIVED=%lu/%lu\n",
-                            (unsigned long)receivedProgramSize,
-                            (unsigned long)expectedProgramSize);
-                    }
-                }
-                else if (type == 0x12) // PROGRAM_END
-                {
-                    const uint16_t payloadLength =
-                        (uint16_t)data[21] |
-                        ((uint16_t)data[22] << 8);
-
-                    if (!programTransferActive ||
-                        payloadLength != 0 ||
-                        receivedProgramSize != expectedProgramSize)
-                    {
-                        programTransferActive = false;
-                        plcAbortProgramming();
-
-                        Serial.println("PROGRAM_END: INVALID TRANSFER");
-                    }
-                    else
-                    {
-                        const uint32_t actualCRC =
-                            LynraProtocol::calculateCRC32(
-                                programBuffer, receivedProgramSize);
-
-                        if (actualCRC != expectedProgramCRC)
-                        {
-                            programTransferActive = false;
-                            plcAbortProgramming();
-
-                            Serial.println("PROGRAM_END: CRC ERROR");
-                        }
-                        else
-                        {
-                            programTransferActive = false;
-                            Serial.println("PROGRAM_END: CRC OK");
-
-                            JsonDocument doc;
-
-                            DeserializationError error = deserializeJson(
-                                doc, programBuffer, receivedProgramSize);
-
-                            if (error)
-                            {
-                                Serial.printf(
-                                    "JSON ERROR: %s\n", error.c_str());
-                                plcAbortProgramming();
-                            }
-                            else
-                            {
-                                ControlProgram receivedProgram;
-
-                                if (!receivedProgram.fromJson(
-                                        doc.as<JsonVariantConst>()))
-                                {
-                                    Serial.println("PROGRAM PARSE FAILED");
-                                    plcAbortProgramming();
-                                }
-                                else
-                                {
-                                    String validationError;
-
-                                    if (!receivedProgram.validate(
-                                            validationError))
-                                    {
-                                        Serial.printf(
-                                            "VALIDATION FAILED: %s\n",
-                                            validationError.c_str());
-                                        plcAbortProgramming();
-                                    }
-                                    else
-                                    {
-                                        Serial.println(
-                                            "PROGRAM VALIDATION OK");
-
-                                        // Preflight must not mutate the active C engine.
-                                        if (!plcPreflightProgram(receivedProgram))
-                                        {
-                                            Serial.println("PROGRAM PREFLIGHT FAILED");
-                                            plcAbortProgramming();
-                                        }
-                                        else if (!PlcProgramStore::prepare(
-                                                     programBuffer, receivedProgramSize))
-                                        {
-                                            Serial.println("PROGRAM FLASH PREPARE FAILED");
-                                            plcAbortProgramming();
-                                        }
-                                        else if (!PlcProgramStore::commit())
-                                        {
-                                            // The active RAM program is untouched.
-                                            // In rare post-rename verification failures,
-                                            // reboot may select the new flash record.
-                                            Serial.println("PROGRAM FLASH COMMIT FAILED - STOP");
-                                            plcAbortProgramming();
-                                        }
-                                        else
-                                        {
-                                            Serial.println("PROGRAM FLASH COMMIT OK");
-                                            if (plcLoadProgram(receivedProgram))
-                                            {
-                                                Serial.println("PROGRAM LOAD SUCCESS");
-                                                if (plcFinishProgramming())
-                                                    Serial.println("PROGRAM ACTIVATED");
-                                                else
-                                                {
-                                                    Serial.println("PROGRAM ACTIVATION FAILED - STOP");
-                                                    plcAbortProgramming();
-                                                }
-                                            }
-                                            else
-                                            {
-                                                // Persisted program is valid; never RUN
-                                                // if unexpected engine load fails.
-                                                Serial.println("PROGRAM LOAD FAILED AFTER COMMIT - STOP");
-                                                plcAbortProgramming();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                else if (type == 0x10) {
+                    if (value.size()==35) DeviceApi::beginProgram(BLE_CHANNEL,fwU32(data+23),fwU32(data+27));
+                } else if (type == 0x11) {
+                    DeviceApi::appendProgram(BLE_CHANNEL,seq,data+23,value.size()-27);
+                } else if (type == 0x12) {
+                    if (value.size()==27) DeviceApi::finishProgram(BLE_CHANNEL);
+                    else DeviceApi::abortProgram(BLE_CHANNEL);
                 }
 
                 sendAck(seq);
@@ -698,13 +457,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 
         // A corrupt framed packet during programming invalidates the session.
         // Do not abort on arbitrary noise while not programming.
-        if (programTransferActive)
-        {
-            programTransferActive = false;
-            hasLastDataSeq = false;
-            plcAbortProgramming();
-            Serial.println("PROGRAM TRANSFER ABORTED: INVALID FRAME/CRC");
-        }
+        DeviceApi::abortProgram(BLE_CHANNEL);
 
         if (value == "HELLO")
         {
@@ -778,16 +531,7 @@ void bleLoop()
         return;
     }
 
-    if (programTransferActive &&
-        (uint32_t)(millis() - lastProgramPacketMs) > PROGRAM_TIMEOUT_MS)
-    {
-        programTransferActive = false;
-        hasLastDataSeq = false;
-
-        plcAbortProgramming();
-
-        Serial.println("PROGRAM TRANSFER TIMEOUT");
-    }
+    DeviceApi::serviceProgramTimeout();
 
     unlockAccess();
 }
