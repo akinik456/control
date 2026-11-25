@@ -41,6 +41,10 @@ class _TerminalPageState extends State<TerminalPage> {
 
   final _command = TextEditingController();
   final _scroll = ScrollController();
+  final _rule = TextEditingController(text: '1');
+  final _action = TextEditingController(text: '1');
+  final _cursor = TextEditingController(text: '0');
+  final _offset = TextEditingController(text: '0');
 
   String _log = '';
 
@@ -143,8 +147,12 @@ class _TerminalPageState extends State<TerminalPage> {
 
   void _send() {
     final command = _command.text.trim();
+    if (_sendCommand(command)) _command.clear();
+  }
 
-    if (!_connected || command.isEmpty) return;
+  bool _sendCommand(String command) {
+
+    if (!_connected || command.isEmpty) return false;
 
     try {
       final data = Uint8List.fromList(
@@ -157,11 +165,12 @@ class _TerminalPageState extends State<TerminalPage> {
 
       if (written != data.length) {
         _appendLog('[ERROR] Incomplete write\n');
+        return false;
       }
-
-      _command.clear();
+      return true;
     } catch (e) {
       _appendLog('[TX ERROR] $e\n');
+      return false;
     }
   }
 
@@ -170,7 +179,95 @@ class _TerminalPageState extends State<TerminalPage> {
     _disconnect(silent: true);
     _command.dispose();
     _scroll.dispose();
+    _rule.dispose();
+    _action.dispose();
+    _cursor.dispose();
+    _offset.dispose();
     super.dispose();
+  }
+
+  Widget _quick(String command, {String? label}) {
+    return OutlinedButton(
+      onPressed: _connected ? () => _sendCommand(command) : null,
+      child: Text(label ?? command),
+    );
+  }
+
+  Widget _number(TextEditingController controller, String label) {
+    return SizedBox(
+      width: 110,
+      child: TextField(
+        controller: controller,
+        enabled: _connected,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(labelText: label, isDense: true,
+          border: const OutlineInputBorder()),
+      ),
+    );
+  }
+
+  void _parameterCommand(String prefix, List<TextEditingController> fields,
+      int min, int max) {
+    final values = <int>[];
+    for (final field in fields) {
+      final raw = field.text.trim();
+      final value = int.tryParse(raw);
+      if (!RegExp(r'^[0-9]+$').hasMatch(raw) ||
+          value == null || value < min || value > max) {
+        _appendLog('\n[ERROR] Invalid parameter ($min–$max)\n');
+        return;
+      }
+      values.add(value);
+    }
+    _sendCommand('$prefix ${values.join(' ')}');
+  }
+
+  Widget _parameterButton(String label, List<TextEditingController> fields,
+      int min, int max) {
+    return OutlinedButton(
+      onPressed: _connected
+          ? () => _parameterCommand(label, fields, min, max) : null,
+      child: Text(label),
+    );
+  }
+
+  Widget _quickPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(spacing: 8, runSpacing: 4, children: [
+          for (final cmd in ['GET INFO', 'GET STATE', 'GET IO', 'GET RULES',
+            'GET ACTION ALL', 'GET PROGRAM INFO', 'RUN', 'STOP',
+            'MANUAL ON', 'MANUAL OFF']) _quick(cmd),
+        ]),
+        const SizedBox(height: 8),
+        Wrap(spacing: 12, runSpacing: 4, children: [
+          for (var i = 1; i <= 4; i++)
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('I$i  '),
+              _quick('SET I$i 1', label: 'ON'),
+              const SizedBox(width: 4),
+              _quick('SET I$i 0', label: 'OFF'),
+            ]),
+        ]),
+        const SizedBox(height: 8),
+        Wrap(spacing: 16, runSpacing: 8, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            _number(_rule, 'Rule'), const SizedBox(width: 4),
+            _number(_action, 'Action'), const SizedBox(width: 4),
+            _parameterButton('GET ACTION', [_rule, _action], 1, 256),
+          ]),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            _number(_cursor, 'Cursor'), const SizedBox(width: 4),
+            _parameterButton('GET EVENTS', [_cursor], 0, 4294967295),
+          ]),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            _number(_offset, 'Offset'), const SizedBox(width: 4),
+            _parameterButton('GET PROGRAM DATA', [_offset], 0, 4294967295),
+          ]),
+        ]),
+      ],
+    );
   }
 
   @override
@@ -230,7 +327,13 @@ class _TerminalPageState extends State<TerminalPage> {
               ],
             ),
             const SizedBox(height: 12),
+            Flexible(
+              flex: 1,
+              child: SingleChildScrollView(child: _quickPanel()),
+            ),
+            const SizedBox(height: 12),
             Expanded(
+              flex: 2,
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
