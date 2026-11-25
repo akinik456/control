@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include "plc_manager.h"
 #include "ble_interface.h"
+#include "serial_interface.h"
 #include "plc_program_store.h"
 #include "models/control_program.h"
 
@@ -97,10 +98,12 @@ Serial.println("OTA ROLLBACK CONFIG: DISABLED");
     Serial.println("BLE INIT FAILED");
     while (true) delay(1000);
   }
+  serialInterfaceInit();
 }
 
 void loop() {
   plcLoop();
   bleLoop();
+  serialInterfaceLoop();
   delay(1);
 }
