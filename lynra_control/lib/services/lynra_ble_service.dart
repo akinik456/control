@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -372,8 +373,10 @@ class LynraBleService extends ChangeNotifier {
         timeout: const Duration(seconds: 10),
       );
       debugPrint('ESP32 CONNECTED');
-      final mtu = await device.requestMtu(247);
-      debugPrint('BLE MTU: $mtu');
+      if (Platform.isAndroid) {
+				final mtu = await device.requestMtu(247);
+				debugPrint('BLE MTU: $mtu');
+			}
       final services = await device.discoverServices();
       final service = services.firstWhere((s) => s.uuid.toString() == serviceUuid);
       final rx = service.characteristics.firstWhere((c) => c.uuid.toString() == writeUuid);

@@ -1,4 +1,4 @@
-
+import 'dart:io';
 import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 
@@ -138,9 +138,12 @@ class LynraPlcFfi {
   late final DynamicLibrary _library;
 
   LynraPlcFfi() {
-    _library = DynamicLibrary.open('liblynra_PLC_engine.so');
-    
-  }
+  _library = DynamicLibrary.open(
+    Platform.isWindows
+        ? 'liblynra_PLC_engine.dll'
+        : 'liblynra_PLC_engine.so',
+  );
+}
 	
 	
 Pointer<Void> createEngine() {
