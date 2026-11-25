@@ -30,6 +30,10 @@ void handleCommand() {
                        static_cast<unsigned long>(io.outputs),
                        static_cast<unsigned>(io.manual),
                        static_cast<unsigned long long>(io.timeMs));
+    } else if (strcmp(line, "RUN") == 0) {
+        Serial2.println(DeviceApi::run(DeviceAccess::Channel::Serial) ? "OK" : "ERR RUN_REJECTED");
+    } else if (strcmp(line, "STOP") == 0) {
+        Serial2.println(DeviceApi::stop(DeviceAccess::Channel::Serial) ? "OK" : "ERR STOP_REJECTED");
     } else {
         Serial2.println("ERR UNKNOWN_COMMAND");
     }

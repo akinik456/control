@@ -19,6 +19,7 @@
 
 static BLECharacteristic *tx = nullptr;
 static bool accessReady = false;
+static uint8_t lastReportedPlcState = 0xFF;
 using DeviceAccess::Channel;
 using DeviceAccess::Lock;
 static constexpr Channel BLE_CHANNEL = Channel::Ble;
@@ -152,6 +153,7 @@ static void sendPlcStatus(uint32_t seq)
 
     frame[21] = 1; // Payload uzunluğu
     frame[23] = DeviceApi::getState();
+    lastReportedPlcState = frame[23];
 
     const uint32_t crc =
         LynraProtocol::calculateCRC32(frame + 2, 22);
@@ -444,7 +446,12 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             if (type == 0x32)
             {
                 if (value.size() == 27 && !programTransferActive)
+                {
+                    // Report state changes from any channel before completing the IO poll.
+                    if (DeviceApi::getState() != lastReportedPlcState)
+                        sendPlcStatus(0);
                     sendIoResponse(seq);
+                }
                 unlockAccess();
                 return;
             }
@@ -455,6 +462,8 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             {
                 Serial.printf("BLE RX: TYPE=0x%02X SEQ=%lu\n",
                               type, (unsigned long)seq);
+                if (type == 0x01)
+                    lastReportedPlcState = 0xFF;
                 if (type == 0x20) // RUN
                 {
                     if (!programTransferActive && DeviceApi::run(BLE_CHANNEL))
