@@ -93,3 +93,12 @@ Firmware güncellemede özellikle şunları garanti etmeliyiz:
 
 **********************
 
+Adım	İşlev
+5.4	Fonksiyonların anlık değerleri
+5.5	I/O olay kayıtlarının okunması
+5.6	Cihaz bilgileri
+5.7	Program okuma ve yükleme
+5.8	Public API dokümantasyonu
+
+****************
+

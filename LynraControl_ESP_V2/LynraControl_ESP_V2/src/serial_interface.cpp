@@ -97,6 +97,46 @@ void serviceAll() {
     printAction(static_cast<uint8_t>(allRule), static_cast<uint8_t>(allAction++), true);
 }
 
+void handleEvents() {
+    const char *p = line + 11;
+    uint32_t cursor = 0;
+    if (*p < '0' || *p > '9') {
+        Serial2.println("ERR INVALID_CURSOR");
+        return;
+    }
+    while (*p >= '0' && *p <= '9') {
+        const uint32_t digit = static_cast<uint32_t>(*p++ - '0');
+        if (cursor > (UINT32_MAX - digit) / 10U) {
+            Serial2.println("ERR INVALID_CURSOR");
+            return;
+        }
+        cursor = cursor * 10U + digit;
+    }
+    if (*p != '\0') {
+        Serial2.println("ERR INVALID_CURSOR");
+        return;
+    }
+    DeviceApi::IoEventBatch batch{};
+    if (!DeviceApi::readEvents(cursor, batch) || batch.count > 10) {
+        Serial2.println("ERR EVENTS_UNAVAILABLE");
+        return;
+    }
+    Serial2.printf("OK FIRST=%lu COUNT=%u LOST=%u\r\n",
+                   static_cast<unsigned long>(batch.first),
+                   static_cast<unsigned>(batch.count),
+                   static_cast<unsigned>(batch.lost));
+    for (uint8_t i = 0; i < batch.count; ++i) {
+        const auto &e = batch.records[i];
+        Serial2.printf("EVENT=%lu TIME_MS=%llu IN=0x%08lX OUT=0x%08lX\r\n",
+                       static_cast<unsigned long>(batch.first + i),
+                       static_cast<unsigned long long>(e.ms),
+                       static_cast<unsigned long>(e.inputs),
+                       static_cast<unsigned long>(e.outputs));
+    }
+    Serial2.printf("END NEXT=%lu\r\n",
+                   static_cast<unsigned long>(batch.first + batch.count));
+}
+
 void handleCommand() {
     if (strcmp(line, "GET STATE") == 0) {
         const uint8_t state = DeviceApi::getState();
@@ -117,6 +157,10 @@ void handleCommand() {
                        static_cast<unsigned long>(io.outputs),
                        static_cast<unsigned>(io.manual),
                        static_cast<unsigned long long>(io.timeMs));
+    } else if (strncmp(line, "GET EVENTS ", 11) == 0) {
+        handleEvents();
+    } else if (strcmp(line, "GET EVENTS") == 0) {
+        Serial2.println("ERR INVALID_CURSOR");
     } else if (strcmp(line, "GET RULES") == 0) {
         handleRules(false);
     } else if (strcmp(line, "GET ACTION ALL") == 0) {
