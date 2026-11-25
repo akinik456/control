@@ -137,6 +137,48 @@ void handleEvents() {
                    static_cast<unsigned long>(batch.first + batch.count));
 }
 
+// Program readback uses the shared Device API snapshot (no extra program buffer).
+void handleProgramInfo() {
+    uint32_t size = 0, crc = 0;
+    if (!DeviceApi::programInfo(DeviceAccess::Channel::Serial, size, crc)) {
+        Serial2.println("ERR PROGRAM_UNAVAILABLE");
+        return;
+    }
+    Serial2.printf("OK SIZE=%lu CRC=%08lX\r\n",
+                   static_cast<unsigned long>(size), static_cast<unsigned long>(crc));
+}
+
+void handleProgramData() {
+    const char *p = line + 17;
+    uint32_t offset = 0;
+    if (*p < '0' || *p > '9') {
+        Serial2.println("ERR INVALID_OFFSET"); return;
+    }
+    while (*p >= '0' && *p <= '9') {
+        const uint32_t digit = static_cast<uint32_t>(*p++ - '0');
+        if (offset > (UINT32_MAX - digit) / 10U) {
+            Serial2.println("ERR INVALID_OFFSET"); return;
+        }
+        offset = offset * 10U + digit;
+    }
+    if (*p != '\0') { Serial2.println("ERR INVALID_OFFSET"); return; }
+    uint8_t data[200];
+    const size_t count = DeviceApi::programChunk(DeviceAccess::Channel::Serial,
+                                                  offset, data, sizeof(data));
+    if (!count || count > sizeof(data)) {
+        Serial2.println("ERR PROGRAM_DATA_UNAVAILABLE"); return;
+    }
+    char hex[401];
+    constexpr char digits[] = "0123456789ABCDEF";
+    for (size_t i = 0; i < count; ++i) {
+        hex[2*i] = digits[data[i] >> 4];
+        hex[2*i+1] = digits[data[i] & 15];
+    }
+    hex[2*count] = '\0';
+    Serial2.printf("OK OFFSET=%lu COUNT=%u DATA=%s\r\n",
+                   static_cast<unsigned long>(offset), static_cast<unsigned>(count), hex);
+}
+
 void handleCommand() {
     if (strcmp(line, "GET INFO") == 0) {
         DeviceApi::DeviceInfo info{};
@@ -150,6 +192,12 @@ void handleCommand() {
                        unsigned(info.deviceId[2]), unsigned(info.deviceId[3]),
                        unsigned(info.deviceId[4]), unsigned(info.deviceId[5]),
                        unsigned(info.inputs), unsigned(info.outputs));
+    } else if (strcmp(line, "GET PROGRAM INFO") == 0) {
+        handleProgramInfo();
+    } else if (strncmp(line, "GET PROGRAM DATA ", 17) == 0) {
+        handleProgramData();
+    } else if (strcmp(line, "GET PROGRAM DATA") == 0) {
+        Serial2.println("ERR INVALID_OFFSET");
     } else if (strcmp(line, "GET STATE") == 0) {
         const uint8_t state = DeviceApi::getState();
         switch (state) {
