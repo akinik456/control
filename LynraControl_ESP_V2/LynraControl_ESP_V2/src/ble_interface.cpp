@@ -10,6 +10,8 @@
 #include <BLE2902.h>
 #include "plc_manager.h"
 #include "plc_program_store.h"
+#include "firmware_update.h"
+#include <esp_ota_ops.h>
 
 #define SERVICE_UUID "8d21a100-64c2-4c3a-9d1e-123456789abc"
 #define WRITE_UUID "8d21a101-64c2-4c3a-9d1e-123456789abc"
@@ -34,6 +36,17 @@ static bool hasLastDataSeq = false;
 static uint32_t lastDataSeq = 0;
 static uint32_t lastProgramPacketMs = 0;
 
+static bool fwReady = false;
+static uint32_t fwSize = 0, fwLastMs = 0;
+static constexpr uint32_t FW_TIMEOUT_MS = 30000;
+static uint32_t fwLastOffset = 0;
+static uint16_t fwLastLength = 0;
+static uint8_t fwLastData[200];
+static void fwAbort() {
+    FirmwareUpdate::abort();
+    fwSize = 0; fwLastLength = 0;
+    Serial.println("FW ABORT: STOP");
+}
 static constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
 
 extern bool plcSetManualMode(bool enabled);
@@ -41,10 +54,21 @@ extern bool plcSetManualInput(uint8_t index, bool on);
 
 class ServerCallbacks : public BLEServerCallbacks
 {
-    void onConnect(BLEServer *server) override
-    {
-        Serial.println("BLE CLIENT CONNECTED");
-    }
+    void onConnect(BLEServer *server,
+               esp_ble_gatts_cb_param_t *param) override
+{
+    Serial.println("BLE CLIENT CONNECTED");
+
+    server->updateConnParams(
+        param->connect.remote_bda,
+        6,   // Min interval: 7.5 ms
+        12,  // Max interval: 15 ms
+        0,   // Slave latency
+        400  // Supervision timeout: 4 s
+    );
+
+    Serial.println("BLE FAST INTERVAL REQUESTED");
+}
 
     void onDisconnect(BLEServer *server) override
     {
@@ -54,6 +78,7 @@ class ServerCallbacks : public BLEServerCallbacks
         if (transferMutex != nullptr &&
             xSemaphoreTake(transferMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
         {
+            if (FirmwareUpdate::active()) fwAbort();
             readProgramSize = 0;
             if (programTransferActive)
             {
@@ -234,6 +259,65 @@ static void sendProgramChunk(uint32_t seq,uint32_t offset)
     sendReadFrame(0x43,seq,payload,4+count);
 }
 
+// OTA responses: 0x56, payload [command, esp_err_t LE32, value LE32].
+// FW_INFO value is target capacity; other values are received bytes.
+static uint32_t fwU32(const uint8_t* p) {
+    uint32_t v=0; for (int i=0;i<4;++i) v |= uint32_t(p[i]) << (8*i); return v;
+}
+static void fwReply(uint8_t cmd, uint32_t seq, esp_err_t err, uint32_t value) {
+    uint8_t p[9]={cmd};
+    for (int i=0;i<4;++i) { p[1+i]=uint32_t(err)>>(8*i); p[5+i]=value>>(8*i); }
+    sendReadFrame(0x56,seq,p,sizeof(p));
+}
+static void handleFirmware(uint8_t type, uint32_t seq, const uint8_t* p, uint16_t n) {
+    esp_err_t err=ESP_ERR_INVALID_ARG;
+    uint32_t value=FirmwareUpdate::received();
+    if (type==0x50 && n==0) {
+        const auto* target=esp_ota_get_next_update_partition(nullptr);
+        err=target ? ESP_OK : ESP_ERR_NOT_FOUND;
+        value=target ? target->size : 0;
+    } else if (type==0x51 && n==4) {
+        uint32_t size=fwU32(p);
+        const auto* target=esp_ota_get_next_update_partition(nullptr);
+        if (programTransferActive || fwReady) err=ESP_ERR_INVALID_STATE;
+        else if (FirmwareUpdate::active()) {
+            err=(size==fwSize && FirmwareUpdate::received()==0) ? ESP_OK : ESP_ERR_INVALID_STATE;
+        } else if (!target || !size || size>target->size) err=ESP_ERR_INVALID_SIZE;
+        else {
+            plcStop();
+            plcSetManualMode(false);
+            err=FirmwareUpdate::begin(size);
+            if (err==ESP_OK) { fwSize=size; fwLastLength=0; readProgramSize=0; }
+        }
+        value=FirmwareUpdate::received();
+    } else if (type==0x52 && n>4 && n<=204 && FirmwareUpdate::active()) {
+        uint32_t offset=fwU32(p); uint16_t count=n-4;
+        if (fwLastLength==count && offset==fwLastOffset &&
+            offset+count==FirmwareUpdate::received() && !memcmp(fwLastData,p+4,count)) err=ESP_OK;
+        else {
+            err=FirmwareUpdate::write(offset,p+4,count);
+            if (err==ESP_OK) { fwLastOffset=offset; fwLastLength=count; memcpy(fwLastData,p+4,count); }
+        }
+        value=FirmwareUpdate::received();
+    } else if (type==0x53 && n==0) {
+        if (fwReady) err=ESP_OK;
+        else if (FirmwareUpdate::active()) {
+            err=FirmwareUpdate::finish();
+            if (err==ESP_OK) fwReady=true;
+        } else err=ESP_ERR_INVALID_STATE;
+        value=fwReady ? fwSize : FirmwareUpdate::received();
+    } else if (type==0x54 && n==0) {
+        if (fwReady) err=ESP_ERR_INVALID_STATE;
+        else { fwAbort(); err=ESP_OK; value=0; }
+    } else if (type==0x55 && n==0 && fwReady) {
+        err=ESP_OK; value=fwSize;
+        restartPending=true; restartRequestedMs=millis();
+    }
+    if (err==ESP_OK && FirmwareUpdate::active()) fwLastMs=millis();
+    if (type!=0x52 || err!=ESP_OK) Serial.printf("FW CMD=%02X ERR=%s VALUE=%lu\n",type,esp_err_to_name(err),(unsigned long)value);
+    fwReply(type,seq,err,value);
+}
+
 class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
     void onWrite(BLECharacteristic *characteristic) override
@@ -271,6 +355,14 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 ((uint32_t)data[19] << 16) |
                 ((uint32_t)data[20] << 24);
 
+            if (FirmwareUpdate::active() && (uint32_t)(millis()-fwLastMs)>FW_TIMEOUT_MS) fwAbort();
+            if (type>=0x50 && type<=0x55 && !restartPending) {
+                handleFirmware(type,seq,data+23,uint16_t(data[21]) | (uint16_t(data[22])<<8));
+                xSemaphoreGive(transferMutex); return;
+            }
+            if (FirmwareUpdate::active() || fwReady) {
+                xSemaphoreGive(transferMutex); return;
+            }
             if (type == 0x38) {
                 if (value.size() == 27 && !programTransferActive) {
                     if (!restartPending) {
@@ -650,6 +742,8 @@ void bleLoop()
 
     if (xSemaphoreTake(transferMutex, pdMS_TO_TICKS(10)) != pdTRUE)
         return;
+
+    if (FirmwareUpdate::active() && (uint32_t)(millis()-fwLastMs)>FW_TIMEOUT_MS) fwAbort();
 
     if (restartPending && (uint32_t)(millis() - restartRequestedMs) >= 300)
     {

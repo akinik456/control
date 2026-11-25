@@ -1,3 +1,4 @@
+#include <esp_ota_ops.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <stdlib.h>
@@ -66,6 +67,27 @@ void restoreProgramFromFlash() {
 
 void setup() {
   Serial.begin(115200);
+	const esp_partition_t* running = esp_ota_get_running_partition();
+const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
+
+Serial.printf("OTA RUNNING: %s\n", running->label);
+Serial.printf("OTA TARGET: %s\n", next->label);
+Serial.printf("OTA CAPACITY: %u bytes\n", (unsigned)next->size);
+
+esp_ota_img_states_t state;
+esp_err_t err = esp_ota_get_state_partition(running, &state);
+
+Serial.printf("OTA STATE RESULT: %s\n", esp_err_to_name(err));
+
+if (err == ESP_OK) {
+  Serial.printf("OTA STATE: %d\n", (int)state);
+}
+
+#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+Serial.println("OTA ROLLBACK CONFIG: ENABLED");
+#else
+Serial.println("OTA ROLLBACK CONFIG: DISABLED");
+#endif
   if (!plcInit()) {
     Serial.println("PLC INIT FAILED");
     while (true) delay(1000);
