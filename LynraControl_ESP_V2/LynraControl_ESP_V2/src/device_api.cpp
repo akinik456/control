@@ -1,8 +1,23 @@
 #include "device_api.h"
 #include "plc_manager.h"
 #include <esp_timer.h>
+#include <esp_system.h>
+#include "device_config.h"
 
 namespace DeviceApi {
+bool readInfo(DeviceInfo &info) {
+    DeviceInfo result{};
+    if (esp_efuse_mac_get_default(result.deviceId) != ESP_OK) return false;
+    result.model = DeviceConfig::kModel;
+    result.serial = DeviceConfig::kSerialNumber;
+    result.firmware = DeviceConfig::kFirmwareVersion;
+    result.hardware = DeviceConfig::kHardwareVersion;
+    result.inputs = DeviceConfig::kInputCount;
+    result.outputs = DeviceConfig::kOutputCount;
+    info = result;
+    return true;
+}
+
 uint8_t getState() {
     return plcGetStatus();
 }

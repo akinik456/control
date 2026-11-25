@@ -4,6 +4,17 @@
 #include <stdint.h>
 
 namespace DeviceApi {
+struct DeviceInfo {
+    const char *model;
+    const char *serial;
+    const char *firmware;
+    const char *hardware;
+    uint8_t deviceId[6];
+    uint8_t inputs;
+    uint8_t outputs;
+};
+bool readInfo(DeviceInfo &info);
+
 struct IoSnapshot {
     uint32_t inputs;
     uint32_t outputs;

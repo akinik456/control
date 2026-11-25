@@ -138,7 +138,19 @@ void handleEvents() {
 }
 
 void handleCommand() {
-    if (strcmp(line, "GET STATE") == 0) {
+    if (strcmp(line, "GET INFO") == 0) {
+        DeviceApi::DeviceInfo info{};
+        if (!DeviceApi::readInfo(info)) {
+            Serial2.println("ERR INFO_UNAVAILABLE");
+            return;
+        }
+        Serial2.printf("OK MODEL=%s SERIAL=%s FW=%s HW=%s DEVICE_ID=%02X%02X%02X%02X%02X%02X INPUTS=%u OUTPUTS=%u\r\n",
+                       info.model, info.serial, info.firmware, info.hardware,
+                       unsigned(info.deviceId[0]), unsigned(info.deviceId[1]),
+                       unsigned(info.deviceId[2]), unsigned(info.deviceId[3]),
+                       unsigned(info.deviceId[4]), unsigned(info.deviceId[5]),
+                       unsigned(info.inputs), unsigned(info.outputs));
+    } else if (strcmp(line, "GET STATE") == 0) {
         const uint8_t state = DeviceApi::getState();
         switch (state) {
             case 0: Serial2.println("OK STATE=STOP"); break;
