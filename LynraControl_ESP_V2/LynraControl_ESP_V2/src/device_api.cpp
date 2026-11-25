@@ -43,4 +43,5 @@ void serviceManualTimeout() {
 }
 bool readEvents(uint32_t cursor, IoEventBatch &batch) { return plcReadEvents(cursor, batch); }
 void readActionValues(uint8_t rule, uint8_t action, ActionValues &result) { plcReadActionValues(rule, action, result); }
+bool readRules(uint8_t *counts, size_t capacity, size_t &count) { return plcReadRules(counts, capacity, count); }
 }

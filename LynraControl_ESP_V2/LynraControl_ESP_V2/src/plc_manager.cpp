@@ -406,3 +406,21 @@ void plcReadActionValues(uint8_t rule, uint8_t action, DeviceData::ActionValues 
     }
     xSemaphoreGive(plcMutex);
 }
+
+bool plcReadRules(uint8_t *counts, size_t capacity, size_t &count) {
+    count = 0;
+    if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE) return false;
+    bool ok = nativeEngine && plcState != PlcState::Programming;
+    if (ok && programLoaded) {
+        const size_t n = lynra_plc_get_rule_count(nativeEngine);
+        ok = n <= capacity;
+        for (size_t r = 0; ok && r < n; ++r) {
+            size_t actions = 0;
+            ok = lynra_plc_get_action_info(nativeEngine, r, 0, nullptr, &actions) && actions <= 255;
+            if (ok) counts[r] = static_cast<uint8_t>(actions);
+        }
+        if (ok) count = n;
+    }
+    xSemaphoreGive(plcMutex);
+    return ok;
+}

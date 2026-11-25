@@ -10,6 +10,93 @@ char line[kLineSize];
 size_t length = 0;
 bool invalid = false;
 
+// Parse a one-based index without overflow or silent truncation.
+bool parseActionIndex(const char *&p, uint8_t &index) {
+    unsigned value = 0;
+    if (*p < '0' || *p > '9') return false;
+    while (*p >= '0' && *p <= '9') {
+        value = value * 10 + static_cast<unsigned>(*p++ - '0');
+        if (value > 256) return false;
+    }
+    if (value == 0) return false;
+    index = static_cast<uint8_t>(value - 1);
+    return true;
+}
+
+void printAction(uint8_t rule, uint8_t action, bool all) {
+    DeviceApi::ActionValues result{};
+    DeviceApi::readActionValues(rule, action, result);
+    if (result.status == 1) {
+        if (all) Serial2.printf("ERR RULE=%u ACTION=%u ACTION_UNAVAILABLE\r\n", unsigned(rule)+1, unsigned(action)+1);
+        else Serial2.println("ERR ACTION_UNAVAILABLE");
+        return;
+    }
+    if (result.status == 2) {
+        if (all) Serial2.printf("ERR RULE=%u ACTION=%u NO_VALUES\r\n", unsigned(rule)+1, unsigned(action)+1);
+        else Serial2.println("ERR NO_VALUES");
+        return;
+    }
+    if (result.status != 0 || result.count > 22) {
+        if (all) Serial2.printf("ERR RULE=%u ACTION=%u ACTION_RESPONSE\r\n", unsigned(rule)+1, unsigned(action)+1);
+        else Serial2.println("ERR ACTION_RESPONSE");
+        return;
+    }
+    Serial2.printf("OK RULE=%u ACTION=%u TYPE=%u COUNT=%u",
+                   static_cast<unsigned>(rule) + 1,
+                   static_cast<unsigned>(action) + 1,
+                   static_cast<unsigned>(result.type),
+                   static_cast<unsigned>(result.count));
+    for (uint8_t i = 0; i < result.count; ++i) {
+        Serial2.printf(" V%u=%lld", static_cast<unsigned>(result.items[i].id),
+                       static_cast<long long>(result.items[i].value));
+    }
+    Serial2.print("\r\n");
+}
+
+void handleAction() {
+    const char *p = line + 11;
+    uint8_t rule, action;
+    if (!parseActionIndex(p, rule) || *p != ' ') {
+        Serial2.println("ERR INVALID_ACTION");
+        return;
+    }
+    ++p;
+    if (!parseActionIndex(p, action) || *p != '\0') {
+        Serial2.println("ERR INVALID_ACTION");
+        return;
+    }
+    printAction(rule, action, false);
+}
+
+uint8_t allCounts[256];
+size_t allRules = 0, allRule = 0, allAction = 0;
+bool allPending = false;
+
+void handleRules(bool all) {
+    size_t count = 0;
+    if (!DeviceApi::readRules(allCounts, sizeof(allCounts), count)) {
+        Serial2.println("ERR RULES_UNAVAILABLE");
+        return;
+    }
+    Serial2.printf("OK RULES=%u", static_cast<unsigned>(count));
+    if (!all) {
+        for (size_t r = 0; r < count; ++r)
+            Serial2.printf(" R%u=%u", unsigned(r)+1, unsigned(allCounts[r]));
+    }
+    Serial2.print("\r\n");
+    if (all) { allRules = count; allRule = allAction = 0; allPending = true; }
+}
+
+void serviceAll() {
+    while (allRule < allRules && allAction >= allCounts[allRule]) {
+        ++allRule; allAction = 0;
+    }
+    if (allRule == allRules) {
+        Serial2.println("END"); allPending = false; return;
+    }
+    printAction(static_cast<uint8_t>(allRule), static_cast<uint8_t>(allAction++), true);
+}
+
 void handleCommand() {
     if (strcmp(line, "GET STATE") == 0) {
         const uint8_t state = DeviceApi::getState();
@@ -30,6 +117,14 @@ void handleCommand() {
                        static_cast<unsigned long>(io.outputs),
                        static_cast<unsigned>(io.manual),
                        static_cast<unsigned long long>(io.timeMs));
+    } else if (strcmp(line, "GET RULES") == 0) {
+        handleRules(false);
+    } else if (strcmp(line, "GET ACTION ALL") == 0) {
+        handleRules(true);
+    } else if (strncmp(line, "GET ACTION ", 11) == 0) {
+        handleAction();
+    } else if (strcmp(line, "GET ACTION") == 0) {
+        Serial2.println("ERR INVALID_ACTION");
     } else if (strcmp(line, "RUN") == 0) {
         Serial2.println(DeviceApi::run(DeviceAccess::Channel::Serial) ? "OK" : "ERR RUN_REJECTED");
     } else if (strcmp(line, "STOP") == 0) {
@@ -54,6 +149,7 @@ void serialInterfaceInit() {
 }
 
 void serialInterfaceLoop() {
+    if (allPending) { serviceAll(); return; }
     for (size_t i = 0; i < kRxBudget && Serial2.available() > 0; ++i) {
         const int c = Serial2.read();
         if (c < 0) break;
@@ -65,6 +161,7 @@ void serialInterfaceLoop() {
             }
             length = 0;
             invalid = false;
+            if (allPending) break;
         } else if (!invalid) {
             if (c < 32 || c > 126 || length >= kLineSize - 1) invalid = true;
             else line[length++] = static_cast<char>(c);
