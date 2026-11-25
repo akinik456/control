@@ -18,5 +18,8 @@ bool canManual(Channel channel, bool enable) {
 void setManualOwner(Channel channel) { manual=channel; refreshManual(); }
 Channel manualOwner() { return manual; }
 void refreshManual() { lastManual=millis(); }
-bool manualExpired() { return (manual==Channel::Serial || manual==Channel::Wifi) && uint32_t(millis()-lastManual)>=30000; }
+bool manualExpired() {
+    return (manual == Channel::Wifi) &&
+           uint32_t(millis() - lastManual) >= 30000;
+}
 }

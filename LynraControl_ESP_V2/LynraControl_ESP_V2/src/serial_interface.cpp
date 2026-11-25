@@ -34,6 +34,15 @@ void handleCommand() {
         Serial2.println(DeviceApi::run(DeviceAccess::Channel::Serial) ? "OK" : "ERR RUN_REJECTED");
     } else if (strcmp(line, "STOP") == 0) {
         Serial2.println(DeviceApi::stop(DeviceAccess::Channel::Serial) ? "OK" : "ERR STOP_REJECTED");
+    } else if (strcmp(line, "MANUAL ON") == 0 || strcmp(line, "MANUAL OFF") == 0) {
+        const bool enabled = strcmp(line, "MANUAL ON") == 0;
+        Serial2.println(DeviceApi::setManualMode(DeviceAccess::Channel::Serial, enabled) ? "OK" : "ERR MANUAL_REJECTED");
+    } else if (strncmp(line, "SET I", 5) == 0) {
+        if (strlen(line) != 8 || line[5] < '1' || line[5] > '4' || line[6] != ' ' || (line[7] != '0' && line[7] != '1')) {
+            Serial2.println("ERR INVALID_INPUT");
+            return;
+        }
+        Serial2.println(DeviceApi::setInput(DeviceAccess::Channel::Serial, static_cast<uint8_t>(line[5] - '1'), line[7] == '1') ? "OK" : "ERR INPUT_REJECTED");
     } else {
         Serial2.println("ERR UNKNOWN_COMMAND");
     }
