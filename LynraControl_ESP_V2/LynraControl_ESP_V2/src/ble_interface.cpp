@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <esp_timer.h>
+#include "device_api.h"
 #include "ble_interface.h"
 
 #include <ArduinoJson.h>
@@ -18,7 +18,10 @@
 #define NOTIFY_UUID "8d21a102-64c2-4c3a-9d1e-123456789abc"
 
 static BLECharacteristic *tx = nullptr;
-static SemaphoreHandle_t transferMutex = nullptr;
+static bool accessReady = false;
+using DeviceAccess::Channel;
+using DeviceAccess::Lock;
+static constexpr Channel BLE_CHANNEL = Channel::Ble;
 static constexpr size_t MAX_PROGRAM_SIZE = 32768;
 
 static uint8_t programBuffer[MAX_PROGRAM_SIZE];
@@ -42,6 +45,13 @@ static constexpr uint32_t FW_TIMEOUT_MS = 30000;
 static uint32_t fwLastOffset = 0;
 static uint16_t fwLastLength = 0;
 static uint8_t fwLastData[200];
+// Publish transaction state before releasing the shared mutex.
+static void unlockAccess() {
+    DeviceAccess::setLock(restartPending ? Lock::Restart :
+        (FirmwareUpdate::active() || fwReady) ? Lock::Firmware :
+        programTransferActive ? Lock::Program : Lock::None, BLE_CHANNEL);
+    DeviceAccess::give();
+}
 static void fwAbort() {
     FirmwareUpdate::abort();
     fwSize = 0; fwLastLength = 0;
@@ -49,8 +59,8 @@ static void fwAbort() {
 }
 static constexpr uint32_t PROGRAM_TIMEOUT_MS = 10000;
 
-extern bool plcSetManualMode(bool enabled);
-extern bool plcSetManualInput(uint8_t index, bool on);
+
+
 
 class ServerCallbacks : public BLEServerCallbacks
 {
@@ -75,8 +85,8 @@ class ServerCallbacks : public BLEServerCallbacks
         Serial.println("BLE CLIENT DISCONNECTED");
         // Only an interrupted programming session is aborted. Normal RUN
         // remains independent of the phone connection.
-        if (transferMutex != nullptr &&
-            xSemaphoreTake(transferMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
+        if (accessReady &&
+            DeviceAccess::take(pdMS_TO_TICKS(1000)))
         {
             if (FirmwareUpdate::active()) fwAbort();
             readProgramSize = 0;
@@ -87,9 +97,9 @@ class ServerCallbacks : public BLEServerCallbacks
                 plcAbortProgramming();
                 Serial.println("PROGRAM TRANSFER ABORTED: BLE DISCONNECT");
             }
-            xSemaphoreGive(transferMutex);
+            unlockAccess();
         }
-        plcSetManualMode(false);
+        DeviceApi::releaseManual(BLE_CHANNEL);
         BLEDevice::startAdvertising();
         Serial.println("BLE ADVERTISING RESTARTED");
     }
@@ -141,7 +151,7 @@ static void sendPlcStatus(uint32_t seq)
         frame[17 + i] = (seq >> (8 * i)) & 0xFF;
 
     frame[21] = 1; // Payload uzunluğu
-    frame[23] = plcGetStatus();
+    frame[23] = DeviceApi::getState();
 
     const uint32_t crc =
         LynraProtocol::calculateCRC32(frame + 2, 22);
@@ -155,15 +165,11 @@ static void sendPlcStatus(uint32_t seq)
     Serial.printf("BLE TX: STATUS=%u SEQ=%lu\n",
                   frame[23], (unsigned long)seq);
 }
-// Declared here to avoid changing the existing project header.
-extern bool plcReadIo(uint32_t &inputs, uint32_t &outputs, bool &manual);
 
 static void sendIoResponse(uint32_t seq)
 {
-    uint32_t inputs, outputs;
-    bool manual;
-    if (!tx || !plcReadIo(inputs, outputs, manual)) return;
-    const uint64_t timeMs = static_cast<uint64_t>(esp_timer_get_time()) / 1000;
+    DeviceApi::IoSnapshot io{};
+    if (!tx || !DeviceApi::readIo(io)) return;
     uint8_t frame[44] = {};
     frame[0] = 0x4C;
     frame[1] = 0x43;
@@ -174,30 +180,34 @@ static void sendIoResponse(uint32_t seq)
     for (int i = 0; i < 4; ++i)
     {
         frame[17+i] = (seq >> (8*i)) & 0xFF;
-        frame[23+i] = (inputs >> (8*i)) & 0xFF;
-        frame[27+i] = (outputs >> (8*i)) & 0xFF;
+        frame[23+i] = (io.inputs >> (8*i)) & 0xFF;
+        frame[27+i] = (io.outputs >> (8*i)) & 0xFF;
     }
     for (int i = 0; i < 8; ++i)
-        frame[31+i] = (timeMs >> (8*i)) & 0xFF;
-    frame[39] = manual ? 1 : 0;
+        frame[31+i] = (io.timeMs >> (8*i)) & 0xFF;
+    frame[39] = io.manual ? 1 : 0;
     const uint32_t crc = LynraProtocol::calculateCRC32(frame + 2, 38);
     for (int i = 0; i < 4; ++i)
         frame[40+i] = (crc >> (8*i)) & 0xFF;
     tx->setValue(frame, sizeof(frame));
     tx->notify();
 }
-extern bool plcReadEvents(uint32_t cursor, uint32_t &first, uint8_t &count,
-                          bool &lost, uint8_t *records);
 static void sendEvents(uint32_t seq, uint32_t cursor)
 {
     uint8_t frame[27 + 6 + 160] = {};
-    uint32_t first; uint8_t count; bool lost;
-    if (!tx || !plcReadEvents(cursor, first, count, lost, frame + 29)) return;
-    const uint16_t len = 6 + 16 * count;
+    DeviceApi::IoEventBatch batch{};
+    if (!tx || !DeviceApi::readEvents(cursor, batch)) return;
+    const uint16_t len = 6 + 16 * batch.count;
     frame[0]=0x4C; frame[1]=0x43; frame[2]=1; frame[3]=23; frame[16]=0x35;
     frame[21]=len & 255; frame[22]=len >> 8;
-    for (int i=0;i<4;++i) { frame[17+i]=seq>>(8*i); frame[23+i]=first>>(8*i); }
-    frame[27]=lost ? 1 : 0; frame[28]=count;
+    for (int i=0;i<4;++i) { frame[17+i]=seq>>(8*i); frame[23+i]=batch.first>>(8*i); }
+    frame[27]=batch.lost ? 1 : 0; frame[28]=batch.count;
+    for (uint8_t j=0;j<batch.count;++j) {
+        const auto &e=batch.records[j];
+        uint8_t *p=frame+29+16*j;
+        for (int i=0;i<8;++i) p[i]=e.ms>>(8*i);
+        for (int i=0;i<4;++i) { p[8+i]=e.inputs>>(8*i); p[12+i]=e.outputs>>(8*i); }
+    }
     const uint32_t crc = LynraProtocol::calculateCRC32(frame+2,21+len);
     for (int i=0;i<4;++i) frame[23+len+i]=crc>>(8*i);
     tx->setValue(frame,27+len); tx->notify();
@@ -218,12 +228,17 @@ static void sendReadFrame(uint8_t type, uint32_t seq,
     tx->setValue(frame,27+len); tx->notify();
 }
 
-extern uint16_t plcReadActionValues(uint8_t rule, uint8_t action, uint8_t *payload);
-
 static void sendActionValues(uint32_t seq, uint8_t rule, uint8_t action)
 {
-    uint8_t payload[204] = {};
-    const uint16_t length = plcReadActionValues(rule, action, payload);
+    DeviceApi::ActionValues result{};
+    DeviceApi::readActionValues(rule, action, result);
+    uint8_t payload[204] = {rule, action, result.status, result.type, result.count};
+    uint16_t length=5;
+    for (uint8_t i=0;i<result.count;++i) {
+        payload[length++]=result.items[i].id;
+        const uint64_t bits=static_cast<uint64_t>(result.items[i].value);
+        for (int j=0;j<8;++j) payload[length++]=bits>>(8*j);
+    }
     sendReadFrame(0x45, seq, payload, length);
 }
 
@@ -284,8 +299,8 @@ static void handleFirmware(uint8_t type, uint32_t seq, const uint8_t* p, uint16_
             err=(size==fwSize && FirmwareUpdate::received()==0) ? ESP_OK : ESP_ERR_INVALID_STATE;
         } else if (!target || !size || size>target->size) err=ESP_ERR_INVALID_SIZE;
         else {
-            plcStop();
-            plcSetManualMode(false);
+            DeviceApi::stop(BLE_CHANNEL);
+            DeviceApi::setManualMode(BLE_CHANNEL, false);
             err=FirmwareUpdate::begin(size);
             if (err==ESP_OK) { fwSize=size; fwLastLength=0; readProgramSize=0; }
         }
@@ -322,10 +337,10 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
 {
     void onWrite(BLECharacteristic *characteristic) override
     {
-        if (transferMutex == nullptr)
+        if (!accessReady)
             return;
 
-        if (xSemaphoreTake(transferMutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+        if (!DeviceAccess::take(pdMS_TO_TICKS(1000)))
         {
             Serial.println("BLE RX: MUTEX TIMEOUT");
             return;
@@ -358,10 +373,10 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             if (FirmwareUpdate::active() && (uint32_t)(millis()-fwLastMs)>FW_TIMEOUT_MS) fwAbort();
             if (type>=0x50 && type<=0x55 && !restartPending) {
                 handleFirmware(type,seq,data+23,uint16_t(data[21]) | (uint16_t(data[22])<<8));
-                xSemaphoreGive(transferMutex); return;
+                unlockAccess(); return;
             }
             if (FirmwareUpdate::active() || fwReady) {
-                xSemaphoreGive(transferMutex); return;
+                unlockAccess(); return;
             }
             if (type == 0x38) {
                 if (value.size() == 27 && !programTransferActive) {
@@ -371,11 +386,11 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                     }
                     sendAck(seq);
                 }
-                xSemaphoreGive(transferMutex);
+                unlockAccess();
                 return;
             }
             if (restartPending) {
-                xSemaphoreGive(transferMutex);
+                unlockAccess();
                 return;
             }
 
@@ -383,12 +398,12 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 bool ok = false;
                 if (!programTransferActive) {
                     if (type == 0x36 && value.size() == 28 && data[23] <= 1)
-                        ok = plcSetManualMode(data[23] != 0);
+                        ok = DeviceApi::setManualMode(BLE_CHANNEL, data[23] != 0);
                     if (type == 0x37 && value.size() == 29 && data[23] < 4 && data[24] <= 1)
-                        ok = plcSetManualInput(data[23], data[24] != 0);
+                        ok = DeviceApi::setInput(BLE_CHANNEL, data[23], data[24] != 0);
                 }
                 if (ok) sendAck(seq);
-                xSemaphoreGive(transferMutex);
+                unlockAccess();
                 return;
             }
 
@@ -396,7 +411,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
             {
                 if (!programTransferActive && value.size() == 29)
                     sendActionValues(seq, data[23], data[24]);
-                xSemaphoreGive(transferMutex);
+                unlockAccess();
                 return;
             }
 
@@ -411,7 +426,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                         sendProgramChunk(seq,offset);
                     }
                 }
-                xSemaphoreGive(transferMutex);
+                unlockAccess();
                 return;
             }
 
@@ -423,14 +438,14 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                     for (int i=0;i<4;++i) cursor |= uint32_t(data[23+i]) << (8*i);
                     sendEvents(seq,cursor);
                 }
-                xSemaphoreGive(transferMutex);
+                unlockAccess();
                 return;
             }
             if (type == 0x32)
             {
                 if (value.size() == 27 && !programTransferActive)
                     sendIoResponse(seq);
-                xSemaphoreGive(transferMutex);
+                unlockAccess();
                 return;
             }
 
@@ -442,14 +457,14 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                               type, (unsigned long)seq);
                 if (type == 0x20) // RUN
                 {
-                    if (!programTransferActive && plcRun())
+                    if (!programTransferActive && DeviceApi::run(BLE_CHANNEL))
                         Serial.println("PLC STATE: RUN (BLE)");
                     else
                         Serial.println("RUN REJECTED (BLE)");
                 }
                 else if (type == 0x21) // STOP
                 {
-                    plcStop();
+                    DeviceApi::stop(BLE_CHANNEL);
                     programTransferActive = false;
                     hasLastDataSeq = false;
                     Serial.println("PLC STATE: STOP (BLE)");
@@ -668,7 +683,7 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                     sendPlcStatus(seq);
             }
 
-            xSemaphoreGive(transferMutex);
+            unlockAccess();
             return;
         }
 
@@ -692,14 +707,14 @@ class ReceiveCallbacks : public BLECharacteristicCallbacks
                 tx->notify();
             }
         }
-        xSemaphoreGive(transferMutex);
+        unlockAccess();
     }
 };
 bool bleInit()
 {
-    transferMutex = xSemaphoreCreateMutex();
+    accessReady = DeviceAccess::init();
 
-    if (transferMutex == nullptr)
+    if (!accessReady)
     {
         Serial.println("BLE TRANSFER MUTEX CREATE FAILED");
         return false;
@@ -737,17 +752,18 @@ bool bleInit()
 }
 void bleLoop()
 {
-    if (transferMutex == nullptr)
+    if (!accessReady)
         return;
 
-    if (xSemaphoreTake(transferMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+    if (!DeviceAccess::take(pdMS_TO_TICKS(10)))
         return;
 
+    DeviceApi::serviceManualTimeout();
     if (FirmwareUpdate::active() && (uint32_t)(millis()-fwLastMs)>FW_TIMEOUT_MS) fwAbort();
 
     if (restartPending && (uint32_t)(millis() - restartRequestedMs) >= 300)
     {
-        xSemaphoreGive(transferMutex);
+        unlockAccess();
         Serial.println("SYSTEM RESTART REQUESTED");
         ESP.restart();
         return;
@@ -764,5 +780,5 @@ void bleLoop()
         Serial.println("PROGRAM TRANSFER TIMEOUT");
     }
 
-    xSemaphoreGive(transferMutex);
+    unlockAccess();
 }

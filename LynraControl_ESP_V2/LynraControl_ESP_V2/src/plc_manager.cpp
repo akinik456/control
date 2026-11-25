@@ -48,7 +48,7 @@ bool plcSetManualInput(uint8_t index, bool on) {
     return accepted;
 }
 
-struct IoEvent { uint64_t ms; uint32_t inputs; uint32_t outputs; };
+using DeviceData::IoEvent;
 static IoEvent ioRing[256];
 static uint32_t ioNext = 1;
 static uint32_t ioCount = 0;
@@ -71,24 +71,18 @@ static void recordIoLocked()
     if (ioCount < 256) ++ioCount;
 }
 
-bool plcReadEvents(uint32_t cursor, uint32_t &first, uint8_t &count,
-                   bool &lost, uint8_t *records)
+bool plcReadEvents(uint32_t cursor, DeviceData::IoEventBatch &batch)
 {
     if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE) return false;
     recordIoLocked();
     const uint32_t oldest = ioNext - ioCount;
-    // Zero requests a baseline (latest state), not pre-connection history.
-    first = cursor == 0 ? ioNext - 1 : cursor;
-    lost = cursor != 0 && (ioNext - cursor > ioCount);
-    if (lost) first = oldest;
-    const uint32_t available = ioNext - first;
-    count = available > 10 ? 10 : static_cast<uint8_t>(available);
-    for (uint8_t j = 0; j < count; ++j) {
-        const IoEvent &e = ioRing[(first + j - 1) & 255];
-        uint8_t *p = records + j * 16;
-        for (int i = 0; i < 8; ++i) p[i] = e.ms >> (8*i);
-        for (int i = 0; i < 4; ++i) { p[8+i] = e.inputs >> (8*i); p[12+i] = e.outputs >> (8*i); }
-    }
+    batch.first = cursor == 0 ? ioNext - 1 : cursor;
+    batch.lost = cursor != 0 && (ioNext - cursor > ioCount);
+    if (batch.lost) batch.first = oldest;
+    const uint32_t available = ioNext - batch.first;
+    batch.count = available > 10 ? 10 : static_cast<uint8_t>(available);
+    for (uint8_t j = 0; j < batch.count; ++j)
+        batch.records[j] = ioRing[(batch.first + j - 1) & 255];
     xSemaphoreGive(plcMutex);
     return true;
 }
@@ -390,30 +384,25 @@ bool plcReadIo(uint32_t &inputs, uint32_t &outputs, bool &manual)
 }
 
 // Read one action's diagnostic values without changing engine state.
-// Wire format: rule, action, status, type, count, repeated (field, int64 LE).
-uint16_t plcReadActionValues(uint8_t rule, uint8_t action, uint8_t *payload)
+void plcReadActionValues(uint8_t rule, uint8_t action, DeviceData::ActionValues &result)
 {
-    payload[0] = rule; payload[1] = action;
-    payload[2] = 1; payload[3] = 0; payload[4] = 0;
-    if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE)
-        return 5;
+    result = {};
+    result.status = 1;
+    if (!plcMutex || xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE) return;
     LynraActionType type;
     LynraValues values;
-    uint16_t length = 5;
     if (nativeEngine && programLoaded && plcState != PlcState::Programming &&
         lynra_plc_get_action_info(nativeEngine, rule, action, &type, nullptr)) {
-        payload[3] = static_cast<uint8_t>(type);
-        payload[2] = 2; // Action exists, but no diagnostic values available.
+        result.type = static_cast<uint8_t>(type);
+        result.status = 2;
         if (lynra_plc_get_values(nativeEngine, rule, action, &values) && values.count <= 22) {
-            payload[2] = 0;
-            payload[4] = static_cast<uint8_t>(values.count);
+            result.status = 0;
+            result.count = static_cast<uint8_t>(values.count);
             for (size_t i = 0; i < values.count; ++i) {
-                payload[length++] = static_cast<uint8_t>(values.items[i].id);
-                const uint64_t bits = static_cast<uint64_t>(values.items[i].value);
-                for (int j = 0; j < 8; ++j) payload[length++] = bits >> (8*j);
+                result.items[i].id = static_cast<uint8_t>(values.items[i].id);
+                result.items[i].value = values.items[i].value;
             }
         }
     }
     xSemaphoreGive(plcMutex);
-    return length;
 }
