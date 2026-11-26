@@ -259,7 +259,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
       );
 
   Widget _sectionLabel(String text) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(12),
@@ -732,6 +732,51 @@ if (selected == 'threshold') {
       rule.actions.add(_makeAction(type));
     }
   });
+
+  Widget _quickFunctionHeading(String label) => Padding(
+    padding: const EdgeInsets.only(top: 2, bottom: 3),
+    child: Text(label, style: TextStyle(
+      color: Theme.of(context).colorScheme.primary,
+      fontWeight: FontWeight.bold, fontSize: 11,
+    )),
+  );
+
+  Widget _quickFunctionGrid(int columns, List<Widget> items) => LayoutBuilder(
+    builder: (context, constraints) {
+      final count = columns == 2 && constraints.maxWidth >= 560 ? 4 : columns;
+      final width = (constraints.maxWidth - (count - 1) * 4) / count;
+      return Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: [
+          for (final item in items) SizedBox(width: width, child: item),
+        ],
+      );
+    },
+  );
+
+  Widget _quickFunctionButton(String label, VoidCallback onTap) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.primary.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(6),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 40),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
+            child: Center(child: Text(label,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurface,
+                fontSize: 11, fontWeight: FontWeight.w500),
+            )),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _quickAction(ControlConditionGroup rule, IconData icon,
       String label, ControlActionType type, Color color) => OutlinedButton(
@@ -1554,6 +1599,25 @@ String _ruleSummary(ControlConditionGroup rule) {
   return 'EĞER\n$conditions\nİSE\n${actions.replaceAll(' → ', '\n')}';
 }
 
+  Widget _ruleSection(String label, bool compact, List<Widget> children) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+    if (!compact) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _sectionLabel(label),
+        const SizedBox(height: 4),
+        content,
+      ]);
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      _sectionLabel(label),
+      const SizedBox(width: 6),
+      Expanded(child: content),
+    ]);
+  }
+
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
     final primary = Theme.of(context).colorScheme.primary;
     final outline = Theme.of(context).colorScheme.outline;
@@ -1577,7 +1641,7 @@ String _ruleSummary(ControlConditionGroup rule) {
               : _collapsedRules.add(rule.id);
         }),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+          padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
           child: Row(
             children: [
               Icon(
@@ -1597,6 +1661,7 @@ String _ruleSummary(ControlConditionGroup rule) {
                 ),
               ),
               const SizedBox(width: 8),
+              if (_collapsedRules.contains(rule.id))
               Expanded(
   child: RichText(
     softWrap: true,
@@ -1669,10 +1734,9 @@ String _ruleSummary(ControlConditionGroup rule) {
         
         Divider(height: 1, color: outline.withValues(alpha: 0.3)),
         Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _sectionLabel('EĞER'),
-            const SizedBox(height: 6),
+            _ruleSection('EĞER', _collapsedConditions.contains(rule.id), [
             if (rule.conditionGroups.isNotEmpty)
               _groupedConditions(rule)
             else ...[
@@ -1804,12 +1868,12 @@ if (!_collapsedConditions.contains(rule.id)) ...[
 						],
             if (rule.onDelayMs > 0)
               Text('${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa'),
-            const SizedBox(height: 12),
-            Divider(height: 1, color: primary.withValues(alpha: 0.7)),
-            const SizedBox(height: 12),
-            _sectionLabel('İSE'),
-            //const Text('Zaman fonksiyonları: arayüz taslağı; henüz cihaza aktarılabilir değil.', style: TextStyle(fontSize: 11)),
+            ]),
             const SizedBox(height: 6),
+            Divider(height: 1, color: primary.withValues(alpha: 0.7)),
+            const SizedBox(height: 6),
+            _ruleSection('İSE', !rule.actions.any(_expandedActions.contains), [
+            //const Text('Zaman fonksiyonları: arayüz taslağı; henüz cihaza aktarılabilir değil.', style: TextStyle(fontSize: 11)),
             // Fixed columns keep every action, delay and arrow aligned.
             for (var i = 0; i < rule.actions.length; i++)
 							Padding(
@@ -1928,101 +1992,57 @@ if (!_collapsedConditions.contains(rule.id)) ...[
 									},
 								),
 							),
-            _token('İşlem ekle', () => _chooseFunction(rule)),
+            ]),
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              title: const Text('Hızlı İşlem Ekle',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              title: Row(children: [
+                _token('İşlem ekle', () => _chooseFunction(rule)),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Hızlı İşlem Ekle',
+  textAlign: TextAlign.end,
+  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12))),
+              ]),
               childrenPadding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text('ZAMAN FONKSİYONLARI',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    ),
-                    Wrap(spacing: 6, runSpacing: 6, children: [
+                    _quickFunctionHeading('ZAMAN FONKSİYONLARI'),
+                    _quickFunctionGrid(2, [
                       for (final name in _timerFunctions)
-                        SizedBox(
-                          width: 142,
-                          height: 56,
-                          child: OutlinedButton(
-                            onPressed: () => _selectTimer(rule, name),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: Text(name, textAlign: TextAlign.center,
-                                maxLines: 2, overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11)),
-                          ),
-                        ),
+                        _quickFunctionButton(name, () => _selectTimer(rule, name)),
                     ]),
-                    const Padding(
-                      padding: EdgeInsets.only(top: 18, bottom: 8),
-                      child: Text('SAYAÇLAR',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    ),
-                    Wrap(spacing: 6, runSpacing: 6, children: [
+                    const Divider(height: 10),
+                    _quickFunctionHeading('SAYAÇLAR'),
+                    _quickFunctionGrid(3, [
                       for (final item in <(String, String)>[
                         ('upDown', 'İleri / Geri Sayıcı'),
                         ('hours', 'Çalışma Saati Sayacı'),
                         ('threshold', 'Frekans Eşik Tetikleyici'),
                       ])
-                        SizedBox(
-                          width: 142,
-                          height: 56,
-                          child: OutlinedButton(
-                            onPressed: () => _chooseFunction(rule,
-                                quickCategory: 'counters', quickSelection: item.$1),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: Text(item.$2, textAlign: TextAlign.center,
-                                maxLines: 2, overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11)),
-                          ),
-                        ),
+                        _quickFunctionButton(item.$2,
+                          () => _chooseFunction(rule,
+                              quickCategory: 'counters', quickSelection: item.$1)),
                     ]),
-                    const Padding(
-                      padding: EdgeInsets.only(top: 18, bottom: 8),
-                      child: Text('ÇIKIŞ KONTROLÜ',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    ),
-                    Wrap(spacing: 6, runSpacing: 6, children: [
+                    const Divider(height: 10),
+                    _quickFunctionHeading('ÇIKIŞ KONTROLÜ'),
+                    _quickFunctionGrid(5, [
                       for (final item in <(String, String)>[
                         ('on', 'ON'), ('off', 'OFF'), ('set', 'SET'),
                         ('reset', 'RESET'), ('toggle', 'TOGGLE'),
                       ])
-                        SizedBox(
-                          width: 142,
-                          height: 56,
-                          child: OutlinedButton(
-                            onPressed: () => _chooseFunction(rule,
-                                quickCategory: 'outputs', quickSelection: item.$1),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: Text(item.$2, textAlign: TextAlign.center,
-                                maxLines: 2, overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11)),
-                          ),
-                        ),
+                        _quickFunctionButton(item.$2,
+                          () => _chooseFunction(rule,
+                              quickCategory: 'outputs', quickSelection: item.$1)),
                     ]),
                   ],
                 ),
               ],
               ),
             ),
-            const SizedBox(height: 6),
-            Divider(height: 1, color: primary.withValues(alpha: 0.7)),
-            const SizedBox(height: 10),
+
           ]),
         ),
 				],
