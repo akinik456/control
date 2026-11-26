@@ -37,7 +37,7 @@ class LynraControlApp extends StatelessWidget {
       listenable: AppPreferences.instance,
       builder: (context, child) {
         return MaterialApp(
-          title: 'Lynra Control',
+          title: '',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.data,
           locale: Locale(AppPreferences.instance.languageCode),
@@ -69,7 +69,7 @@ class HomePage extends StatelessWidget {
             MaterialPageRoute(builder: (_) => const AuthPage()),
           ),
         ),
-        title: const Text('Lynra Control'),
+        title: const Text(''),
         actions: [
           IconButton(
             tooltip: isTurkish ? 'Tema değiştir' : 'Change theme',
@@ -183,7 +183,7 @@ class HomePage extends StatelessWidget {
 										);
 									},
 									icon: const Icon(Icons.monitor_heart_outlined),
-									label: Text(isTurkish ? 'Canlı İzle' : 'Live Monitor'),
+									label: Text(isTurkish ? 'Cihaza Bağlan' : 'Connect to Device'),
 								),
                 if (Platform.isWindows) ...[
                   const SizedBox(height: 12),
@@ -198,6 +198,31 @@ class HomePage extends StatelessWidget {
                     label: const Text('RS232 Terminal'),
                   ),
                 ],
+								StreamBuilder<User?>(
+									stream: FirebaseAuth.instance.authStateChanges(),
+									initialData: FirebaseAuth.instance.currentUser,
+									builder: (context, snapshot) {
+										if (snapshot.data != null) {
+											return const SizedBox.shrink();
+										}
+
+										return Padding(
+											padding: const EdgeInsets.only(top: 24),
+											child: Text(
+												isTurkish
+														? 'Hesabınız olmasa da program oluşturabilir ve test edebilirsiniz.\n\n'
+															'Programlarınızı bulutta saklamak ve cihazlarınızı uzaktan izlemek için hesap oluşturun.'
+														: 'You can create and test programs without an account.\n\n'
+															'Create an account to store your programs in the cloud and monitor your devices remotely.',
+												textAlign: TextAlign.center,
+												style: TextStyle(
+													color: AppColors.textSecondary,
+													fontSize: 13,
+												),
+											),
+										);
+									},
+								),
               ],
             ),
           ),

@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include "wifi_interface.h"
 #include "wifi_config.h"
+#include "firebase_session.h"
 
 namespace
 {
@@ -52,8 +53,13 @@ namespace
                 Serial.println("[WIFI] Reconnecting...");
                 WiFi.reconnect();
             }
+						if (connected)
+						{
+								FirebaseSession_Poll();
+						}
 
             vTaskDelay(pdMS_TO_TICKS(250));
+						
         }
     }
 

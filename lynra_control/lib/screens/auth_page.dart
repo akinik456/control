@@ -44,11 +44,18 @@ class _AuthPageState extends State<AuthPage> {
         await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: email, password: password,
         );
-      } else {
+            } else {
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email, password: password,
         );
       }
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => _error = _errorText(e));
     } catch (_) {
@@ -147,9 +154,7 @@ class _AuthPageState extends State<AuthPage> {
                               child: Text(_register
                                   ? 'Zaten hesabım var — Giriş yap'
                                   : 'Hesabım yok — Kayıt ol'),
-                            ),
-                            const Text('Hesap olmadan da program oluşturabilir ve test edebilirsin.',
-                                textAlign: TextAlign.center),
+                            ),                            
                           ],
                         ),
                       ),

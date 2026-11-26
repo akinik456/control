@@ -43,7 +43,8 @@ dependencies:
   firebase_core: ^5.2.0
   firebase_auth: ^7.1.0
   cloud_firestore: ^7.2.0
-  flutter_libserialport: ^0.6.0
+  flutter_libserialport:
+   path: packages/flutter_libserialport
 
 dev_dependencies:
   flutter_test:

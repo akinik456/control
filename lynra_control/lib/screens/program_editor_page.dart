@@ -2406,82 +2406,6 @@ for (var i = 0; i < _rules.length; i++) {
 					),
 				),
 
-				bottomNavigationBar: SafeArea(
-					child: Padding(
-						padding: const EdgeInsets.all(12),
-						child: Center(
-							heightFactor: 1,
-							child: ConstrainedBox(
-								constraints: const BoxConstraints(maxWidth: 760),
-								child: Column(
-									mainAxisSize: MainAxisSize.min,
-									children: [
-										Row(
-											children: [
-												Expanded(
-													child: OutlinedButton.icon(
-														icon: const Icon(Icons.science_outlined),
-														label: const Text('Program Testi'),
-														onPressed: () {
-															_program.name = _name.text.trim();
-
-															Navigator.of(context).push(
-																MaterialPageRoute<void>(
-																	builder: (_) =>
-																			ProgramTestPage(program: _program),
-																),
-															);
-														},
-													),
-												),
-												const SizedBox(width: 10),
-												Expanded(
-													child: OutlinedButton.icon(
-														icon: const Icon(Icons.account_tree_outlined),
-														label: const Text('Program Şeması'),
-														onPressed: () {
-															Navigator.of(ctx).pop();
-															_openDiagram();
-														},
-													),
-												),
-											],
-										),
-										const SizedBox(height: 10),
-										Row(
-											children: [
-												Expanded(
-													child: OutlinedButton.icon(
-														icon: const Icon(Icons.link_outlined),
-														label: const Text('Link Oluştur'),
-														onPressed: _createShareLink,
-													),
-												),
-												const SizedBox(width: 10),
-												Expanded(
-													child: OutlinedButton.icon(
-														icon: const Icon(Icons.upload_outlined),
-														label: const Text('Cihaza Gönder'),
-														onPressed: () {
-															_program.name = _name.text.trim();
-
-															Navigator.of(context).push(
-																MaterialPageRoute<void>(
-																	builder: (_) =>
-																			BleConnectionPage(program: _program),
-																),
-															);
-														},
-													),
-												),
-											],
-										),
-									],
-								),
-							),
-						),
-					),
-				),
 			),
     ));
   }
@@ -2939,6 +2863,54 @@ for (var i = 0; i < _rules.length; i++) {
     }
   }
 
+  Widget _storageActionRow(String title, List<Widget> buttons) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 38,
+            child: Text(title, style: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w600,
+              color: scheme.onSurfaceVariant,
+            )),
+          ),
+          for (var i = 0; i < buttons.length; i++) ...[
+            if (i > 0) const SizedBox(width: 3),
+            Expanded(child: buttons[i]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _storageActionButton(String label, IconData icon, VoidCallback? action) {
+    return OutlinedButton(
+      onPressed: action,
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        minimumSize: const Size(0, 44),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(label, maxLines: 1, style: const TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showJson() {
     _program.name = _name.text.trim();
     final json = const JsonEncoder.withIndent('  ').convert(_program.toJson());
@@ -2969,7 +2941,60 @@ for (var i = 0; i < _rules.length; i++) {
           ),
         ),
         if (_programActionsOpen) ...[
-          const SizedBox(height: 8),
+  const SizedBox(height: 6),
+  Container(
+    padding: const EdgeInsets.all(8),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.20),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _storageActionRow('Yerel', [
+          _storageActionButton('Yeni', Icons.add_circle_outline,
+              _cloudSaving ? null : () {
+                setState(() => _programActionsOpen = false);
+                _newProgram();
+              }),
+          _storageActionButton('Aç', Icons.folder_open_outlined, () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Yerel aç işlemi henüz hazır değil.')),
+            );
+          }),
+          _storageActionButton('Kaydet', Icons.save_outlined, () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Yerel kaydet işlemi henüz hazır değil.')),
+            );
+          }),
+          _storageActionButton('Farklı Kaydet', Icons.copy_outlined, () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Yerel farklı kaydet işlemi henüz hazır değil.')),
+            );
+          }),
+        ]),
+        const SizedBox(height: 6),
+        _storageActionRow('Bulut', [
+          _storageActionButton('Programlarım', Icons.folder_open_outlined,
+              _cloudSaving ? null : () {
+                setState(() => _programActionsOpen = false);
+                _openFromCloud();
+              }),
+          _storageActionButton('Kaydet', Icons.cloud_upload_outlined,
+              _cloudSaving ? null : () {
+                setState(() => _programActionsOpen = false);
+                _saveToCloud();
+              }),
+          _storageActionButton('Farklı Kaydet', Icons.copy_outlined,
+              _cloudSaving ? null : () {
+                setState(() => _programActionsOpen = false);
+                _saveAsToCloud();
+              }),
+        ]),
+        const SizedBox(height: 6),
           				Row(
 					children: [
 						Expanded(
@@ -3005,99 +3030,101 @@ for (var i = 0; i < _rules.length; i++) {
 						),
 					],
 				),
-				const SizedBox(height: 16),
+				const SizedBox(height: 6),
         Row(
           children: [
             Expanded(
-              child: OutlinedButton(
-                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _newProgram(); },
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
-                  minimumSize: const Size(0, 44),
-                ),
-                child: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.add_circle_outline, size: 20),
-                    SizedBox(height: 3),
-                    Text('Yeni Program', maxLines: 1, softWrap: false,
-                        style: TextStyle(fontSize: 11)),
-                  ],
-                ),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.science_outlined),
+                label: const Text('Program Testi'),
+                onPressed: () {
+                  setState(() => _programActionsOpen = false);
+                  _program.name = _name.text.trim();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          ProgramTestPage(program: _program),
+                    ),
+                  );
+                },
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 8),
             Expanded(
-              child: OutlinedButton(
-                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _openFromCloud(); },
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
-                  minimumSize: const Size(0, 44),
-                ),
-                child: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.folder_open_outlined, size: 20),
-                    SizedBox(height: 3),
-                    Text('Programlarım', maxLines: 1, softWrap: false,
-                        style: TextStyle(fontSize: 11)),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _saveToCloud(); },
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
-                  minimumSize: const Size(0, 44),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.cloud_upload_outlined, size: 20),
-                    const SizedBox(height: 3),
-                    Text(_cloudSaving ? 'Kaydediliyor...' : 'Kaydet',
-                        maxLines: 1, softWrap: false,
-                        style: const TextStyle(fontSize: 11)),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _saveAsToCloud(); },
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
-                  minimumSize: const Size(0, 44),
-                ),
-                child: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.copy_outlined, size: 20),
-                    SizedBox(height: 3),
-                    Text('Farklı Kaydet', maxLines: 1, softWrap: false,
-                        style: TextStyle(fontSize: 11)),
-                  ],
-                ),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.account_tree_outlined),
+                label: const Text('Program Şeması'),
+                onPressed: () {
+                  setState(() => _programActionsOpen = false);
+                  _openDiagram();
+                },
               ),
             ),
           ],
         ),
-        OutlinedButton.icon(
-          onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _openFromDevice(); },
-          icon: const Icon(Icons.bluetooth),
-          label: const Text('Cihazdan Program Al'),
+
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _openFromDevice(); },
+                icon: const Icon(Icons.bluetooth, size: 18),
+                label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Cihazdan Program Al')),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _cloudSaving ? null : _createReadRequest,
+                icon: const Icon(Icons.cloud_download_outlined, size: 18),
+                label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Uzaktan Program Al')),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6)),
+              ),
+            ),
+          ],
         ),
-        OutlinedButton.icon(
-          onPressed: _cloudSaving ? null : _createReadRequest,
-          icon: const Icon(Icons.cloud_download_outlined),
-          label: const Text('Uzaktan Program Al'),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.link_outlined),
+                label: const Text('Link Oluştur'),
+                onPressed: () {
+                  setState(() => _programActionsOpen = false);
+                  _createShareLink();
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.upload_outlined),
+                label: const Text('Cihaza Gönder'),
+                onPressed: () {
+                  setState(() => _programActionsOpen = false);
+                  _program.name = _name.text.trim();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          BleConnectionPage(program: _program),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-        ],
-        const SizedBox(height: 10),
+      ],
+    ),
+  ),
+],
+const SizedBox(height: 6),
+        const SizedBox(height: 6),
         SizedBox(
           height: 42,
           child: LayoutBuilder(
