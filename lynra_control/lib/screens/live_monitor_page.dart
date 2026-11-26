@@ -224,13 +224,20 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    _ble.addListener(_refresh);
-    _ioTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+void initState() {
+  super.initState();
+  _ble.addListener(_refresh);
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) _refresh();
+  });
+
+  _ioTimer = Timer.periodic(
+    const Duration(milliseconds: 200), (_) {
       unawaited(_poll());
-    });
-  }
+    },
+  );
+}
 
   void _refresh() {
     if (!mounted) return;
@@ -265,7 +272,6 @@ class _LiveMonitorPageState extends State<LiveMonitorPage> {
   void dispose() {
     _ioTimer?.cancel();
     _ble.removeListener(_refresh);
-    _ble.dispose();
     super.dispose();
   }
 

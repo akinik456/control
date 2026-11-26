@@ -10,6 +10,11 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/control_program.dart';
 
 class LynraBleService extends ChangeNotifier {
+  static final LynraBleService instance = LynraBleService._();
+
+  LynraBleService._();
+
+  factory LynraBleService() => instance;
   bool _disposed = false;
 
   void _update(VoidCallback change) {

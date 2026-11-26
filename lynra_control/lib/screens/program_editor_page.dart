@@ -3641,7 +3641,6 @@ class _DeviceProgramReadPageState extends State<_DeviceProgramReadPage> {
   @override
   void dispose() {
     _ble.removeListener(_refresh);
-    _ble.dispose();
     super.dispose();
   }
   Future<void> _read() async {

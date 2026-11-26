@@ -28,7 +28,6 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
   @override
   void dispose() {
     _ble.removeListener(_refresh);
-    _ble.dispose();
     super.dispose();
   }
 
