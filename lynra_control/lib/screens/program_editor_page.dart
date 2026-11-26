@@ -3237,47 +3237,38 @@ Future<void> _saveToLocal({
 
   Widget _storageActionRow(String title, List<Widget> buttons) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: scheme.primary.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 38,
-            child: Text(title, style: TextStyle(
-              fontSize: 11, fontWeight: FontWeight.w600,
-              color: scheme.onSurfaceVariant,
-            )),
-          ),
-          for (var i = 0; i < buttons.length; i++) ...[
-            if (i > 0) const SizedBox(width: 3),
-            Expanded(child: buttons[i]),
-          ],
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 6, bottom: 2),
+          child: Text(title, style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w600,
+            color: scheme.onSurfaceVariant,
+          )),
+        ),
+        Row(children: [
+          for (final button in buttons) Expanded(child: button),
+        ]),
+      ],
     );
   }
 
   Widget _storageActionButton(String label, IconData icon, VoidCallback? action) {
-    return OutlinedButton(
+    return TextButton(
       onPressed: action,
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-        minimumSize: const Size(0, 44),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 5),
+        minimumSize: const Size(0, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18),
+          Icon(icon, size: 22),
           const SizedBox(height: 3),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(label, maxLines: 1, style: const TextStyle(fontSize: 11)),
-          ),
+          Text(label, textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 11)),
         ],
       ),
     );
@@ -3415,7 +3406,7 @@ Future<void> _saveToLocal({
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _storageActionRow('Yerel', [
+        _storageActionRow('YEREL PROGRAMLAR', [
           _storageActionButton('Yeni', Icons.add_circle_outline,
               _cloudSaving ? null : () {
                 setState(() => _programActionsOpen = false);
@@ -3446,8 +3437,8 @@ _storageActionButton(
   },
 ),
         ]),
-        const SizedBox(height: 6),
-        _storageActionRow('Bulut', [
+        const Divider(height: 12),
+        _storageActionRow('BULUT PROGRAMLARI', [
           _storageActionButton('Programlarım', Icons.folder_open_outlined,
               _cloudSaving ? null : () {
                 setState(() => _programActionsOpen = false);
@@ -3464,131 +3455,60 @@ _storageActionButton(
                 _saveAsToCloud();
               }),
         ]),
-        const SizedBox(height: 6),
-          				Row(
-					children: [
-						Expanded(
-							child: OutlinedButton.icon(
-								onPressed: () {
-                  setState(() => _programActionsOpen = false);
-									_program.name = _name.text.trim();
-									Navigator.of(context).push(
-										MaterialPageRoute<void>(
-											builder: (_) => ProgramSimulatorPage(program: _program),
-										),
-									);
-								},
-								icon: const Icon(Icons.show_chart, size: 18),
-								label: const Text('Simülasyon'),
-							),
-						),
-						const SizedBox(width: 8),
-						Expanded(
-							child: OutlinedButton.icon(
-								onPressed: () { setState(() => _programActionsOpen = false); _openSummary(); },
-								icon: const Icon(Icons.description_outlined, size: 18),
-								label: const Text('Özet'),
-							),
-						),
-						const SizedBox(width: 8),
-						Expanded(
-							child: OutlinedButton.icon(
-								onPressed: () { setState(() => _programActionsOpen = false); _showJson(); },
-								icon: const Icon(Icons.data_object, size: 18),
-								label: const Text('JSON'),
-							),
-						),
-					],
-				),
-				const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.science_outlined),
-                label: const Text('Program Testi'),
-                onPressed: () {
-                  setState(() => _programActionsOpen = false);
-                  _program.name = _name.text.trim();
-
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          ProgramTestPage(program: _program),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.account_tree_outlined),
-                label: const Text('Program Şeması'),
-                onPressed: () {
-                  setState(() => _programActionsOpen = false);
-                  _openDiagram();
-                },
-              ),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _cloudSaving ? null : () { setState(() => _programActionsOpen = false); _openFromDevice(); },
-                icon: const Icon(Icons.bluetooth, size: 18),
-                label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Cihazdan Program Al')),
-                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _cloudSaving ? null : _createReadRequest,
-                icon: const Icon(Icons.cloud_download_outlined, size: 18),
-                label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Uzaktan Program Al')),
-                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6)),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.link_outlined),
-                label: const Text('Link Oluştur'),
-                onPressed: () {
-                  setState(() => _programActionsOpen = false);
-                  _createShareLink();
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.upload_outlined),
-                label: const Text('Cihaza Gönder'),
-                onPressed: () {
-                  setState(() => _programActionsOpen = false);
-                  _program.name = _name.text.trim();
-
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          BleConnectionPage(program: _program),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+        const Divider(height: 12),
+        _storageActionRow('TEST VE İNCELEME', [
+          _storageActionButton('Simülasyon', Icons.show_chart, () {
+            setState(() => _programActionsOpen = false);
+            _program.name = _name.text.trim();
+            Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => ProgramSimulatorPage(program: _program),
+            ));
+          }),
+          _storageActionButton('Özet', Icons.description_outlined, () {
+            setState(() => _programActionsOpen = false);
+            _openSummary();
+          }),
+          _storageActionButton('JSON', Icons.data_object, () {
+            setState(() => _programActionsOpen = false);
+            _showJson();
+          }),
+        ]),
+        Row(children: [
+          Expanded(child: _storageActionButton('Program Testi', Icons.science_outlined, () {
+            setState(() => _programActionsOpen = false);
+            _program.name = _name.text.trim();
+            Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => ProgramTestPage(program: _program),
+            ));
+          })),
+          Expanded(child: _storageActionButton('Program Şeması', Icons.account_tree_outlined, () {
+            setState(() => _programActionsOpen = false);
+            _openDiagram();
+          })),
+        ]),
+        const Divider(height: 12),
+        _storageActionRow('PROGRAM AKTARIMI', [
+          _storageActionButton('Cihazdan Program Al', Icons.bluetooth,
+            _cloudSaving ? null : () {
+              setState(() => _programActionsOpen = false);
+              _openFromDevice();
+            }),
+          _storageActionButton('Uzaktan Program Al', Icons.cloud_download_outlined,
+            _cloudSaving ? null : _createReadRequest),
+        ]),
+        Row(children: [
+          Expanded(child: _storageActionButton('Link Oluştur', Icons.link_outlined, () {
+            setState(() => _programActionsOpen = false);
+            _createShareLink();
+          })),
+          Expanded(child: _storageActionButton('Cihaza Gönder', Icons.upload_outlined, () {
+            setState(() => _programActionsOpen = false);
+            _program.name = _name.text.trim();
+            Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => BleConnectionPage(program: _program),
+            ));
+          })),
+        ]),
       ],
     ),
   ),
