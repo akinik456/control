@@ -45,6 +45,7 @@ dependencies:
   cloud_firestore: ^7.2.0
   flutter_libserialport:
    path: packages/flutter_libserialport
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

@@ -219,78 +219,122 @@ static const Set<ControlActionType> counterTypes = {
         offDurationMs = 0;
 
   Map<String, dynamic> toJson() => {
-        'type': type.name,
-				if (counterTypes.contains(type)) ...{
-					'counterInputIndex': counterInputIndex,
-					'directionInputIndex': directionInputIndex,
-					'resetInputIndex': resetInputIndex,
-					'counterStartValue': counterStartValue,
-					'counterOn': counterOn,
-					'counterOff': counterOff,
-				},
-				if (type == ControlActionType.hoursCounter) ...{
-  'hoursEnableInputIndex': hoursEnableInputIndex,
-  'hoursResetAllInputIndex': hoursResetAllInputIndex,
-  'hoursTargetMs': hoursTargetMs,
-},
-if (type == ControlActionType.thresholdTrigger) ...{
-  'thresholdInputIndex': thresholdInputIndex,
-  'thresholdGateMs': thresholdGateMs,
-  'thresholdOn': thresholdOn,
-  'thresholdOff': thresholdOff,
-},
-        if (timerTypes.contains(type)) ...{
-          'timerTMs': timerTMs,
-          if (const {
-              ControlActionType.onOffDelay,
-            ControlActionType.wipingRelay,
-            ControlActionType.edgeWipingRelay,
-            ControlActionType.asynchronousPulse,
-            ControlActionType.randomGenerator,
-            ControlActionType.stopwatchTimer,
-          }.contains(type)) 'virtualStart': virtualStart,
-          'timerTHMs': timerTHMs,
-          'timerTLMs': timerTLMs,
-          'timerTHRandom': timerTHRandom,
-          'timerTLRandom': timerTLRandom,
-          'timerN': timerN,
-          'timerWarningBeforeMs': timerWarningBeforeMs,
-          'timerWarningOffMs': timerWarningOffMs,
-          'stopwatchTimeBase': stopwatchTimeBase,
-					if (type == ControlActionType.edgeWipingRelay ||
-    type == ControlActionType.stairwayTimer)
-  'timerRepeat': timerRepeat,
-	if (type == ControlActionType.edgeWipingRelay ||
-    type == ControlActionType.stairwayTimer)
-  'timerRetrigger': timerRetrigger,
-					if (type == ControlActionType.stopwatchTimer ||
-    ((type == ControlActionType.edgeWipingRelay ||
-      type == ControlActionType.stairwayTimer) && timerRepeat))
-  'resetInputIndex': resetInputIndex,
-        },
-        if (type != ControlActionType.delay) ...{
-          'outputIndex': outputIndex,
-          'outputState': outputState,
-        },
-        if (type == ControlActionType.delay || type == ControlActionType.blinkOutput || type == ControlActionType.stairwayOutput || type == ControlActionType.multiSwitchOutput || type == ControlActionType.stopwatchOutput) 'durationMs': durationMs,
-        if (type == ControlActionType.blinkOutput) 'offDurationMs': offDurationMs,
-        if (type == ControlActionType.blinkOutput) 'blinkStartDelayMs': blinkStartDelayMs,
-        if (type == ControlActionType.blinkOutput) 'blinkCount': blinkCount,
-        if (type == ControlActionType.blinkOutput) 'blinkOnMinMs': blinkOnMinMs,
-        if (type == ControlActionType.blinkOutput) 'blinkOnMaxMs': blinkOnMaxMs,
-        if (type == ControlActionType.blinkOutput) 'blinkOffMinMs': blinkOffMinMs,
-        if (type == ControlActionType.blinkOutput) 'blinkOffMaxMs': blinkOffMaxMs,
-        if (type == ControlActionType.stairwayOutput || type == ControlActionType.multiSwitchOutput) 'stairWarningBeforeMs': stairWarningBeforeMs,
-        if (type == ControlActionType.stairwayOutput || type == ControlActionType.multiSwitchOutput) 'stairWarningOffMs': stairWarningOffMs,
-        if (type == ControlActionType.stairwayOutput) 'stairRetrigger': stairRetrigger,
-        if (type == ControlActionType.multiSwitchOutput) 'multiLongPressMs': multiLongPressMs,
-        if (type != ControlActionType.delay) ...{
-          'onDelayMs': onrDelayMs > 0 ? 0 : onDelayMs,
-          'offDelayMs': offDelayMs,
-          'onrDelayMs': onrDelayMs,
-        },
-      };
+  'type': type.name,
 
+  if (counterTypes.contains(type)) ...{
+    'counterInputIndex': counterInputIndex,
+    'directionInputIndex': directionInputIndex,
+    'resetInputIndex': resetInputIndex,
+    'counterStartValue': counterStartValue,
+    'counterOn': counterOn,
+    'counterOff': counterOff,
+  },
+
+  if (type == ControlActionType.hoursCounter) ...{
+    'hoursEnableInputIndex': hoursEnableInputIndex,
+    'hoursResetAllInputIndex': hoursResetAllInputIndex,
+    'hoursTargetMs': hoursTargetMs,
+  },
+
+  if (type == ControlActionType.thresholdTrigger) ...{
+    'thresholdInputIndex': thresholdInputIndex,
+    'thresholdGateMs': thresholdGateMs,
+    'thresholdOn': thresholdOn,
+    'thresholdOff': thresholdOff,
+  },
+
+  if (timerTypes.contains(type)) ...{
+    'timerTMs': timerTMs,
+
+    if (const {
+      ControlActionType.onOffDelay,
+      ControlActionType.wipingRelay,
+      ControlActionType.edgeWipingRelay,
+      ControlActionType.asynchronousPulse,
+      ControlActionType.randomGenerator,
+      ControlActionType.stopwatchTimer,
+    }.contains(type))
+      'virtualStart': virtualStart,
+
+    'timerTHMs': timerTHMs,
+    'timerTLMs': timerTLMs,
+    'timerTHRandom': timerTHRandom,
+    'timerTLRandom': timerTLRandom,
+    'timerN': timerN,
+    'timerWarningBeforeMs': timerWarningBeforeMs,
+    'timerWarningOffMs': timerWarningOffMs,
+    'stopwatchTimeBase': stopwatchTimeBase,
+
+    if (type == ControlActionType.onOffDelay ||
+        type == ControlActionType.edgeWipingRelay ||
+        type == ControlActionType.stairwayTimer)
+      'timerRepeat': timerRepeat,
+
+    if (type == ControlActionType.onOffDelay ||
+        type == ControlActionType.edgeWipingRelay ||
+        type == ControlActionType.stairwayTimer)
+      'timerRetrigger': timerRetrigger,
+
+    if (type == ControlActionType.onOffDelay ||
+        type == ControlActionType.stopwatchTimer ||
+        ((type == ControlActionType.edgeWipingRelay ||
+          type == ControlActionType.stairwayTimer) && timerRepeat))
+      'resetInputIndex': resetInputIndex,
+  },
+
+  if (type != ControlActionType.delay) ...{
+    'outputIndex': outputIndex,
+    'outputState': outputState,
+  },
+
+  if (type == ControlActionType.delay ||
+      type == ControlActionType.blinkOutput ||
+      type == ControlActionType.stairwayOutput ||
+      type == ControlActionType.multiSwitchOutput ||
+      type == ControlActionType.stopwatchOutput)
+    'durationMs': durationMs,
+
+  if (type == ControlActionType.blinkOutput)
+    'offDurationMs': offDurationMs,
+
+  if (type == ControlActionType.blinkOutput)
+    'blinkStartDelayMs': blinkStartDelayMs,
+
+  if (type == ControlActionType.blinkOutput)
+    'blinkCount': blinkCount,
+
+  if (type == ControlActionType.blinkOutput)
+    'blinkOnMinMs': blinkOnMinMs,
+
+  if (type == ControlActionType.blinkOutput)
+    'blinkOnMaxMs': blinkOnMaxMs,
+
+  if (type == ControlActionType.blinkOutput)
+    'blinkOffMinMs': blinkOffMinMs,
+
+  if (type == ControlActionType.blinkOutput)
+    'blinkOffMaxMs': blinkOffMaxMs,
+
+  if (type == ControlActionType.stairwayOutput ||
+      type == ControlActionType.multiSwitchOutput)
+    'stairWarningBeforeMs': stairWarningBeforeMs,
+
+  if (type == ControlActionType.stairwayOutput ||
+      type == ControlActionType.multiSwitchOutput)
+    'stairWarningOffMs': stairWarningOffMs,
+
+  if (type == ControlActionType.stairwayOutput)
+    'stairRetrigger': stairRetrigger,
+
+  if (type == ControlActionType.multiSwitchOutput)
+    'multiLongPressMs': multiLongPressMs,
+
+  if (type != ControlActionType.delay) ...{
+    'onDelayMs': onrDelayMs > 0 ? 0 : onDelayMs,
+    'offDelayMs': offDelayMs,
+    'onrDelayMs': onrDelayMs,
+  },
+};
   factory ControlAction.fromJson(Map<String, dynamic> json) {
     final type = ControlActionType.values.byName(json['type'] as String);
     // Old standalone TON/TOF programs are loaded as the unified timer.
