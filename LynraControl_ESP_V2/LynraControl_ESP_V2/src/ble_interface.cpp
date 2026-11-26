@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "device_api.h"
 #include "ble_interface.h"
+#include <esp_bt.h>
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -481,7 +482,14 @@ bool bleInit()
         Serial.println("BLE TRANSFER MUTEX CREATE FAILED");
         return false;
     }
-    BLEDevice::init("LynraControl");
+    Serial.printf("BT RELEASE BEFORE: %u\n", ESP.getFreeHeap());
+
+esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+
+Serial.printf("BT RELEASE RESULT: %s\n", esp_err_to_name(err));
+Serial.printf("BT RELEASE AFTER: %u\n", ESP.getFreeHeap());
+
+BLEDevice::init("LynraControl");
 
     BLEServer *server = BLEDevice::createServer();
     if (server == nullptr)

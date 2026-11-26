@@ -5,3 +5,4 @@
 **/.idea/
 **/*.iml
 /website/
+**/wifi_config.h
