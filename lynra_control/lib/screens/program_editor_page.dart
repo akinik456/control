@@ -13,6 +13,8 @@ import 'ble_connection_page.dart';
 import 'program_test_page.dart';
 import '../services/lynra_ble_service.dart';
 import '../services/local_program_service.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Structured EGER-ISE editor. No free-form program text or block cards.
 class ProgramEditorPage extends StatefulWidget {
@@ -3282,17 +3284,106 @@ Future<void> _saveToLocal({
   }
 
   void _showJson() {
-    _program.name = _name.text.trim();
-    final json = const JsonEncoder.withIndent('  ').convert(_program.toJson());
-		final compactJson = jsonEncode(_program.toJson());
-		debugPrint('PLC JSON SIZE: ${utf8.encode(compactJson).length} bytes');
-    showDialog<void>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Program JSON'),
-      content: SingleChildScrollView(child: SelectableText(json)),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Kapat'))],
-    ));
+  _program.name = _name.text.trim();
+
+  final json = const JsonEncoder.withIndent('  ')
+      .convert(_program.toJson());
+
+  final compactJson = jsonEncode(_program.toJson());
+
+  debugPrint(
+    'PLC JSON SIZE: ${utf8.encode(compactJson).length} bytes',
+  );
+
+  final safeName = _program.name
+      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+      .trim();
+
+  final fileName =
+      '${safeName.isEmpty ? "program" : safeName}.json';
+
+  void notify(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Program JSON'),
+
+      content: SingleChildScrollView(
+        child: SelectableText(json),
+      ),
+
+      actions: [
+        TextButton.icon(
+          icon: const Icon(Icons.copy),
+          label: const Text('Kopyala'),
+          onPressed: () async {
+            await Clipboard.setData(
+              ClipboardData(text: json),
+            );
+
+            notify('JSON panoya kopyalandı.');
+          },
+        ),
+
+        TextButton.icon(
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('Dosyaya Kaydet'),
+          onPressed: () async {
+            try {
+              final path = await FilePicker.saveFile(
+                dialogTitle: 'JSON dosyasını kaydet',
+                fileName: fileName,
+                type: FileType.custom,
+                allowedExtensions: ['json'],
+                bytes: Uint8List.fromList(utf8.encode(json)),
+              );
+
+              if (path == null) return;
+
+              notify('JSON dosyası kaydedildi.');
+            } catch (e) {
+              notify('JSON kaydedilemedi: $e');
+            }
+          },
+        ),
+				if (!Platform.isWindows)
+        TextButton.icon(
+          icon: const Icon(Icons.share_outlined),
+          label: const Text('Paylaş'),
+          onPressed: () async {
+            try {
+              await SharePlus.instance.share(
+                ShareParams(
+                  files: [
+                    XFile.fromData(
+                      Uint8List.fromList(utf8.encode(json)),
+                      mimeType: 'application/json',
+                    ),
+                  ],
+                  fileNameOverrides: [fileName],
+                ),
+              );
+            } catch (e) {
+              notify('JSON paylaşılamadı: $e');
+            }
+          },
+        ),
+
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Kapat'),
+        ),
+      ],
+    ),
+  );
+}
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
