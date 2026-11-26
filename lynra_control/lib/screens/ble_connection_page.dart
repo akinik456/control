@@ -6,7 +6,13 @@ import '../services/lynra_ble_service.dart';
 class BleConnectionPage extends StatefulWidget {
   final ControlProgram? program;
 
-  const BleConnectionPage({super.key, this.program});
+  final bool connectionOnly;
+
+const BleConnectionPage({
+  super.key,
+  this.program,
+  this.connectionOnly = false,
+});
 
   @override
   State<BleConnectionPage> createState() => _BleConnectionPageState();
@@ -86,6 +92,7 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
                       ? 'Please wait...'
                       : _ble.isConnected ? 'Disconnect' : 'Connect'),
                 ),
+								if (!widget.connectionOnly) ...[
                 const SizedBox(height: 8),
                 FilledButton(
                   onPressed: canCommand && widget.program != null
@@ -109,8 +116,11 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
                         child: const Text('STOP'),
                       ),
                     ),
+										
+										
                   ],
                 ),
+								],
               ],
             ),
           ),

@@ -13,6 +13,8 @@ import 'screens/program_editor_page.dart';
 import 'screens/live_monitor_page.dart';
 import 'screens/auth_page.dart';
 import 'screens/serial_terminal_page.dart';
+import 'services/lynra_ble_service.dart';
+import 'screens/ble_connection_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -162,6 +164,67 @@ class HomePage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 40),
+								ListenableBuilder(
+  listenable: LynraBleService.instance,
+  builder: (context, _) {
+    final ble = LynraBleService.instance;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context)
+              .colorScheme.primary.withValues(alpha: 0.20),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.bluetooth,
+            color: ble.isConnected ? Colors.green : Colors.grey,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              ble.isConnected
+                  ? 'LynraControl'
+                  : isTurkish
+                      ? 'Cihaz bağlı değil'
+                      : 'No device connected',
+            ),
+          ),
+          TextButton(
+            onPressed: ble.connecting || ble.commandBusy
+                ? null
+                : () async {
+                    if (ble.isConnected) {
+                      await ble.disconnect();
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const BleConnectionPage(
+  connectionOnly: true,
+),
+                        ),
+                      );
+                    }
+                  },
+            child: Text(
+              ble.isConnected
+                  ? (isTurkish ? 'Bağlantıyı Kes' : 'Disconnect')
+                  : (isTurkish ? 'Bağlan' : 'Connect'),
+            ),
+          ),
+        ],
+      ),
+    );
+  },
+),
+const SizedBox(height: 20),
                 FilledButton.icon(
                   onPressed: () => Navigator.push(
                     context,
@@ -183,7 +246,7 @@ class HomePage extends StatelessWidget {
 										);
 									},
 									icon: const Icon(Icons.monitor_heart_outlined),
-									label: Text(isTurkish ? 'Cihaza Bağlan' : 'Connect to Device'),
+									label: Text(isTurkish ? 'Cihazı İzle' : 'Monitor Device'),
 								),
                 if (Platform.isWindows) ...[
                   const SizedBox(height: 12),
