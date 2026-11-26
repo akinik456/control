@@ -46,7 +46,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   @override
   void initState() {
     super.initState();
-    _programActionsOpen = widget.initialActionsOpen;
+    _programActionsOpen = false;
     if (widget.openCloudOnStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openFromCloud();
@@ -1346,8 +1346,8 @@ void _enableConditionGroups(ControlConditionGroup rule) {
               children: [
                 Icon(
                   _collapsedGroups.contains('${rule.id}:$g')
-                      ? Icons.chevron_right
-                      : Icons.expand_more,
+                      ? Icons.expand_more
+                      : Icons.chevron_right,
                 ),
                 const SizedBox(width: 4),
                 Expanded(
@@ -1618,6 +1618,42 @@ String _ruleSummary(ControlConditionGroup rule) {
     ]);
   }
 
+  Widget _compactRuleSummary(ControlConditionGroup rule) {
+    final lines = _ruleSummary(rule).split('\n');
+    final actionStart = lines.indexOf('İSE');
+    final conditions = lines.sublist(1, actionStart).join('\n');
+    final actions = lines.sublist(actionStart + 1).join('\n');
+    final scheme = Theme.of(context).colorScheme;
+
+    Widget summaryRow(String label, String value) => Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 44,
+          child: Text(label, style: const TextStyle(
+            color: Color(0xFF22D3EE),
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          )),
+        ),
+        Expanded(child: Text(value, softWrap: true, style: TextStyle(
+          color: scheme.onSurface,
+          fontSize: 13,
+        ))),
+      ],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        summaryRow('EĞER', conditions),
+        const SizedBox(height: 16),
+        summaryRow('İSE', actions),
+      ],
+    );
+  }
+
   Widget _ruleEditor(ControlConditionGroup rule, int index) {
     final primary = Theme.of(context).colorScheme.primary;
     final outline = Theme.of(context).colorScheme.outline;
@@ -1646,8 +1682,8 @@ String _ruleSummary(ControlConditionGroup rule) {
             children: [
               Icon(
                 _collapsedRules.contains(rule.id)
-                    ? Icons.chevron_right
-                    : Icons.expand_more,
+                    ? Icons.expand_more
+                    : Icons.chevron_right,
                 color: primary,
                 size: 28,
               ),
@@ -1660,34 +1696,6 @@ String _ruleSummary(ControlConditionGroup rule) {
                   fontSize: 15,
                 ),
               ),
-              const SizedBox(width: 8),
-              if (_collapsedRules.contains(rule.id))
-              Expanded(
-  child: RichText(
-    softWrap: true,
-    text: TextSpan(
-      style: TextStyle(
-        color: Theme.of(context).colorScheme.onSurface,
-        fontSize: 13,
-        decoration: TextDecoration.none,
-      ),
-      children: [
-        for (final match in RegExp(r'EĞER|İSE|[\s\S]+?(?=EĞER|İSE|$)')
-            .allMatches(_ruleSummary(rule)))
-          TextSpan(
-            text: match.group(0),
-            style: (match.group(0) == 'EĞER' ||
-                    match.group(0) == 'İSE')
-                ? TextStyle(
-                    color: const Color(0xFF22D3EE),
-                    fontWeight: FontWeight.bold,
-                  )
-                : null,
-          ),
-      ],
-    ),
-  ),
-),
             ],
           ),
         ),
@@ -1730,6 +1738,14 @@ String _ruleSummary(ControlConditionGroup rule) {
     ),
   ],
 ),
+  if (_collapsedRules.contains(rule.id))
+    InkWell(
+      onTap: () => setState(() => _collapsedRules.remove(rule.id)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        child: _compactRuleSummary(rule),
+      ),
+    ),
   if (!_collapsedRules.contains(rule.id)) ...[
         
         Divider(height: 1, color: outline.withValues(alpha: 0.3)),
@@ -1752,8 +1768,8 @@ String _ruleSummary(ControlConditionGroup rule) {
       children: [
         Icon(
           _collapsedConditions.contains(rule.id)
-              ? Icons.chevron_right
-              : Icons.expand_more,
+              ? Icons.expand_more
+              : Icons.chevron_right,
         ),
         const SizedBox(width: 5),
         Expanded(
@@ -1811,51 +1827,55 @@ if (!_collapsedConditions.contains(rule.id)) ...[
                     const SizedBox(width: 5),
                     if (i < rule.conditions.length - 1)
 										_token(
-  switch (
-    i < rule.conditionOperators.length
-        ? rule.conditionOperators[i]
-        : rule.logicOperator
-  ) {
-    LogicOperator.and => 'VE',
-    LogicOperator.or => 'VEYA',
-    LogicOperator.xor => 'FARKLIYSA',
-    LogicOperator.nand => 'TERS VE',
-    LogicOperator.nor => 'TERS VEYA',
-    LogicOperator.not => 'DEĞİL',
-  },
-  () async {
-    final v = await _choose<LogicOperator>('', [
-      (LogicOperator.and, 'VE'),
-      (LogicOperator.or, 'VEYA'),
-      (LogicOperator.xor, 'FARKLIYSA'),
-      (LogicOperator.nand, 'TERS VE'),
-      (LogicOperator.nor, 'TERS VEYA'),
-    ]);
+											switch (
+												i < rule.conditionOperators.length
+														? rule.conditionOperators[i]
+														: rule.logicOperator
+											) {
+												LogicOperator.and => 'VE',
+												LogicOperator.or => 'VEYA',
+												LogicOperator.xor => 'FARKLIYSA',
+												LogicOperator.nand => 'TERS VE',
+												LogicOperator.nor => 'TERS VEYA',
+												LogicOperator.not => 'DEĞİL',
+											},
+											() async {
+												final v = await _choose<LogicOperator>('', [
+													(LogicOperator.and, 'VE'),
+													(LogicOperator.or, 'VEYA'),
+													(LogicOperator.xor, 'FARKLIYSA'),
+													(LogicOperator.nand, 'TERS VE'),
+													(LogicOperator.nor, 'TERS VEYA'),
+												]);
 
-    if (v != null) {
-      setState(() {
-        while (rule.conditionOperators.length <
-            rule.conditions.length - 1) {
-          rule.conditionOperators.add(rule.logicOperator);
-        }
+												if (v != null) {
+													setState(() {
+														while (rule.conditionOperators.length <
+																rule.conditions.length - 1) {
+															rule.conditionOperators.add(rule.logicOperator);
+														}
 
-        if (i < rule.conditionOperators.length) {
-          rule.conditionOperators[i] = v;
-        }
-      });
-    }
-  },
-)
-										else
-  _token('Koşul ekle', () {
-    setState(() {
-      rule.conditionOperators.add(rule.logicOperator);
-      rule.conditions.add(InputCondition(inputIndex: 1));
-    });
-  }),
-                  ]),
+														if (i < rule.conditionOperators.length) {
+															rule.conditionOperators[i] = v;
+														}
+													});
+												}
+											},
+										)
+										                  ]),
                 ),
-              ),
+              ),              
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _token('Koşul ekle', () {
+                    setState(() {
+                      rule.conditionOperators.add(rule.logicOperator);
+                      rule.conditions.add(InputCondition(inputIndex: 1));
+                    });
+                  }),
+                ),
+							
+							
             if (rule.conditions.isEmpty)
               _token('Koşul ekle', () => setState(() =>
                 rule.conditions.add(InputCondition(inputIndex: 1)))),
@@ -1905,7 +1925,7 @@ if (!_collapsedConditions.contains(rule.id)) ...[
           child: Padding(
             padding: const EdgeInsets.all(4),
             child: Icon(
-              expanded ? Icons.expand_more : Icons.chevron_right,
+              expanded ? Icons.chevron_right : Icons.expand_more,
             ),
           ),
         ),
