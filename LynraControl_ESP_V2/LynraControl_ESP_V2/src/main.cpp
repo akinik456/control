@@ -85,6 +85,7 @@ namespace
 void setup()
 {
   Serial.begin(115200);
+	
 	if (!DeviceLicense_Init())
 	{
 			Serial.println("LICENSE INIT FAILED");
