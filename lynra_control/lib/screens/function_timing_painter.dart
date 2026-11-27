@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 class FunctionTimingPainter extends CustomPainter {
-  const FunctionTimingPainter({required this.edge, required this.th, required this.tl, required this.repeat, required this.falling, required this.scheme});
+  const FunctionTimingPainter({required this.edge, required this.th, required this.tl, required this.repeat, required this.falling, required this.scheme, this.wiping = false});
+  final bool wiping;
   final bool edge, repeat, falling;
   final int th, tl;
   final ColorScheme scheme;
@@ -10,7 +11,7 @@ class FunctionTimingPainter extends CustomPainter {
     const left = 48.0;
     final span = size.width - left - 12;
     if (span <= 0) return;
-    final end = edge ? 2 + (th + tl) * (repeat ? 2 : 1) + 3 : 10 + tl + 2;
+    final end = wiping ? 19 : edge ? 2 + (th + tl) * (repeat ? 2 : 1) + 3 : 10 + tl + 2;
     double x(num t) => left + span * t / end;
     void label(String s, double x, double y, Color color) {
       final p = TextPainter(text: TextSpan(text: s, style: TextStyle(color: color, fontSize: 11)), textDirection: TextDirection.ltr)..layout();
@@ -34,8 +35,14 @@ class FunctionTimingPainter extends CustomPainter {
     }
     label('I1', 0, 25, scheme.onSurface);
     label('Q1', 0, 88, scheme.onSurface);
-    final input = edge ? <(num,bool)>[(0, falling),(2,!falling),(3,falling)] : <(num,bool)>[(0,falling),(2,!falling),(10,falling)];
-    final output = <(num,bool)>[(0,false),(2+th,true)];
+    final input = wiping ? <(num,bool)>[(0,falling),(2,!falling),(4,falling),(9,!falling),(16,falling)] : edge ? <(num,bool)>[(0, falling),(2,!falling),(3,falling)] : <(num,bool)>[(0,falling),(2,!falling),(10,falling)];
+    final output = <(num,bool)>[(0,false)];
+    if (wiping) {
+      if (th > 0) {
+        output.addAll([(2,true),(2+(th < 2 ? th : 2),false),(9,true),(9+th,false)]);
+      }
+    } else {
+    output.add((2+th,true));
     if (!edge) { output.add((10+tl,false)); }
     else if (tl > 0) {
       output.add((2+th+tl,false));
@@ -44,6 +51,7 @@ class FunctionTimingPainter extends CustomPainter {
         output.add((2+2*th+2*tl,false));
         if (2+3*th+2*tl <= end) output.add((2+3*th+2*tl,true));
       }
+    }
     }
     wave(input, 53, scheme.primary);
     wave(output, 116, Colors.greenAccent.shade400);
@@ -75,6 +83,11 @@ class FunctionTimingPainter extends CustomPainter {
           style: TextStyle(color: arrowColor, fontSize: 12)), textDirection: TextDirection.ltr)..layout();
       final center = (a+b)/2;
       text.paint(canvas, Offset((center-text.width/2).clamp(0.0, (size.width-text.width).clamp(0.0,size.width)).toDouble(), 141));
+    }
+    if (wiping) {
+      dimension(9, 9+th, 'T', 28, 91);
+      dimension(2, 2+(th < 2 ? th : 2), th > 2 ? '< T' : 'T', 28, 91);
+      return;
     }
     dimension(2, 2+th, 'TH', 28, 91);
     if (!edge) {
