@@ -1,7 +1,10 @@
 #include <Arduino.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
+#include <atomic>
 #include "device_api.h"
 #include "ble_interface.h"
-#include <esp_bt.h>
+
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -47,40 +50,30 @@ static void fwAbort() {
 
 
 
+// One client at a time. Advertising resumes only after worker cleanup.
+struct BleRxPacket {
+    uint16_t length;
+    uint8_t data[512];
+};
+static QueueHandle_t rxQueue = nullptr;
+static TaskHandle_t bleWorker = nullptr;
+static std::atomic<bool> connected{false};
+static std::atomic<bool> disconnectPending{false};
+
 class ServerCallbacks : public BLEServerCallbacks
 {
-    void onConnect(BLEServer *server,
-               esp_ble_gatts_cb_param_t *param) override
-{
-    Serial.println("BLE CLIENT CONNECTED");
-
-    server->updateConnParams(
-        param->connect.remote_bda,
-        6,   // Min interval: 7.5 ms
-        12,  // Max interval: 15 ms
-        0,   // Slave latency
-        400  // Supervision timeout: 4 s
-    );
-
-    Serial.println("BLE FAST INTERVAL REQUESTED");
-}
-
+    void onConnect(BLEServer *server, esp_ble_gatts_cb_param_t *param) override
+    {
+        connected.store(true);
+        Serial.println("BLE CLIENT CONNECTED");
+        server->updateConnParams(param->connect.remote_bda, 6, 12, 0, 400);
+        Serial.println("BLE FAST INTERVAL REQUESTED");
+    }
     void onDisconnect(BLEServer *server) override
     {
-        Serial.println("BLE CLIENT DISCONNECTED");
-        // Only an interrupted programming session is aborted. Normal RUN
-        // remains independent of the phone connection.
-        if (accessReady &&
-            DeviceAccess::take(pdMS_TO_TICKS(1000)))
-        {
-            if (FirmwareUpdate::active()) fwAbort();
-            DeviceApi::clearProgramRead(BLE_CHANNEL);
-            DeviceApi::abortProgram(BLE_CHANNEL);
-            unlockAccess();
-        }
-        DeviceApi::releaseManual(BLE_CHANNEL);
-        BLEDevice::startAdvertising();
-        Serial.println("BLE ADVERTISING RESTARTED");
+        connected.store(false);
+        disconnectPending.store(true);
+        xTaskNotifyGive(bleWorker);
     }
 };
 #include "lynra_protocol.h"
@@ -303,176 +296,217 @@ static void handleFirmware(uint8_t type, uint32_t seq, const uint8_t* p, uint16_
     fwReply(type,seq,err,value);
 }
 
-class ReceiveCallbacks : public BLECharacteristicCallbacks
+static void processPacket(const std::string& value)
 {
-    void onWrite(BLECharacteristic *characteristic) override
-    {
-        if (!accessReady)
-            return;
+    if (!accessReady)
+        return;
 
-        if (!DeviceAccess::take(pdMS_TO_TICKS(1000)))
-        {
-            Serial.println("BLE RX: MUTEX TIMEOUT");
+    if (!DeviceAccess::take(pdMS_TO_TICKS(1000)))
+    {
+        Serial.println("BLE RX: MUTEX TIMEOUT");
+        return;
+    }
+    DeviceApi::serviceProgramTimeout();
+
+    const uint8_t *data =
+        reinterpret_cast<const uint8_t *>(value.data());
+
+    if (LynraProtocol::verifyFrame(data, value.size()))
+    {
+        const uint8_t type = data[16];
+
+        const uint32_t seq =
+            (uint32_t)data[17] |
+            ((uint32_t)data[18] << 8) |
+            ((uint32_t)data[19] << 16) |
+            ((uint32_t)data[20] << 24);
+
+        if (FirmwareUpdate::active() && (uint32_t)(millis()-fwLastMs)>FW_TIMEOUT_MS) fwAbort();
+        if (type>=0x50 && type<=0x55 && !restartPending) {
+            handleFirmware(type,seq,data+23,uint16_t(data[21]) | (uint16_t(data[22])<<8));
+            unlockAccess(); return;
+        }
+        if (FirmwareUpdate::active() || fwReady) {
+            unlockAccess(); return;
+        }
+        if (type == 0x38) {
+            if (value.size() == 27 && !DeviceApi::programActive()) {
+                if (!restartPending) {
+                    restartPending = true;
+                    restartRequestedMs = millis();
+                }
+                sendAck(seq);
+            }
+            unlockAccess();
             return;
         }
-        std::string value = characteristic->getValue();
-        DeviceApi::serviceProgramTimeout();
-
-        const uint8_t *data =
-            reinterpret_cast<const uint8_t *>(value.data());
-
-        if (LynraProtocol::verifyFrame(data, value.size()))
-        {
-            const uint8_t type = data[16];
-
-            const uint32_t seq =
-                (uint32_t)data[17] |
-                ((uint32_t)data[18] << 8) |
-                ((uint32_t)data[19] << 16) |
-                ((uint32_t)data[20] << 24);
-
-            if (FirmwareUpdate::active() && (uint32_t)(millis()-fwLastMs)>FW_TIMEOUT_MS) fwAbort();
-            if (type>=0x50 && type<=0x55 && !restartPending) {
-                handleFirmware(type,seq,data+23,uint16_t(data[21]) | (uint16_t(data[22])<<8));
-                unlockAccess(); return;
-            }
-            if (FirmwareUpdate::active() || fwReady) {
-                unlockAccess(); return;
-            }
-            if (type == 0x38) {
-                if (value.size() == 27 && !DeviceApi::programActive()) {
-                    if (!restartPending) {
-                        restartPending = true;
-                        restartRequestedMs = millis();
-                    }
-                    sendAck(seq);
-                }
-                unlockAccess();
-                return;
-            }
-            if (restartPending) {
-                unlockAccess();
-                return;
-            }
-
-            if (type == 0x36 || type == 0x37) {
-                bool ok = false;
-                if (!DeviceApi::programActive()) {
-                    if (type == 0x36 && value.size() == 28 && data[23] <= 1)
-                        ok = DeviceApi::setManualMode(BLE_CHANNEL, data[23] != 0);
-                    if (type == 0x37 && value.size() == 29 && data[23] < 4 && data[24] <= 1)
-                        ok = DeviceApi::setInput(BLE_CHANNEL, data[23], data[24] != 0);
-                }
-                if (ok) sendAck(seq);
-                unlockAccess();
-                return;
-            }
-
-            if (type == 0x44)
-            {
-                if (!DeviceApi::programActive() && value.size() == 29)
-                    sendActionValues(seq, data[23], data[24]);
-                unlockAccess();
-                return;
-            }
-
-            if (type == 0x40 || type == 0x42)
-            {
-                if (!DeviceApi::programActive()) {
-                    if (type == 0x40 && value.size() == 27)
-                        sendProgramInfo(seq);
-                    else if (type == 0x42 && value.size() == 31) {
-                        uint32_t offset=0;
-                        for (int i=0;i<4;++i) offset |= uint32_t(data[23+i]) << (8*i);
-                        sendProgramChunk(seq,offset);
-                    }
-                }
-                unlockAccess();
-                return;
-            }
-
-            // Read-only query; response itself confirms receipt.
-            if (type == 0x34)
-            {
-                if (value.size() == 31 && !DeviceApi::programActive()) {
-                    uint32_t cursor = 0;
-                    for (int i=0;i<4;++i) cursor |= uint32_t(data[23+i]) << (8*i);
-                    sendEvents(seq,cursor);
-                }
-                unlockAccess();
-                return;
-            }
-            if (type == 0x32)
-            {
-                if (value.size() == 27 && !DeviceApi::programActive())
-                {
-                    // Report state changes from any channel before completing the IO poll.
-                    if (DeviceApi::getState() != lastReportedPlcState)
-                        sendPlcStatus(0);
-                    sendIoResponse(seq);
-                }
-                unlockAccess();
-                return;
-            }
-
-            if (type == 0x01 || type == 0x31 ||
-                type == 0x20 || type == 0x21 ||
-                type == 0x10 || type == 0x11 || type == 0x12)
-            {
-                Serial.printf("BLE RX: TYPE=0x%02X SEQ=%lu\n",
-                              type, (unsigned long)seq);
-                if (type == 0x01)
-                    lastReportedPlcState = 0xFF;
-                if (type == 0x20) // RUN
-                {
-                    if (!DeviceApi::programActive() && DeviceApi::run(BLE_CHANNEL))
-                        Serial.println("PLC STATE: RUN (BLE)");
-                    else
-                        Serial.println("RUN REJECTED (BLE)");
-                }
-                else if (type == 0x21) // STOP
-                {
-                    DeviceApi::abortProgram(BLE_CHANNEL);
-                    DeviceApi::stop(BLE_CHANNEL);
-                    Serial.println("PLC STATE: STOP (BLE)");
-                }
-                else if (type == 0x10) {
-                    if (value.size()==35) DeviceApi::beginProgram(BLE_CHANNEL,fwU32(data+23),fwU32(data+27));
-                } else if (type == 0x11) {
-                    DeviceApi::appendProgram(BLE_CHANNEL,seq,data+23,value.size()-27);
-                } else if (type == 0x12) {
-                    if (value.size()==27) DeviceApi::finishProgram(BLE_CHANNEL);
-                    else DeviceApi::abortProgram(BLE_CHANNEL);
-                }
-
-                sendAck(seq);
-
-                if (type == 0x31 || type == 0x12 ||
-                    type == 0x20 || type == 0x21)
-                    sendPlcStatus(seq);
-            }
-
+        if (restartPending) {
             unlockAccess();
             return;
         }
 
-        // A corrupt framed packet during programming invalidates the session.
-        // Do not abort on arbitrary noise while not programming.
-        DeviceApi::abortProgram(BLE_CHANNEL);
-
-        if (value == "HELLO")
-        {
-            Serial.println("BLE RX: HELLO");
-
-            if (tx != nullptr)
-            {
-                tx->setValue("HELLO_ACK");
-                tx->notify();
+        if (type == 0x36 || type == 0x37) {
+            bool ok = false;
+            if (!DeviceApi::programActive()) {
+                if (type == 0x36 && value.size() == 28 && data[23] <= 1)
+                    ok = DeviceApi::setManualMode(BLE_CHANNEL, data[23] != 0);
+                if (type == 0x37 && value.size() == 29 && data[23] < 4 && data[24] <= 1)
+                    ok = DeviceApi::setInput(BLE_CHANNEL, data[23], data[24] != 0);
             }
+            if (ok) sendAck(seq);
+            unlockAccess();
+            return;
         }
+
+        if (type == 0x44)
+        {
+            if (!DeviceApi::programActive() && value.size() == 29)
+                sendActionValues(seq, data[23], data[24]);
+            unlockAccess();
+            return;
+        }
+
+        if (type == 0x40 || type == 0x42)
+        {
+            if (!DeviceApi::programActive()) {
+                if (type == 0x40 && value.size() == 27)
+                    sendProgramInfo(seq);
+                else if (type == 0x42 && value.size() == 31) {
+                    uint32_t offset=0;
+                    for (int i=0;i<4;++i) offset |= uint32_t(data[23+i]) << (8*i);
+                    sendProgramChunk(seq,offset);
+                }
+            }
+            unlockAccess();
+            return;
+        }
+
+        // Read-only query; response itself confirms receipt.
+        if (type == 0x34)
+        {
+            if (value.size() == 31 && !DeviceApi::programActive()) {
+                uint32_t cursor = 0;
+                for (int i=0;i<4;++i) cursor |= uint32_t(data[23+i]) << (8*i);
+                sendEvents(seq,cursor);
+            }
+            unlockAccess();
+            return;
+        }
+        if (type == 0x32)
+        {
+            if (value.size() == 27 && !DeviceApi::programActive())
+            {
+                // Report state changes from any channel before completing the IO poll.
+                if (DeviceApi::getState() != lastReportedPlcState)
+                    sendPlcStatus(0);
+                sendIoResponse(seq);
+            }
+            unlockAccess();
+            return;
+        }
+
+        if (type == 0x01 || type == 0x31 ||
+            type == 0x20 || type == 0x21 ||
+            type == 0x10 || type == 0x11 || type == 0x12)
+        {
+            Serial.printf("BLE RX: TYPE=0x%02X SEQ=%lu\n",
+                          type, (unsigned long)seq);
+            if (type == 0x01)
+                lastReportedPlcState = 0xFF;
+            if (type == 0x20) // RUN
+            {
+                if (!DeviceApi::programActive() && DeviceApi::run(BLE_CHANNEL))
+                    Serial.println("PLC STATE: RUN (BLE)");
+                else
+                    Serial.println("RUN REJECTED (BLE)");
+            }
+            else if (type == 0x21) // STOP
+            {
+                DeviceApi::abortProgram(BLE_CHANNEL);
+                DeviceApi::stop(BLE_CHANNEL);
+                Serial.println("PLC STATE: STOP (BLE)");
+            }
+            else if (type == 0x10) {
+                if (value.size()==35) DeviceApi::beginProgram(BLE_CHANNEL,fwU32(data+23),fwU32(data+27));
+            } else if (type == 0x11) {
+                DeviceApi::appendProgram(BLE_CHANNEL,seq,data+23,value.size()-27);
+            } else if (type == 0x12) {
+                if (value.size()==27) DeviceApi::finishProgram(BLE_CHANNEL);
+                else DeviceApi::abortProgram(BLE_CHANNEL);
+            }
+
+            sendAck(seq);
+
+            if (type == 0x31 || type == 0x12 ||
+                type == 0x20 || type == 0x21)
+                sendPlcStatus(seq);
+        }
+
         unlockAccess();
+        return;
+    }
+
+    // A corrupt framed packet during programming invalidates the session.
+    // Do not abort on arbitrary noise while not programming.
+    DeviceApi::abortProgram(BLE_CHANNEL);
+
+    if (value == "HELLO")
+    {
+        Serial.println("BLE RX: HELLO");
+
+        if (tx != nullptr)
+        {
+            tx->setValue("HELLO_ACK");
+            tx->notify();
+        }
+    }
+    unlockAccess();
+}
+
+class ReceiveCallbacks : public BLECharacteristicCallbacks
+{
+    void onWrite(BLECharacteristic *characteristic) override
+    {
+        if (!connected.load() || disconnectPending.load()) return;
+        const std::string value = characteristic->getValue();
+        BleRxPacket packet;
+        if (value.size() > sizeof(packet.data)) return;
+        packet.length = value.size();
+        memcpy(packet.data, value.data(), packet.length);
+        // No blocking or protocol work in BTC_TASK. No ACK on overflow.
+        if (xQueueSend(rxQueue, &packet, 0) == pdPASS)
+            xTaskNotifyGive(bleWorker);
     }
 };
+
+static void bleWorkerTask(void*)
+{
+    BleRxPacket packet;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        for (;;) {
+            if (disconnectPending.load()) {
+                xQueueReset(rxQueue);
+                if (!DeviceAccess::take(pdMS_TO_TICKS(1000))) {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                    continue;
+                }
+                Serial.println("BLE CLIENT DISCONNECTED");
+                if (FirmwareUpdate::active()) fwAbort();
+                DeviceApi::clearProgramRead(BLE_CHANNEL);
+                DeviceApi::abortProgram(BLE_CHANNEL);
+                DeviceApi::releaseManual(BLE_CHANNEL);
+                unlockAccess();
+                disconnectPending.store(false);
+                BLEDevice::startAdvertising();
+                Serial.println("BLE ADVERTISING RESTARTED");
+            }
+            if (xQueueReceive(rxQueue, &packet, 0) != pdPASS) break;
+            if (connected.load() && !disconnectPending.load())
+                processPacket(std::string(reinterpret_cast<const char*>(packet.data), packet.length));
+        }
+    }
+}
 bool bleInit()
 {
     accessReady = DeviceAccess::init();
@@ -482,15 +516,14 @@ bool bleInit()
         Serial.println("BLE TRANSFER MUTEX CREATE FAILED");
         return false;
     }
-    Serial.printf("BT RELEASE BEFORE: %u\n", ESP.getFreeHeap());
-
-esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-
-Serial.printf("BT RELEASE RESULT: %s\n", esp_err_to_name(err));
-Serial.printf("BT RELEASE AFTER: %u\n", ESP.getFreeHeap());
-
-BLEDevice::init("LynraControl");
-
+    rxQueue = xQueueCreate(8, sizeof(BleRxPacket));
+    if (!rxQueue) return false;
+    if (xTaskCreate(bleWorkerTask, "bleWorker", 16384, nullptr, 1, &bleWorker) != pdPASS) {
+        vQueueDelete(rxQueue);
+        rxQueue = nullptr;
+        return false;
+    }
+    BLEDevice::init("LynraControl");
     BLEServer *server = BLEDevice::createServer();
     if (server == nullptr)
         return false;

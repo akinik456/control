@@ -70,7 +70,7 @@ bool wifiInterfaceInit()
     return xTaskCreate(
                wifiTask,
                "wifiTask",
-               4096,
+               16384,
                nullptr,
                1,
                nullptr) == pdPASS;

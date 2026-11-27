@@ -249,7 +249,7 @@ void handleCommand() {
 }
 
 void serialInterfaceInit() {
-    Serial2.begin(115200, SERIAL_8N1, 27, 23);
+    Serial2.begin(115200, SERIAL_8N1, 17, 18);
 }
 
 void serialInterfaceLoop() {

@@ -6,3 +6,4 @@
 **/*.iml
 /website/
 **/wifi_config.h
+/esp32s3_test/

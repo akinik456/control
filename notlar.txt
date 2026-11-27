@@ -139,3 +139,19 @@ Bu fonksiyon belirli bir zaman aralığında gelen darbeleri sayarak darbe freka
 - Off: Çıkışın kapanma eşiği.
 - Q: Ölçülen frekansa göre açılır/kapanır.
 Örneğin dönen bir mil üzerindeki sensörden gelen darbelerle hızın belirli bir eşiği aşıp aşmadığı izlenebilir.
+********
+S3
+
+Fonksiyon	GPIO
+I1	4
+I2	5
+I3	6
+I4	7
+Q1	8
+Q2	9
+Q3	10
+Q4	11
+RS232 RX	17
+RS232 TX	18
+USB-UART debug TX	43
+USB-UART debug RX	44

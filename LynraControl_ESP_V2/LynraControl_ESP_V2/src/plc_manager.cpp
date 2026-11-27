@@ -19,8 +19,8 @@ enum class PlcState
 static PlcState plcState = PlcState::Stop;
 static bool programLoaded = false;
 
-static constexpr uint8_t INPUT_PINS[4] = {32, 33, 25, 26};
-static constexpr uint8_t OUTPUT_PINS[4] = {16, 17, 18, 19};
+static constexpr uint8_t INPUT_PINS[4] = {4, 5, 6, 7};
+static constexpr uint8_t OUTPUT_PINS[4] = {8, 9, 10, 11};
 
 static bool manualMode = false;
 static uint32_t bleInputs = 0;
