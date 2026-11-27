@@ -38,6 +38,22 @@ namespace DeviceApi
         snapshot = result;
         return true;
     }
+		bool readLiveSnapshot(LiveSnapshot &snapshot)
+		{
+				LiveSnapshot result{};
+
+				if (!plcReadSnapshot(result.state,
+														 result.inputs,
+														 result.outputs,
+														 result.manual))
+						return false;
+
+				result.uptimeMs =
+						static_cast<uint64_t>(esp_timer_get_time()) / 1000;
+
+				snapshot = result;
+				return true;
+		}
     using DeviceAccess::Channel;
     struct Guard
     {

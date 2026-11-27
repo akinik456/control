@@ -28,3 +28,7 @@ bool plcReadEvents(uint32_t cursor, DeviceData::IoEventBatch &batch);
 void plcReadActionValues(uint8_t rule, uint8_t action, DeviceData::ActionValues &result);
 
 bool plcReadRules(uint8_t *counts, size_t capacity, size_t &count);
+bool plcReadSnapshot(uint8_t &state,
+                     uint32_t &inputs,
+                     uint32_t &outputs,
+                     bool &manual);

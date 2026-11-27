@@ -3,6 +3,7 @@
 #include "wifi_interface.h"
 #include "wifi_config.h"
 #include "firebase_session.h"
+#include "firebase_live_publisher.h"
 
 namespace
 {
@@ -56,6 +57,7 @@ namespace
 						if (connected)
 						{
 								FirebaseSession_Poll();
+								FirebaseLivePublisher_Poll();
 						}
 
             vTaskDelay(pdMS_TO_TICKS(250));

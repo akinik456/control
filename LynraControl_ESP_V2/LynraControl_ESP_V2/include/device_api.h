@@ -21,6 +21,15 @@ struct IoSnapshot {
     uint64_t timeMs;
     bool manual;
 };
+struct LiveSnapshot {
+    uint8_t state;
+    uint32_t inputs;
+    uint32_t outputs;
+    uint64_t uptimeMs;
+    bool manual;
+};
+
+bool readLiveSnapshot(LiveSnapshot &snapshot);
 // Existing state codes: 0 STOP, 1 PROGRAMMING, 2 RUN.
 uint8_t getState();
 bool readIo(IoSnapshot &snapshot);

@@ -382,7 +382,29 @@ bool plcReadIo(uint32_t &inputs, uint32_t &outputs, bool &manual)
     xSemaphoreGive(plcMutex);
     return true;
 }
+bool plcReadSnapshot(uint8_t &state,
+                     uint32_t &inputs,
+                     uint32_t &outputs,
+                     bool &manual)
+{
+    if (!plcMutex ||
+        xSemaphoreTake(plcMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+        return false;
 
+    state = plcGetStatus();
+    inputs = effectiveInputsLocked();
+    outputs = 0;
+    manual = manualMode;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        if (digitalRead(OUTPUT_PINS[i]) == HIGH)
+            outputs |= (1UL << i);
+    }
+
+    xSemaphoreGive(plcMutex);
+    return true;
+}
 // Read one action's diagnostic values without changing engine state.
 void plcReadActionValues(uint8_t rule, uint8_t action, DeviceData::ActionValues &result)
 {

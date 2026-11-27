@@ -71,3 +71,6 @@ flutter:
   assets:
     - assets/sounds/relay_click.wav
     - assets/sounds/relay_release.wav
+    
+dependency_overrides:
+  flutter_blue_plus_winrt: 0.0.22

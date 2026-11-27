@@ -383,6 +383,15 @@ class LynraBleService extends ChangeNotifier {
 				debugPrint('BLE MTU: $mtu');
 			}
       final services = await device.discoverServices();
+			debugPrint('BLE SERVICES: ${services.length}');
+
+for (final s in services) {
+  debugPrint('SERVICE: ${s.uuid}');
+
+  for (final c in s.characteristics) {
+    debugPrint('  CHARACTERISTIC: ${c.uuid}');
+  }
+}
       final service = services.firstWhere((s) => s.uuid.toString() == serviceUuid);
       final rx = service.characteristics.firstWhere((c) => c.uuid.toString() == writeUuid);
       final tx = service.characteristics.firstWhere((c) => c.uuid.toString() == notifyUuid);
@@ -434,8 +443,12 @@ class LynraBleService extends ChangeNotifier {
     } catch (e) {
       debugPrint('BLE connection error: $e');
       try {
-        await device.disconnect();
-      } catch (_) {}
+				debugPrint('BLE DISCONNECT REQUEST');
+				await device.disconnect();
+				debugPrint('BLE DISCONNECT SUCCESS');
+			} catch (e) {
+				debugPrint('BLE DISCONNECT ERROR: $e');
+			}
       if (!_disposed) {
         _update(() {
           connectedDevice = null;

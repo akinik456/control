@@ -70,11 +70,13 @@ class ServerCallbacks : public BLEServerCallbacks
         Serial.println("BLE FAST INTERVAL REQUESTED");
     }
     void onDisconnect(BLEServer *server) override
-    {
-        connected.store(false);
-        disconnectPending.store(true);
-        xTaskNotifyGive(bleWorker);
-    }
+		{
+				Serial.println("BLE DISCONNECT CALLBACK");
+
+				connected.store(false);
+				disconnectPending.store(true);
+				xTaskNotifyGive(bleWorker);
+		}
 };
 #include "lynra_protocol.h"
 
