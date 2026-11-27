@@ -674,6 +674,12 @@ Future<void> _chooseFunction(
       ('toggle', 'TOGGLE'),
     ]);
     if (selected == null || !mounted) return;
+    if (_showFunctionHelp) {
+      final accepted = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => OutputHelpPage(selected: selected)),
+      );
+      if (!mounted || accepted != true) return;
+    }
     setState(() {
       final outputIndex = replace?.outputIndex ?? 1;
       final action = switch (selected) {

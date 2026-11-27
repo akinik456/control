@@ -219,3 +219,104 @@ class _CounterHelpPageState extends State<CounterHelpPage> {
     ]),bottomNavigationBar:SafeArea(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Expanded(child:OutlinedButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Vazgeç'))),const SizedBox(width:12),Expanded(child:FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('İşlemi Ekle')))]))));
   }
 }
+
+
+class OutputHelpPage extends StatelessWidget {
+  const OutputHelpPage({super.key, required this.selected});
+  final String selected;
+  static const descriptions = {
+    'on': 'Koşul doğru iken çıkış ON, yanlış iken OFF olur. Çıkış koşulu takip eder.',
+    'off': 'Koşul doğru iken çıkış OFF, yanlış iken ON olur. Çıkış koşulun tersini takip eder.',
+    'set': 'Koşul yanlış durumdan doğru duruma geçtiğinde çıkış ON yapılır. Koşul tekrar yanlış olsa da çıkış ON kalır.',
+    'reset': 'Koşul yanlış durumdan doğru duruma geçtiğinde çıkış OFF yapılır. Koşul tekrar yanlış olsa da çıkış OFF kalır.',
+    'toggle': 'Koşul her yanlış durumdan doğru duruma geçtiğinde çıkış tersine döner. Koşul doğru kaldığı sürece tekrar değişmez.',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Çıkış İşlevleri')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        const Text('Örnek giriş koşulu: I1 = ON. Her diyagram bağımsız bir örnektir.'),
+        const SizedBox(height: 12),
+        for (final item in descriptions.entries) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: item.key == selected ? scheme.primary.withValues(alpha: 0.08) : null,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: item.key == selected ? scheme.primary : scheme.outlineVariant),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [Text(item.key.toUpperCase(), style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold, fontSize: 16)),
+                if (item.key == selected) ...[const Spacer(), Icon(Icons.check_circle, color: scheme.primary, size: 20)]
+              ]),
+              const SizedBox(height: 6), Text(item.value),
+              const SizedBox(height: 8),
+              SizedBox(height: 88, width: double.infinity, child: CustomPaint(painter: _OutputHelpPainter(item.key, scheme))),
+              if (item.key == 'reset') const Text('Örnekte Q1 başlangıçta ON kabul edilmiştir.', style: TextStyle(fontSize: 12)),
+            ]),
+          ),
+          const SizedBox(height: 10),
+        ],
+        const Text('SET, RESET ve TOGGLE çıkışın durumunu başka bir işlem değiştirene veya program sıfırlanana kadar korur. Bu işlevlerin zaman parametresi yoktur.'),
+      ]),
+      bottomNavigationBar: SafeArea(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
+        Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç'))),
+        const SizedBox(width: 12),
+        Expanded(child: FilledButton(onPressed: () => Navigator.pop(context, true), child: Text('${selected.toUpperCase()} Ekle'))),
+      ]))),
+    );
+  }
+}
+
+class _OutputHelpPainter extends CustomPainter {
+  const _OutputHelpPainter(this.kind, this.scheme);
+  final String kind;
+  final ColorScheme scheme;
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 48) return;
+    const left = 32.0;
+    final step = (size.width - left - 8) / 7;
+    const input = [false, true, true, false, true, false, false];
+    final output = <bool>[];
+    bool q = kind == 'reset';
+    bool prev = false;
+    for (final active in input) {
+      if (kind == 'on') { q = active; }
+      else if (kind == 'off') { q = !active; }
+      else if (active && !prev) {
+        if (kind == 'set') { q = true; }
+        else if (kind == 'reset') { q = false; }
+        else { q = !q; }
+      }
+      output.add(q);
+      prev = active;
+    }
+    final guide = Paint()..color = scheme.outline.withValues(alpha: 0.45)..strokeWidth = 1;
+    for (var i = 1; i < input.length; i++) {
+      if (input[i] == input[i-1]) continue;
+      final x = left + i * step;
+      for (double y = 4; y < 84; y += 7) {
+        canvas.drawLine(Offset(x,y), Offset(x,y+3), guide);
+      }
+    }
+    void wave(String label, List<bool> values, double base, Color color) {
+      final tp = TextPainter(text: TextSpan(text: label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)), textDirection: TextDirection.ltr)..layout();
+      tp.paint(canvas, Offset(0, base-18));
+      double y(bool v) => base - (v ? 23 : 0);
+      final path = Path()..moveTo(left, y(values.first));
+      for (var i=0; i<values.length; i++) {
+        path.lineTo(left+i*step, y(values[i]));
+        path.lineTo(left+(i+1)*step, y(values[i]));
+      }
+      canvas.drawPath(path, Paint()..color=color..style=PaintingStyle.stroke..strokeWidth=2.3);
+    }
+    wave('I1', input, 31, scheme.primary);
+    wave('Q1', output, 79, Colors.green);
+  }
+  @override
+  bool shouldRepaint(covariant _OutputHelpPainter oldDelegate) => oldDelegate.kind != kind || oldDelegate.scheme != scheme;
+}
