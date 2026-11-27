@@ -192,7 +192,17 @@ void handleCommand() {
                        unsigned(info.deviceId[2]), unsigned(info.deviceId[3]),
                        unsigned(info.deviceId[4]), unsigned(info.deviceId[5]),
                        unsigned(info.inputs), unsigned(info.outputs));
-    } else if (strcmp(line, "GET PROGRAM INFO") == 0) {
+    } else if (strcmp(line, "GET PAIRING CODE") == 0) {
+				char code[20] = {};
+
+				if (!DeviceApi::readPairingCode(code, sizeof(code))) {
+						Serial2.println("ERR PAIRING_CODE_UNAVAILABLE");
+						return;
+				}
+
+				Serial2.printf("OK PAIRING_CODE=%s\r\n", code);
+
+		} else if (strcmp(line, "GET PROGRAM INFO") == 0) {
         handleProgramInfo();
     } else if (strncmp(line, "GET PROGRAM DATA ", 17) == 0) {
         handleProgramData();

@@ -26,7 +26,33 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
     super.initState();
     _ble.addListener(_refresh);
   }
+	Future<void> _readPairingCode() async {
+  try {
+    final code = await _ble.readPairingCode();
 
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pairing Code'),
+        content: SelectableText(code),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Okuma hatası: $e')),
+    );
+  }
+}
   void _refresh() {
     if (mounted) setState(() {});
   }
@@ -92,6 +118,11 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
                       ? 'Please wait...'
                       : _ble.isConnected ? 'Disconnect' : 'Connect'),
                 ),
+								const SizedBox(height: 8),
+								OutlinedButton(
+									onPressed: canCommand ? _readPairingCode : null,
+									child: const Text('Pairing Code Oku'),
+								),
 								if (!widget.connectionOnly) ...[
                 const SizedBox(height: 8),
                 FilledButton(

@@ -210,7 +210,7 @@ class LynraBleService extends ChangeNotifier {
         (value[18] << 8) |
         (value[19] << 16) |
         (value[20] << 24);
-    if (type == 0x41 || type == 0x43 || type == 0x45) {
+    if (type == 0x41 || type == 0x43 || type == 0x45 || type == 0x61) {
       final response = _readResponse;
       if (isConnected && !_disposed && seq == _readSeq && type == _readType &&
           response != null && !response.isCompleted) {
@@ -589,7 +589,44 @@ for (final s in services) {
     }
     throw StateError('Program okuma zaman aşımı.');
   }
+	Future<String> readPairingCode() async {
+  final rx = connectedRx;
 
+  if (_disposed || !isConnected || rx == null ||
+      connecting || commandBusy || pendingAck != null) {
+    throw StateError('Cihaz hazır değil.');
+  }
+
+  _update(() => commandBusy = true);
+
+  try {
+    while (_ioResponse != null && isConnected && !_disposed) {
+      await Future<void>.delayed(
+        const Duration(milliseconds: 10),
+      );
+    }
+
+    final data = await _requestProgramPacket(rx, 0x60, []);
+
+    if (_disposed || !isConnected || connectedRx != rx) {
+      throw StateError('BLE bağlantısı kesildi.');
+    }
+
+    final code = String.fromCharCodes(data);
+
+    if (code.length != 19 ||
+        !RegExp(r'^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$')
+            .hasMatch(code)) {
+      throw const FormatException('Pairing code geçersiz.');
+    }
+
+    debugPrint('PAIRING CODE READ OK');
+
+    return code;
+  } finally {
+    _update(() => commandBusy = false);
+  }
+}
   Future<ControlProgram> readProgram() async {
     final rx = connectedRx;
     if (_disposed || !isConnected || rx == null || connecting ||

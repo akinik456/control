@@ -14,7 +14,7 @@ struct DeviceInfo {
     uint8_t outputs;
 };
 bool readInfo(DeviceInfo &info);
-
+bool readPairingCode(char *dest, size_t capacity);
 struct IoSnapshot {
     uint32_t inputs;
     uint32_t outputs;

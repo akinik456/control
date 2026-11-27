@@ -8,6 +8,7 @@
 #include "plc_program_store.h"
 #include "models/control_program.h"
 #include "wifi_interface.h"
+#include "device_identity.h"
 
 // Temporary heap buffer: avoid both static DRAM overflow and task stack overflow.
 namespace
@@ -83,6 +84,10 @@ namespace
 void setup()
 {
   Serial.begin(115200);
+	if (!DeviceIdentity_Init())
+	{
+			Serial.println("IDENTITY INIT FAILED");
+	}
   const esp_partition_t *running = esp_ota_get_running_partition();
   const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
 

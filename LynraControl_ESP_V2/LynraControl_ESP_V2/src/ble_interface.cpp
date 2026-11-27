@@ -359,7 +359,26 @@ static void processPacket(const std::string& value)
             unlockAccess();
             return;
         }
+				if (type == 0x60)
+				{
+						if (value.size() == 27 && !DeviceApi::programActive())
+						{
+								char code[20] = {};
 
+								if (DeviceApi::readPairingCode(code, sizeof(code)))
+								{
+										sendReadFrame(
+												0x61,
+												seq,
+												reinterpret_cast<const uint8_t *>(code),
+												19
+										);
+								}
+						}
+
+						unlockAccess();
+						return;
+				}
         if (type == 0x44)
         {
             if (!DeviceApi::programActive() && value.size() == 29)

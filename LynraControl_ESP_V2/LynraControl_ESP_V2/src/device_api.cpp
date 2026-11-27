@@ -7,6 +7,7 @@
 #include "lynra_protocol.h"
 #include <ArduinoJson.h>
 #include <string.h>
+#include "device_identity.h"
 
 namespace DeviceApi
 {
@@ -24,7 +25,16 @@ namespace DeviceApi
         info = result;
         return true;
     }
+		bool readPairingCode(char *dest, size_t capacity)
+		{
+				const String &code = DeviceIdentity_PairingCode();
 
+				if (!dest || capacity < 20 || code.length() != 19)
+						return false;
+
+				memcpy(dest, code.c_str(), 20);
+				return true;
+		}
     uint8_t getState()
     {
         return plcGetStatus();
