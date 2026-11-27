@@ -147,3 +147,75 @@ class _ExtraTimerHelpState extends State<ExtraTimerHelp> {
     ]),bottomNavigationBar:SafeArea(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Expanded(child:OutlinedButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Vazgeç'))),const SizedBox(width:12),Expanded(child:FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('İşlemi Ekle')))]))));
   }
 }
+
+
+class CounterHelpPage extends StatefulWidget {
+  const CounterHelpPage({super.key, required this.kind});
+  final String kind;
+  @override
+  State<CounterHelpPage> createState() => _CounterHelpPageState();
+}
+
+class _CounterHelpPageState extends State<CounterHelpPage> {
+  int start=0, on=4, off=2, target=4, gate=2, rate=3;
+  bool down=false, q=false;
+  int count=0, elapsed=0, total=0;
+  final List<int> values=[0];
+  final List<bool> outputs=[false];
+  final List<int> totals=[0];
+  final List<String> events=['Başlangıç'];
+  int get k => widget.kind=='upDown'?0:widget.kind=='hours'?1:2;
+  void evaluate() {
+    if(k==0) {
+      if(on>=off) {if(count>=on) q=true; else if(count<=off) q=false;}
+      else {if(count<=on) q=true; else if(count>=off) q=false;}
+    } else if(k==1) {if(elapsed>=target) q=true;}
+    else {if(on>=off) {if(count>on) q=true; else if(count<=off) q=false;} else {q=count>=on && count<off;}}
+  }
+  void record(String event) {
+    values.add(k==1?elapsed:count); outputs.add(q); totals.add(total); events.add(event);
+    if(values.length>9) {values.removeAt(0);outputs.removeAt(0);totals.removeAt(0);events.removeAt(0);}
+  }
+  void restart() {
+    count=k==0?start:0; elapsed=0;total=0;q=false;
+    values.clear();outputs.clear();totals.clear();events.clear();
+    if(k==0) evaluate();
+    record('Başlangıç');
+  }
+  @override
+  Widget build(BuildContext context) {
+    final scheme=Theme.of(context).colorScheme;
+    Widget heading(String s)=>Padding(padding:const EdgeInsets.only(top:18,bottom:6),child:Text(s,style:TextStyle(color:scheme.primary,fontWeight:FontWeight.bold,fontSize:16)));
+    Widget param(String a,String b)=>Padding(padding:const EdgeInsets.only(bottom:12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontWeight:FontWeight.bold)),const SizedBox(height:3),Text(b)]));
+    Widget slider(String name,int v,int min,int max,ValueChanged<int> change)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('$name: $v'),Slider(value:v.toDouble(),min:min.toDouble(),max:max.toDouble(),divisions:max-min,onChanged:(x)=>setState(()=>change(x.round())))]);
+    Widget act(String label,VoidCallback fn)=>OutlinedButton(onPressed:()=>setState(fn),child:Text(label));
+    return Scaffold(appBar:AppBar(title:Text(FunctionHelpData.counterTitles[k],style:const TextStyle(fontSize:17))),body:ListView(padding:const EdgeInsets.all(16),children:[
+      heading('İşlev tanımı'),Text(FunctionHelpData.counterDescriptions[k]),
+      heading('Fonksiyonu keşfet'),const Text('Örnek değerler programa aktarılmaz. Butonlarla olayları oluşturup grafiği inceleyin.'),
+      if(k==0)...[
+        slider('START',start,-5,5,(v){start=v;restart();}),
+        slider('ON',on,-5,10,(v){on=v;restart();}),slider('OFF',off,-5,10,(v){off=v;restart();}),
+        SwitchListTile(contentPadding:EdgeInsets.zero,title:Text('DIR: ${down?"ON – Geri":"OFF – İleri"}'),value:down,onChanged:(v)=>setState(()=>down=v)),
+        Wrap(spacing:8,runSpacing:4,children:[act('CNT ↑',(){count+=down?-1:1;evaluate();record(down?'−1':'+1');}),act('RESET',(){count=start;q=false;record('RESET');evaluate();record('Bırak');})]),
+      ] else if(k==1)...[
+        slider('T (örnek saniye)',target,1,10,(v){target=v;restart();}),
+        Wrap(spacing:8,runSpacing:4,children:[act('EN ON · 1 sn',(){elapsed++;total++;evaluate();record('ON');}),act('EN OFF · 1 sn',(){record('OFF');}),act('R',(){elapsed=0;q=false;record('R');}),act('Ral',(){elapsed=0;total=0;q=false;record('Ral');})]),
+      ] else ...[
+        slider('G_T (sn)',gate,1,5,(v){gate=v;restart();}),slider('ON (darbe)',on,0,10,(v){on=v;restart();}),slider('OFF (darbe)',off,0,10,(v){off=v;restart();}),slider('Örnek frekans (Hz)',rate,0,5,(v)=>rate=v),
+        Text(on>=off?'Histerezisli kontrol':'Frekans aralığı kontrolü'),
+        Text('Sonraki pencere: ${rate*gate} darbe'),act('Ölçüm penceresini tamamla',(){count=rate*gate;evaluate();record('$count');}),
+      ],
+      const SizedBox(height:12),Text(k==1?'Güncel: $elapsed sn   Toplam: $total sn   Q1: ${q?"ON":"OFF"}':'${k==0?"Sayaç":"Son ölçüm"}: $count   Q1: ${q?"ON":"OFF"}',style:const TextStyle(fontWeight:FontWeight.bold)),
+      SizedBox(height:230,child:CustomPaint(painter:CounterHelpPainter(values:List.of(values),outputs:List.of(outputs),totals:List.of(totals),events:List.of(events),kind:k,on:k==1?target:on,off:off,scheme:scheme))),
+      const Text('Grafik son olayları gösterir. Yatay eksen olay sırasıdır.',style:TextStyle(fontSize:12)),act('Örneği baştan başlat',restart),
+      heading('Parametreler'),
+      if(k==0)...[
+        param('CNT','Sayım girişi. Yalnızca yükselen kenarlar sayılır.'),param('DIR','OFF veya YOK: ileri sayım. ON: geri sayım.'),param('START','Başlangıç ve RESET değeri.'),param('ON / OFF','ON ≥ OFF ise sayaç ON değerine ulaştığında veya geçtiğinde çıkış ON, OFF değerine ulaştığında veya altına indiğinde OFF olur. ON < OFF ise yön tersidir: ON değerine veya altına inince ON, OFF değerine veya üstüne çıkınca OFF olur. Arada önceki durum korunur. Eşikler eşitse ON önceliklidir.'),param('RESET','ON olduğu sürece sayaç START değerinde tutulur ve çıkış OFF olur. Bırakıldığında eşikler yeniden değerlendirilir.'),param('Değer aralığı','START, ON ve OFF: −2147483648…2147483647. Sayaç bu sınırlarda durur.'),
+      ] else if(k==1)...[
+        param('EN','Çalışma süresini biriktiren giriş.'),param('T – Hedef süre','0–1000000 saat ve 0–59 dakika; toplam süre sıfır olamaz. Ayar çözünürlüğü 1 dakikadır. Grafikte örnek olarak saniye kullanılmıştır.'),param('R','Güncel süreyi sıfırlar ve çıkışı OFF yapar. Toplam süre EN ON iken birikmeye devam eder.'),param('Ral','Güncel ve toplam süreyi sıfırlar, çıkışı OFF yapar. Ral önceliklidir.'),
+      ] else ...[
+        param('Fre','Ölçüm girişi. Yalnızca yükselen kenarlar sayılır.'),param('G_T (1–100 sn)','Ölçüm penceresi; 1 saniye adımlarla ayarlanır. Frekans = darbe adedi / G_T.'),param('ON / OFF (0–9999 darbe)','ON ≥ OFF: ölçüm ON değerinden büyükse çıkış ON, OFF değerine eşit veya küçükse OFF olur; arada önceki durum korunur.'),param('Aralık kontrolü','ON < OFF: ölçüm ON değerine eşit veya büyük ve OFF değerinden küçükse çıkış ON, aksi halde OFF olur.'),param('Ölçüm güncellemesi','Çıkış pencere sonunda değerlendirilir. İki veya daha fazla pencere süresi geçerse ölçüm geçersiz sayılır ve çıkış korunur.'),
+      ],
+    ]),bottomNavigationBar:SafeArea(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Expanded(child:OutlinedButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Vazgeç'))),const SizedBox(width:12),Expanded(child:FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('İşlemi Ekle')))]))));
+  }
+}

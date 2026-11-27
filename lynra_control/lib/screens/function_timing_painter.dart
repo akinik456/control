@@ -206,3 +206,41 @@ class ExtraTimerPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant ExtraTimerPainter oldDelegate)=>true;
 }
+
+
+class CounterHelpPainter extends CustomPainter {
+  CounterHelpPainter({required this.values,required this.outputs,required this.totals,required this.events,required this.kind,required this.on,required this.off,required this.scheme});
+  final List<int> values,totals;
+  final List<bool> outputs;
+  final List<String> events;
+  final int kind,on,off;
+  final ColorScheme scheme;
+  @override
+  void paint(Canvas canvas,Size size) {
+    final left=42.0,right=size.width-12,top=24.0,bottom=140.0;
+    if(right<=left) return;
+    final all=[0,on,if(kind!=1)off,...values,if(kind==1)...totals];
+    int lo=all.reduce((a,b)=>a<b?a:b),hi=all.reduce((a,b)=>a>b?a:b);
+    if(lo==hi)hi++;
+    double x(int i)=>left+(right-left)*i/(values.length>1?values.length-1:1);
+    double y(int v)=>bottom-(bottom-top)*(v-lo)/(hi-lo);
+    void label(String s,double x,double y,Color c,{double font=10}) {final tp=TextPainter(text:TextSpan(text:s,style:TextStyle(color:c,fontSize:font)),textDirection:TextDirection.ltr)..layout();tp.paint(canvas,Offset(x,y));}
+    final axis=Paint()..color=scheme.outline..strokeWidth=1;
+    canvas.drawLine(Offset(left,top),Offset(left,bottom),axis);
+    canvas.drawLine(Offset(left,bottom),Offset(right,bottom),axis);
+    label(kind==1?'Süre':'Değer',0,0,scheme.onSurface);
+    void threshold(int v,String name,Color color){final yy=y(v);final p=Paint()..color=color..strokeWidth=1;for(double xx=left;xx<right;xx+=8){canvas.drawLine(Offset(xx,yy),Offset(xx+4<right?xx+4:right,yy),p);}label('$name $v',0,yy-12,color);}
+    threshold(on,kind==1?'T':'ON',Colors.amber);
+    if(kind!=1 && off!=on)threshold(off,'OFF',Colors.orange);
+    void trace(List<int> data,Color color){final path=Path()..moveTo(x(0),y(data[0]));for(int i=1;i<data.length;i++){path.lineTo(x(i),y(data[i-1]));path.lineTo(x(i),y(data[i]));}canvas.drawPath(path,Paint()..color=color..strokeWidth=2..style=PaintingStyle.stroke);for(int i=0;i<data.length;i++){canvas.drawCircle(Offset(x(i),y(data[i])),3,Paint()..color=color);}}
+    if(kind==1)trace(totals,Colors.purpleAccent);
+    trace(values,Colors.cyan);
+    label(kind==1?'Güncel (mavi) / Toplam (mor)':'Sayım (mavi)',left,4,scheme.onSurface);
+    label('Q1',0,166,Colors.green);
+    double qy(bool q)=>q?165:190;
+    final qp=Path()..moveTo(x(0),qy(outputs[0]));for(int i=1;i<outputs.length;i++){qp.lineTo(x(i),qy(outputs[i-1]));qp.lineTo(x(i),qy(outputs[i]));}if(outputs.length==1)qp.lineTo(right,qy(outputs[0]));canvas.drawPath(qp,Paint()..color=Colors.green..strokeWidth=2..style=PaintingStyle.stroke);
+    for(int i=0;i<events.length;i++){if(i==0&&events.length>1)continue;label(events[i],x(i)-8,200+(i%2)*12,scheme.onSurface,font:9);}
+  }
+  @override
+  bool shouldRepaint(covariant CounterHelpPainter oldDelegate)=>true;
+}

@@ -1,4 +1,10 @@
 class FunctionHelpData {
+  static const counterTitles = ['İleri / Geri Sayıcı', 'Çalışma Saati Sayacı', 'Frekans Eşik Tetikleyici'];
+  static const counterDescriptions = [
+    'CNT girişinin her yükselen kenarında sayaç bir artar veya azalır. DIR OFF ise ileri, ON ise geri sayar. Çıkış ON ve OFF eşiklerine göre durum değiştirir. RESET sayacı START değerine döndürür.',
+    'EN girişi ON iken güncel ve toplam çalışma süreleri birikir. EN OFF iken süreler duraklar. Güncel süre hedefe ulaştığında çıkış ON olur ve resetlenene kadar ON kalır.',
+    'Fre girişinin yükselen kenarları G_T ölçüm süresi boyunca sayılır. Her pencere sonunda darbe adedi ON ve OFF eşikleriyle karşılaştırılır. Çıkış ölçüm penceresi sonunda güncellenir.',
+  ];
   static const extraTitles = ['Asenkron Darbe Üreteci','Merdiven Otomatiği','Çok İşlevli Anahtar','Kronometre'];
   static const extraDescriptions = [
     'Koşul doğru olduğunda çıkış hemen ON olur. TH boyunca ON, TL boyunca OFF kalır ve bu döngü tekrarlanır. Koşul yanlış olduğunda çıkış hemen OFF olur. Yeni aktivasyon ON fazından başlar.',

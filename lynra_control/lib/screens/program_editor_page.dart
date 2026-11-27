@@ -703,6 +703,13 @@ Future<void> _chooseFunction(
 
   if (selected == null || !mounted) return;
 
+  if (_showFunctionHelp) {
+    final accepted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => CounterHelpPage(kind: selected)),
+    );
+    if (!mounted || accepted != true) return;
+  }
+
   if (selected == 'upDown') {
     setState(() {
       final action = ControlAction.counter(
