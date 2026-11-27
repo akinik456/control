@@ -11,10 +11,12 @@ import '../core/theme/app_colors.dart';
 import 'program_simulator_page.dart';
 import 'ble_connection_page.dart';
 import 'program_test_page.dart';
+import 'function_help_page.dart';
 import '../services/lynra_ble_service.dart';
 import '../services/local_program_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Structured EGER-ISE editor. No free-form program text or block cards.
 class ProgramEditorPage extends StatefulWidget {
@@ -36,6 +38,33 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
 	String? _localProgramId;
   bool _cloudSaving = false;
   bool _programActionsOpen = false;
+  bool _showFunctionHelp = true;
+  bool _functionHelpPreferenceReady = false;
+  static const _functionHelpKey = 'show_function_help';
+
+  Future<void> _loadFunctionHelpPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _showFunctionHelp = prefs.getBool(_functionHelpKey) ?? true;
+        _functionHelpPreferenceReady = true;
+      });
+    } catch (e) {
+      debugPrint('Function help preference read: $e');
+      if (mounted) setState(() => _functionHelpPreferenceReady = true);
+    }
+  }
+
+  Future<void> _setFunctionHelpPreference(bool value) async {
+    setState(() => _showFunctionHelp = value);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_functionHelpKey, value);
+    } catch (e) {
+      debugPrint('Function help preference write: $e');
+    }
+  }
   String? _savedFingerprint;
   // UI-only expansion state; does not change saved program data.
   final Set<String> _collapsedConditions = {'rule_1'};
@@ -46,6 +75,7 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   @override
   void initState() {
     super.initState();
+    _loadFunctionHelpPreference();
     _programActionsOpen = false;
     if (widget.openCloudOnStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -304,6 +334,17 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
     'Kronometre' => ControlActionType.stopwatchTimer,
     _ => ControlActionType.onOffDelay,
   };
+
+  Future<void> _selectTimerWithHelp(ControlConditionGroup rule, String name,
+      {ControlAction? replace}) async {
+    if (_showFunctionHelp && _timerType(name) == ControlActionType.onOffDelay) {
+      final accepted = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => const FunctionHelpPage()),
+      );
+      if (!mounted || accepted != true) return;
+    }
+    _selectTimer(rule, name, replace: replace);
+  }
 
   void _selectTimer(ControlConditionGroup rule, String name,
       {ControlAction? replace}) {
@@ -716,7 +757,7 @@ if (selected == 'threshold') {
     final name = await _choose<String>('Zaman fonksiyonu', [
       for (final name in _timerFunctions) (name, name),
     ]);
-    if (name != null && mounted) _selectTimer(rule, name, replace: replace);
+    if (name != null && mounted) await _selectTimerWithHelp(rule, name, replace: replace);
   }
 
   void _addAction(ControlConditionGroup rule, ControlActionType type) => setState(() {
@@ -2029,10 +2070,19 @@ if (!_collapsedConditions.contains(rule.id)) ...[
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Fonksiyon açıklamalarını göster'),
+                      value: _showFunctionHelp,
+                      onChanged: _functionHelpPreferenceReady
+                          ? (v) => _setFunctionHelpPreference(v ?? true)
+                          : null,
+                    ),
                     _quickFunctionHeading('ZAMAN FONKSİYONLARI'),
                     _quickFunctionGrid(2, [
                       for (final name in _timerFunctions)
-                        _quickFunctionButton(name, () => _selectTimer(rule, name)),
+                        _quickFunctionButton(name, () => _selectTimerWithHelp(rule, name)),
                     ]),
                     const Divider(height: 10),
                     _quickFunctionHeading('SAYAÇLAR'),
