@@ -1,6 +1,6 @@
 <mxfile host="Electron">
   <diagram name="Sayfa-1" id="ZUW2wsX-WDwv4ZkAV0RY">
-    <mxGraphModel dx="2767" dy="1342" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="630" pageHeight="276" math="0" shadow="0">
+    <mxGraphModel dx="840" dy="483" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="630" pageHeight="276" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -435,7 +435,7 @@
             <mxPoint x="317.9487179487179" y="42" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="ePQz18_qBlBJByQ8JcLu-262" parent="ePQz18_qBlBJByQ8JcLu-214" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;container=0;" value="&lt;b&gt;Giriş aktif iken asenkron darbe üretir&lt;/b&gt;&lt;div&gt;&lt;b&gt;Tetikleme yükselen / düşen kenar seçilebilir&lt;/b&gt;&lt;/div&gt;" vertex="1">
+        <mxCell id="ePQz18_qBlBJByQ8JcLu-262" parent="ePQz18_qBlBJByQ8JcLu-214" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;container=0;" value="&lt;b&gt;Giriş aktif iken asenkron darbe üretir&lt;/b&gt;&lt;div&gt;&lt;b&gt;Tetikleme ON / OFF seçilebilir&lt;/b&gt;&lt;/div&gt;" vertex="1">
           <mxGeometry height="30" width="410" x="-5" y="240" as="geometry" />
         </mxCell>
         <mxCell id="ePQz18_qBlBJByQ8JcLu-261" parent="ePQz18_qBlBJByQ8JcLu-263" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;container=0;" value="&lt;b&gt;Asenkron Darbe Üreteci&amp;nbsp;&lt;/b&gt;&lt;div&gt;&lt;b style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Parameters : TH,TL&lt;/b&gt;&lt;/div&gt;" vertex="1">

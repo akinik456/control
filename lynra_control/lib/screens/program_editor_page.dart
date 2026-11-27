@@ -338,14 +338,19 @@ class _ProgramEditorPageState extends State<ProgramEditorPage> {
   Future<void> _selectTimerWithHelp(ControlConditionGroup rule, String name,
       {ControlAction? replace}) async {
     final type = _timerType(name);
-    if (_showFunctionHelp && (type == ControlActionType.onOffDelay || type == ControlActionType.wipingRelay || type == ControlActionType.edgeWipingRelay)) {
+    if (_showFunctionHelp) {
       final accepted = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-  builder: (_) => FunctionHelpPage(
-    wiping: type == ControlActionType.wipingRelay,
-    edgeWiping: type == ControlActionType.edgeWipingRelay,
-  ),
-),
+        MaterialPageRoute(builder: (_) => FunctionHelpPage(
+          wiping: type == ControlActionType.wipingRelay,
+          edgeWiping: type == ControlActionType.edgeWipingRelay,
+          extra: switch (type) {
+            ControlActionType.asynchronousPulse => 1,
+            ControlActionType.stairwayTimer => 2,
+            ControlActionType.multipleFunctionTimer => 3,
+            ControlActionType.stopwatchTimer => 4,
+            _ => 0,
+          },
+        )),
       );
       if (!mounted || accepted != true) return;
     }

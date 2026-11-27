@@ -3,7 +3,8 @@ import 'function_help_data.dart';
 import 'function_timing_painter.dart';
 
 class FunctionHelpPage extends StatefulWidget {
-  const FunctionHelpPage({super.key, this.wiping = false, this.edgeWiping = false});
+  const FunctionHelpPage({super.key, this.wiping = false, this.edgeWiping = false, this.extra = 0});
+  final int extra;
   final bool wiping, edgeWiping;
   @override
   State<FunctionHelpPage> createState() => _FunctionHelpPageState();
@@ -17,6 +18,7 @@ class _FunctionHelpPageState extends State<FunctionHelpPage> {
   int th = 2, tl = 3, t = 3;
   @override
   Widget build(BuildContext context) {
+    if (widget.extra != 0) return ExtraTimerHelp(kind: widget.extra);
     final scheme = Theme.of(context).colorScheme;
     Widget heading(String text) => Padding(padding: const EdgeInsets.only(top: 18, bottom: 6), child: Text(text, style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold, fontSize: 16)));
     Widget param(String title, String text) => Padding(padding: const EdgeInsets.only(bottom: 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontWeight: FontWeight.bold)), const SizedBox(height: 3), Text(text)]));
@@ -103,5 +105,45 @@ if (edge)
       ]),
       bottomNavigationBar: SafeArea(child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç'))), const SizedBox(width: 12), Expanded(child: FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('İşlemi Ekle')))]))),
     );
+  }
+}
+
+class ExtraTimerHelp extends StatefulWidget {
+  const ExtraTimerHelp({super.key, required this.kind});
+  final int kind;
+  @override
+  State<ExtraTimerHelp> createState() => _ExtraTimerHelpState();
+}
+class _ExtraTimerHelpState extends State<ExtraTimerHelp> {
+  int th=2, tl=3, t=8, warning=3, cut=1;
+  bool falling=false, longPress=false;
+  @override
+  Widget build(BuildContext context) {
+    final k=widget.kind;
+    final scheme=Theme.of(context).colorScheme;
+    Widget heading(String s)=>Padding(padding:const EdgeInsets.only(top:18,bottom:6),child:Text(s,style:TextStyle(color:scheme.primary,fontWeight:FontWeight.bold,fontSize:16)));
+    Widget param(String a,String b)=>Padding(padding:const EdgeInsets.only(bottom:12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontWeight:FontWeight.bold)),const SizedBox(height:3),Text(b)]));
+    Widget slider(String name,int v,int min,int max,ValueChanged<int> change)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('$name: $v sn'),Slider(value:v.toDouble(),min:min.toDouble(),max:max.toDouble(),divisions:max==min?null:max-min,onChanged:max==min?null:(x)=>setState(()=>change(x.round())))]);
+    return Scaffold(appBar:AppBar(title:Text(FunctionHelpData.extraTitles[k-1],style:const TextStyle(fontSize:17))),body:ListView(padding:const EdgeInsets.all(16),children:[
+      heading('Giriş koşulu'),
+      if(k==1) Wrap(spacing:8,children:[ChoiceChip(label:const Text('I1 = ON'),selected:!falling,onSelected:(_)=>setState(()=>falling=false)),ChoiceChip(label:const Text('I1 = OFF'),selected:falling,onSelected:(_)=>setState(()=>falling=true))]) else if(k==2) Wrap(spacing:8,children:[ChoiceChip(label:const Text('I1 ↑ (Yükselen kenar)'),selected:!falling,onSelected:(_)=>setState(()=>falling=false)),ChoiceChip(label:const Text('I1 ↓ (Düşen kenar)'),selected:falling,onSelected:(_)=>setState(()=>falling=true))]) else const Text('I1 = ON'),
+      const SizedBox(height:12),Text(FunctionHelpData.extraDescriptions[k-1]),
+      heading('Fonksiyonu keşfet'),const Text('Örnek değerleri değiştirerek zaman diyagramını inceleyin. Bu değerler programa aktarılmaz.'),
+      if(k==1)...[slider('TH',th,1,5,(v)=>th=v),slider('TL',tl,1,5,(v)=>tl=v)] else ...[
+        slider('T',t,1,10,(v){t=v;if(warning>t)warning=t;if(cut>warning)cut=warning;}),
+        if(k==3)...[slider('TL',tl,1,5,(v)=>tl=v),SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Uzun basma'),value:longPress,onChanged:(v)=>setState(()=>longPress=v))],
+        if(k==2||k==3)...[slider('T!',warning,0,t,(v){warning=v;if(cut>warning)cut=warning;}),slider('T!L',cut,0,warning,(v)=>cut=v)],
+      ],
+      SizedBox(height:k==4?235:195,child:CustomPaint(painter:ExtraTimerPainter(kind:k,th:th,tl:tl,t:t,warning:warning,cut:cut,falling:falling,longPress:longPress,scheme:scheme))),
+      Text(k==4?'Örnek: I1 duraklatılır ve yeniden ON olur; I2 RESET biriken süreyi siler.':k==3&&longPress?'Uzun basma: çıkış sonraki basıp bırakmaya kadar ON kalır.':'Örnek diyagram: sanal başlangıç ve yeniden tetikleme uygulanmamıştır.',style:const TextStyle(fontSize:12)),
+      heading('Parametreler'),
+      if(k==1)...[param('TH – ON süresi (0,001–86400 sn)','Çıkışın ON kalacağı süre.'),param('TL – OFF süresi (0,001–86400 sn)','Çıkışın OFF kalacağı süre.'),param('SANAL GİRİŞ','Enerji verildiğinde darbe üretimi başlar. Fiziksel koşul ilk kez gerçekleştiğinde yeni ON fazı ile fiziksel kontrole geçilir.')] else ...[
+        param('T – ${k==4?'Hedef süre':'Kapanma süresi'} (0,001–86400 sn)',k==4?'Biriken ON süresi bu değere ulaştığında çıkış ON olur.':k==2?'Tetikleme kenarından çıkışın kapanmasına kadar geçen süre.':'Giriş bırakıldıktan sonra çıkışın kapanmasına kadar geçen süre.'),
+        if(k==3)param('TL – Uzun basma eşiği (0,001–86400 sn)','Giriş en az TL kadar ON kalırsa süreli kapanma yerine sürekli ON seçilir.'),
+        if(k==2||k==3)...[param('T! – Ön uyarı zamanı (0–T)','Kapanmadan ne kadar önce uyarı kesintisinin başlayacağını belirler.'),param('T!L – Uyarı kesintisi (0–T!)','Uyarı sırasında çıkışın OFF kalacağı süre. T! veya T!L sıfır ise uyarı yoktur.')],
+        if(k==2)param('YENİDEN TETİKLE','Açık ise süre devam ederken yeni tetikleme T süresini yeniden başlatır ve çıkışı ON yapar. Kapalı ise süre devam ederken yeni tetiklemeler yok sayılır.'),
+        if(k==4)...[param('RESET','RESET girişi ON olduğu sürece biriken süre sıfırlanır ve çıkış OFF olur.'),param('SANAL GİRİŞ','Enerji verildiğinde süre birikmeye başlar. Fiziksel koşul ilk kez gerçekleştiğinde biriken süre sıfırlanır ve fiziksel girişle yeniden sayılır.')],
+      ],const Text('Zaman ayar çözünürlüğü: 1 ms (0,001 sn).'),
+    ]),bottomNavigationBar:SafeArea(child:Padding(padding:const EdgeInsets.all(12),child:Row(children:[Expanded(child:OutlinedButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Vazgeç'))),const SizedBox(width:12),Expanded(child:FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('İşlemi Ekle')))]))));
   }
 }

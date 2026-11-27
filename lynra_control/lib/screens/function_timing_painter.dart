@@ -114,3 +114,95 @@ class FunctionTimingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant FunctionTimingPainter oldDelegate) => true;
 }
+
+class ExtraTimerPainter extends CustomPainter {
+  const ExtraTimerPainter({required this.kind,required this.th,required this.tl,required this.t,required this.warning,required this.cut,required this.falling,required this.longPress,required this.scheme});
+  final int kind,th,tl,t,warning,cut;
+  final bool falling,longPress;
+  final ColorScheme scheme;
+  @override
+  void paint(Canvas canvas,Size size){
+    if(size.width<=60)return;
+    final input=<(num,bool)>[(0,falling)];
+    final output=<(num,bool)>[(0,false)];
+    final reset=<(num,bool)>[(0,false)];
+    final dims=<(num,num,String,int)>[];
+    num end=20;
+    if(kind==1){
+      final stop=2+2*(th+tl)+th/2;
+      end=stop+2;
+      input.addAll([(2,!falling),(stop,falling)]);
+      for(var i=0;i<3;i++){
+        final a=2+i*(th+tl);
+        output.add((a,true));
+        output.add((a+th<stop?a+th:stop,false));
+      }
+      dims.addAll([(2,2+th,'TH',0),(2+th,2+th+tl,'TL',0)]);
+    }else if(kind==4){
+      final first=t/2;
+      final resume=2+first+2;
+      final reached=resume+t-first;
+      final r=reached+3;
+      end=r+3;
+      input.addAll([(2,true),(2+first,false),(resume,true),(reached+1,false)]);
+      output.addAll([(reached,true),(r,false)]);
+      reset.addAll([(r,true),(r+1,false)]);
+      dims.addAll([(2,2+first,'T/2',0),(resume,reached,'T/2',0)]);
+    }else{
+      final press=kind==3?(longPress?tl+1:tl/2):1;
+      final release=2+press;
+      input.addAll([(2,!falling),(release,falling)]);
+      output.add((2,true));
+      if(kind==3) dims.add((2,release,longPress?'≥ TL':'< TL',1));
+      if(kind==3&&longPress){
+        final next=release+4;
+        input.addAll([(next,true),(next+1,false)]);
+        output.add((next+1,false));
+        end=next+3;
+      }else{
+        final start=kind==2?2:release;
+        final finish=start+t;
+        final w=finish-warning;
+        if(warning>0&&cut>0){
+          output.add((w,false));
+          if(w+cut<finish)output.add((w+cut,true));
+          dims.addAll([(w,finish,'T!',1),(w,w+cut,'T!L',2)]);
+        }
+        output.add((finish,false));
+        dims.add((start,finish,'T',0));
+        end=finish+2;
+      }
+    }
+    double x(num v)=>48+(size.width-60)*v/end;
+    void label(String s,double xx,double yy,Color color){
+      final tp=TextPainter(text:TextSpan(text:s,style:TextStyle(color:color,fontSize:11)),textDirection:TextDirection.ltr)..layout();
+      tp.paint(canvas,Offset(xx.clamp(0.0,(size.width-tp.width).clamp(0.0,size.width)).toDouble(),yy));
+    }
+    void wave(List<(num,bool)> events,double y,Color color){
+      var state=events.first.$2;
+      final path=Path()..moveTo(x(0),y-(state?25:0));
+      for(final e in events.skip(1)){
+        path.lineTo(x(e.$1),y-(state?25:0));state=e.$2;path.lineTo(x(e.$1),y-(state?25:0));
+      }
+      path.lineTo(x(end),y-(state?25:0));
+      canvas.drawPath(path,Paint()..color=color..style=PaintingStyle.stroke..strokeWidth=2.3);
+    }
+    final qy=kind==4?156.0:116.0;
+    for(var i=0;i<=end;i++)canvas.drawLine(Offset(x(i),12),Offset(x(i),qy),Paint()..color=scheme.outline.withValues(alpha:.2));
+    label('I1',0,25,scheme.onSurface);wave(input,53,scheme.primary);
+    if(kind==4){label('I2 R',0,79,scheme.onSurface);wave(reset,103,scheme.primary);}
+    label('Q1',0,qy-28,scheme.onSurface);wave(output,qy,Colors.greenAccent.shade400);
+    final color=scheme.brightness==Brightness.dark?Colors.amberAccent:Colors.amber.shade900;
+    final pen=Paint()..color=color..strokeWidth=1.5;
+    for(final d in dims){
+      final a=x(d.$1),b=x(d.$2),y=qy+13+d.$4*22;
+      for(final xx in [a,b]){for(double yy=qy-25;yy<y-3;yy+=7){canvas.drawLine(Offset(xx,yy),Offset(xx,yy+3),Paint()..color=scheme.outline);}}
+      final tip=((b-a)/3).clamp(0.0,4.0).toDouble();
+      canvas.drawLine(Offset(a,y),Offset(b,y),pen);
+      for(final sign in [-1,1]){canvas.drawLine(Offset(a,y),Offset(a+tip,y+sign*tip),pen);canvas.drawLine(Offset(b,y),Offset(b-tip,y+sign*tip),pen);}
+      label(d.$3,(a+b)/2-d.$3.length*3,y+4,color);
+    }
+  }
+  @override
+  bool shouldRepaint(covariant ExtraTimerPainter oldDelegate)=>true;
+}

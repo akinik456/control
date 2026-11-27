@@ -1,4 +1,11 @@
 class FunctionHelpData {
+  static const extraTitles = ['Asenkron Darbe Üreteci','Merdiven Otomatiği','Çok İşlevli Anahtar','Kronometre'];
+  static const extraDescriptions = [
+    'Koşul doğru olduğunda çıkış hemen ON olur. TH boyunca ON, TL boyunca OFF kalır ve bu döngü tekrarlanır. Koşul yanlış olduğunda çıkış hemen OFF olur. Yeni aktivasyon ON fazından başlar.',
+    'Seçilen giriş kenarı gerçekleştiğinde çıkış hemen ON olur ve T süresi başlar. T süresi sonunda çıkış OFF olur. Kapanmadan önce kısa bir OFF kesintisi ile uyarı verilebilir.',
+    'Giriş ON olduğunda çıkış hemen ON olur. Kısa basıp bırakma T süresini başlatır. T süresi sonunda çıkış OFF olur. Kapanmadan önce kısa bir OFF kesintisi ile uyarı verilebilir.\n\nTL kadar veya daha uzun basma çıkışı sürekli ON tutar. Çıkış sürekli ON durumundayken sonraki basıp bırakma çıkışı OFF yapar.',
+    'Giriş ON iken süre birikir, OFF iken duraklar. Biriken süre T değerine ulaştığında çıkış ON olur ve RESET gelene kadar ON kalır.',
+  ];
   static const edgeWipingRelay = 'Kenar Tetiklemeli Darbe Rölesi';
   static const edgeWiping = 'Seçilen kenar gerçekleştiğinde önce TL süresi beklenir, ardından çıkış TH süresince ON olur. Bu işlem N kez gerçekleşir. Girişin sonraki seviyesi darbeyi kesmez.';
   static const edgeWipingRepeat = 'Açık ise darbe dizisi RESET gelene kadar tekrarlanır. N sıfır ise tekrar zorunludur.';
