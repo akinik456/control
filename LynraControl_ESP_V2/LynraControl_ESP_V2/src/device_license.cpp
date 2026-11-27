@@ -21,9 +21,15 @@ bool DeviceLicense_Init()
     if (!prefs.begin("license", false))
         return false;
 
-    wifiEnabled = prefs.getBool("wifiEnabled", false);
+    String code = prefs.getString("wifiCode", "");
 
     prefs.end();
+
+    if (!code.isEmpty())
+    {
+        wifiEnabled =
+            DeviceLicense_VerifyWifiCode(code.c_str());
+    }
 
     Serial.printf(
         "LICENSE: WIFI %s\n",
@@ -152,4 +158,25 @@ bool DeviceLicense_VerifyWifiCode(const char *code)
     mbedtls_ecp_group_free(&group);
 
     return valid;
+}
+
+bool DeviceLicense_SaveWifiCode(const char *code)
+{
+    if (!DeviceLicense_VerifyWifiCode(code))
+        return false;
+
+    Preferences prefs;
+
+    if (!prefs.begin("license", false))
+        return false;
+
+    const size_t written =
+        prefs.putString("wifiCode", code);
+
+    prefs.end();
+
+    if (written != 86)
+        return false;
+
+    return true;
 }
