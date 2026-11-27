@@ -12,6 +12,7 @@ import 'program_simulator_page.dart';
 import 'ble_connection_page.dart';
 import 'program_test_page.dart';
 import 'function_help_page.dart';
+import '../services/program_description_service.dart';
 import '../services/lynra_ble_service.dart';
 import '../services/local_program_service.dart';
 import 'package:file_picker/file_picker.dart';
@@ -2267,265 +2268,80 @@ if (!_collapsedConditions.contains(rule.id)) ...[
   }
 }
   void _openSummary() {
-    final primary = Theme.of(context).colorScheme.primary;
-    final base = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
-    final normal = base.copyWith(height: 1.5);
-    final keyword = normal.copyWith(color: primary, fontWeight: FontWeight.bold);
-    final input = normal.copyWith(color: Colors.blue.shade700, fontWeight: FontWeight.bold);
-    final output = normal.copyWith(color: Colors.deepOrange.shade700, fontWeight: FontWeight.bold);
-    final heading = normal.copyWith(fontWeight: FontWeight.bold);
-    final ruleSpans = <List<InlineSpan>>[];
-		var spans = <InlineSpan>[];
-
-		void add(String value, [TextStyle? style]) =>
-				spans.add(TextSpan(text: value, style: style ?? normal));
-
-    
-if (_rules.isEmpty) add('Henüz kural eklenmedi.');
-
-for (var i = 0; i < _rules.length; i++) {
-  spans = <InlineSpan>[];
-
-  final rule = _rules[i];
-
-  add('KURAL ${i + 1}\n', heading);
-  add('\n');
-  add('EĞER\n', keyword);
-  
-  void addCondition(InputCondition condition) {
-    add('I${condition.inputIndex}', input);
-    add(' ${_triggerName(condition.trigger)}');
-  }
-
-  if (rule.conditionGroups.isNotEmpty) {
-    for (var g = 0; g < rule.conditionGroups.length; g++) {
-      final group = rule.conditionGroups[g];
-
-      if (g > 0) {
-        final index = g - 1;
-        final op = index < rule.groupOperators.length
-            ? rule.groupOperators[index]
-            : rule.groupsOperator;
-
-        add(' ${_summaryOperator(op)} ', keyword);
-      }
-
-      add('( ');
-
-      for (var c = 0; c < group.conditions.length; c++) {
-        if (c > 0) {
-          final index = c - 1;
-          final op = index < group.conditionOperators.length
-              ? group.conditionOperators[index]
-              : group.logicOperator;
-
-          add(' ${_summaryOperator(op)} ', keyword);
+    final rules = _program.controlBlocks.expand((b) => b.groups).toList();
+    final uses = <int, int>{};
+    for (final rule in rules) {
+      for (final action in rule.actions) {
+        if (action.type != ControlActionType.delay) {
+          uses.update(action.outputIndex, (n) => n + 1, ifAbsent: () => 1);
         }
-
-        addCondition(group.conditions[c]);
-      }
-
-      add(' )');
-    }
-  } else if (rule.conditions.isEmpty) {
-    add('(koşul yok)');
-  } else {
-    for (var c = 0; c < rule.conditions.length; c++) {
-      if (c > 0) {
-        final index = c - 1;
-        final op = index < rule.conditionOperators.length
-            ? rule.conditionOperators[index]
-            : rule.logicOperator;
-
-        add(' ${_summaryOperator(op)} ', keyword);
-      }
-
-      addCondition(rule.conditions[c]);
-    }
-  }
-
-
-  // A TON waits for the complete logical condition, not each input separately.
-  if (rule.onDelayMs > 0) {
-    add(', ${_seconds(rule.onDelayMs)} boyunca koşul sağlanırsa');
-  }
-	add('\n');
-  add('\n');
-  add('İSE\n', keyword);
-
-  if (rule.actions.isEmpty) {
-    add('(işlem yok)');
-  } else {
-    for (var a = 0; a < rule.actions.length; a++) {
-      if (a > 0) add(' → ');
-
-      final action = rule.actions[a];
-
-      if (action.type == ControlActionType.delay) {
-        add('${_seconds(action.durationMs)} bekle');
-      } else {
-        add('Q${action.outputIndex}', output);
-
-        add(switch (action.type) {
-          ControlActionType.onDelay ||
-          ControlActionType.offDelay ||
-          ControlActionType.onOffDelay ||
-          ControlActionType.wipingRelay ||
-          ControlActionType.edgeWipingRelay ||
-          ControlActionType.asynchronousPulse ||
-          ControlActionType.stairwayTimer ||
-          ControlActionType.multipleFunctionTimer ||
-          ControlActionType.stopwatchTimer =>
-            ' ${_timerName(action)}',
-
-          ControlActionType.setLatch => ' SET',
-          ControlActionType.resetLatch => ' RESET',
-          ControlActionType.toggleOutput => ' TOGGLE',
-
-          ControlActionType.stairwayOutput =>
-            ' MERDİVEN (T ${_seconds(action.durationMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)} / Tekrar ${action.stairRetrigger ? 'Açık' : 'Kapalı'})',
-
-          ControlActionType.multiSwitchOutput =>
-            ' ÇOK İŞLEVLİ (T ${_seconds(action.durationMs)} / Uzun ${_seconds(action.multiLongPressMs)} / Uyarı ${_seconds(action.stairWarningBeforeMs)} / Kesinti ${_seconds(action.stairWarningOffMs)})',
-
-          ControlActionType.stopwatchOutput =>
-            ' KRONOMETRE (EN: I${rule.conditions.isNotEmpty ? rule.conditions[0].inputIndex : 1} / RESET: I${rule.conditions.length > 1 ? rule.conditions[1].inputIndex : 2} / T ${_seconds(action.durationMs)})',
-
-          ControlActionType.blinkOutput =>
-            ' YANIP SÖN (Başlangıç ${_seconds(action.blinkStartDelayMs)} / ON ${action.blinkOnMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOnMinMs)}–${_seconds(action.blinkOnMaxMs)}' : _seconds(action.durationMs)} / OFF ${action.blinkOffMinMs > 0 ? 'RANDOM ${_seconds(action.blinkOffMinMs)}–${_seconds(action.blinkOffMaxMs)}' : _seconds(action.offDurationMs)} / N=${action.blinkCount})',
-
-          _ => action.outputState ? ' ON' : ' OFF',
-        });
       }
     }
-  }
-
-  // Describe the return behavior only when it is unambiguous.
-  final levelConditions = rule.conditions.every((c) =>
-      c.trigger == ConditionTrigger.highLevel ||
-      c.trigger == ConditionTrigger.lowLevel);
-
-  final outputActions = rule.actions
-      .where((a) => a.type == ControlActionType.setOutput)
-      .toList();
-
-  final simpleContinuous =
-      rule.executionMode == RuleExecutionMode.continuous &&
-      levelConditions &&
-      rule.actions.length == 1 &&
-      outputActions.length == 1;
-
-  if (simpleContinuous) {
-    final a = outputActions.first;
-
-    add('\nKoşul artık sağlanmazsa ');
-
-    if (rule.offDelayMs > 0) {
-      add('${_seconds(rule.offDelayMs)} sonra ');
-    }
-
-    add('Q${a.outputIndex}', output);
-    add(a.outputState ? ' OFF olur.' : ' ON olur.');
-
-  } else if (rule.actions.any((a) =>
-      a.type == ControlActionType.setLatch ||
-      a.type == ControlActionType.resetLatch)) {
-
-    for (final action in rule.actions) {
-      if (action.type == ControlActionType.setLatch) {
-        add('\nQ${action.outputIndex}', output);
-        add(' ON olur ve başka bir komut değiştirmedikçe ON kalır.');
-      } else if (action.type == ControlActionType.resetLatch) {
-        add('\nQ${action.outputIndex}', output);
-        add(' OFF olur ve başka bir komut değiştirmedikçe OFF kalır.');
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (ctx) {
+      final scheme = Theme.of(ctx).colorScheme;
+      Widget heading(String value) => Padding(
+        padding: const EdgeInsets.only(top: 12, bottom: 6),
+        child: Text(value, style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold)),
+      );
+      Widget labeled(String label, String value, {Color? color}) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 54, child: Text(label, style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold))),
+          Expanded(child: SelectableText(value, style: TextStyle(color: color, fontWeight: FontWeight.w600))),
+        ],
+      );
+      Widget actionSummary(ControlConditionGroup rule, ControlAction action) {
+        final description = ProgramDescriptionService.describe(rule, action);
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          labeled('İSE', 'Q${action.outputIndex} ${_timerName(action)}'),
+          if (description.params.isNotEmpty) ...[
+            heading('Parametreler'),
+            for (final param in description.params)
+              Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(flex: 3, child: Text(param.$1)),
+                const SizedBox(width: 8),
+                Expanded(flex: 2, child: Text(param.$2, textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.w600))),
+              ])),
+          ],
+          const SizedBox(height: 12),
+          SelectableText(description.text),
+        ]);
       }
-    }
-
-  } else if (rule.actions.any(
-      (a) => a.type == ControlActionType.blinkOutput)) {
-
-    add('\nN=0 ise koşul sağlandığı sürece yanıp söner; N>0 ise tetiklemede belirlenen sayıda darbe üretir.');
-
-  } else if (rule.actions.any(
-      (a) => a.type == ControlActionType.toggleOutput)) {
-
-    for (final action in rule.actions) {
-      if (action.type == ControlActionType.toggleOutput) {
-        add('\nQ${action.outputIndex}', output);
-        add(' mevcut durumunun tersine geçer (ON ise OFF, OFF ise ON).');
-      }
-    }
-
-  } else if (rule.offDelayMs > 0) {
-    add('\nOFF gecikmesi: ${_seconds(rule.offDelayMs)}.');
-  }
-
-  ruleSpans.add(spans);
-}
-    Navigator.of(context).push(MaterialPageRoute<void>(
-			builder: (ctx) => Scaffold(
-				appBar: AppBar(
-					title: const Text('Program Özeti'),
-				),
-
-				body: Center(
-					child: ConstrainedBox(
-						constraints: const BoxConstraints(maxWidth: 760),
-						child: ListView(
-							padding: const EdgeInsets.all(16),
-							children: [
-								Container(
-									padding: const EdgeInsets.all(12),
-									decoration: BoxDecoration(
-										border: Border.all(
-											color: primary.withValues(alpha: 0.75),
-											width: 1.2,
-										),
-										borderRadius: BorderRadius.circular(12),
-									),
-									child: Column(
-										crossAxisAlignment: CrossAxisAlignment.stretch,
-										children: [
-											if (ruleSpans.isEmpty)
-												Padding(
-													padding: const EdgeInsets.all(8),
-													child: Text(
-														'Henüz kural eklenmedi.',
-														style: normal,
-													),
-												),
-
-											for (var i = 0; i < ruleSpans.length; i++) ...[
-												if (i > 0)
-													const SizedBox(height: 10),
-
-												Container(
-													padding: const EdgeInsets.all(14),
-													decoration: BoxDecoration(
-														border: Border.all(
-															color: Colors.grey.withValues(alpha: 0.55),
-															width: 1,
-														),
-														borderRadius: BorderRadius.circular(10),
-													),
-													child: SelectableText.rich(
-														TextSpan(
-															style: normal,
-															children: ruleSpans[i],
-														),
-													),
-												),
-											],
-										],
-									),
-								),
-							],
-						),
-					),
-				),
-
-			),
-    ));
+      return Scaffold(
+        appBar: AppBar(title: const Text('Program Özeti')),
+        body: Center(child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: ListView(padding: const EdgeInsets.all(16), children: [
+            Text(_name.text.trim(), style: Theme.of(ctx).textTheme.titleLarge),
+            if (rules.isEmpty) const Text('Henüz kural eklenmedi.'),
+            for (final entry in uses.entries.where((e) => e.value > 1))
+              Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Text(
+                'Q${entry.key} birden fazla işlem tarafından kullanılıyor. Aşağıdaki açıklamalar işlemleri ayrı ayrı anlatır; ortak çıkışın sonucu diğer işlemlerden de etkilenebilir.',
+                style: TextStyle(color: scheme.primary))),
+            for (var i = 0; i < rules.length; i++)
+              Container(
+                margin: const EdgeInsets.only(top: 12), padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(border: Border.all(color: scheme.outline), borderRadius: BorderRadius.circular(12)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Text('KURAL ${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  labeled('EĞER', ProgramDescriptionService.conditions(rules[i])),
+                  if (rules[i].actions.any(ProgramDescriptionService.isCounter))
+                    const Padding(padding: EdgeInsets.only(top: 6), child: Text('Sayaçlar genel EĞER koşulundan bağımsız olarak kendi girişleriyle çalışır.')),
+                  if (rules[i].actions.any(ProgramDescriptionService.isOutput) && rules[i].actions.any((a) => !ProgramDescriptionService.isOutput(a)))
+                    const Text('Dikkat: Çıkış kontrolü ve diğer fonksiyon türleri aynı kuralda birlikte çalıştırılamaz.'),
+                  const SizedBox(height: 12),
+                  if (rules[i].actions.isEmpty) labeled('İSE', 'İşlem yok.'),
+                  for (var j = 0; j < rules[i].actions.length; j++) ...[
+                    if (j > 0) const Divider(height: 24),
+                    actionSummary(rules[i], rules[i].actions[j]),
+                  ],
+                ]),
+              ),
+          ]),
+        )),
+      );
+    }));
   }
 
   String _fingerprint() {
