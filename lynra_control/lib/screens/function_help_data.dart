@@ -1,4 +1,12 @@
 class FunctionHelpData {
+  static const edgeWipingRelay = 'Kenar Tetiklemeli Darbe Rölesi';
+  static const edgeWiping = 'Seçilen kenar gerçekleştiğinde önce TL süresi beklenir, ardından çıkış TH süresince ON olur. Bu işlem N kez gerçekleşir. Girişin sonraki seviyesi darbeyi kesmez.';
+  static const edgeWipingRepeat = 'Açık ise darbe dizisi RESET gelene kadar tekrarlanır. N sıfır ise tekrar zorunludur.';
+  static const edgeWipingRetrigger = 'Açık ise yeni tetikleme mevcut diziyi keser ve ilk TL beklemesinden yeniden başlatır. Kapalı ise dizi devam ederken yeni tetiklemeler yok sayılır.';
+  static const edgeWipingReset = 'Seçilen RESET girişinin yükselen kenarı darbe dizisini durdurur ve çıkışı OFF yapar. Tekrarlama sırasında kullanılabilir.';
+  static const edgeWipingVirtual = 'Sanal giriş seçilmiş ise, cihaza enerji verildiğinde harici tetikleme olmadan darbe dizisi başlar. İlk TL süresi sonunda çıkış ON olur. Fiziksel giriş koşulu ilk kez gerçekleştiğinde dizi yeniden başlar.';
+  static const edgeWipingRandom = 'SABİT seçildiğinde ayarlanan süre kullanılır. RASTGELE seçildiğinde her ilgili süre için 0 ile ayarlanan değer arasında yeni bir süre seçilir.';
+
   static const wipingRelay = 'Darbe Rölesi';
   static const wipingLevel = 'EĞER koşulu doğru olduğunda çıkış hemen ON olur ve T süresi başlar. T dolduğunda veya koşul daha önce yanlış olduğunda çıkış OFF olur. Yeni bir darbe için koşul yeniden doğru olmalıdır.';
   static const wipingVirtual = 'Sanal giriş seçilmiş ise, cihaza enerji verildiğinde çıkış harici tetikleme olmadan ON olur. T süresi sonunda OFF olur. Fiziksel giriş koşulu gerçekleştiğinde kontrol fiziksel girişe geçer ve yeni bir darbe başlar.';
