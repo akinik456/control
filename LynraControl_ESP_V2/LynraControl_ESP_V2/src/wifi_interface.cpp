@@ -4,6 +4,7 @@
 #include "wifi_config.h"
 #include "firebase_session.h"
 #include "firebase_live_publisher.h"
+#include "device_license.h"
 
 namespace
 {
@@ -69,6 +70,12 @@ namespace
 
 bool wifiInterfaceInit()
 {
+    if (!DeviceLicense_IsWifiEnabled())
+    {
+        Serial.println("[WIFI] DISABLED BY LICENSE");
+        return true;
+    }
+
     return xTaskCreate(
                wifiTask,
                "wifiTask",

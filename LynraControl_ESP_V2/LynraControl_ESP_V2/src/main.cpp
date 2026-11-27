@@ -9,6 +9,7 @@
 #include "models/control_program.h"
 #include "wifi_interface.h"
 #include "device_identity.h"
+#include "device_license.h"
 
 // Temporary heap buffer: avoid both static DRAM overflow and task stack overflow.
 namespace
@@ -84,6 +85,10 @@ namespace
 void setup()
 {
   Serial.begin(115200);
+	if (!DeviceLicense_Init())
+	{
+			Serial.println("LICENSE INIT FAILED");
+	}
 	if (!DeviceIdentity_Init())
 	{
 			Serial.println("IDENTITY INIT FAILED");

@@ -155,3 +155,12 @@ RS232 RX	17
 RS232 TX	18
 USB-UART debug TX	43
 USB-UART debug RX	44
+
+******
+6.5.1	NVS'de Wi-Fi yetkilendirme durumu. Varsayılan kapalı.
+6.5.2	Cihaza özel aktivasyon kodu üretme ve doğrulama algoritması.
+6.5.3	Bizim kullanacağımız aktivasyon kodu üretme aracı.
+6.5.4	BLE üzerinden aktivasyon kodunun cihaza gönderilmesi.
+6.5.5	Wi-Fi SSID ve şifresinin BLE üzerinden tanımlanması.
+6.5.6	Wi-Fi bağlantısı ve Firebase erişiminin devreye alınması.
+6.5.7	Factory uygulamasına yetkilendirme özelliğinin eklenmesi.
