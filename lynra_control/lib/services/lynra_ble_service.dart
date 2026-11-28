@@ -210,7 +210,15 @@ class LynraBleService extends ChangeNotifier {
         (value[18] << 8) |
         (value[19] << 16) |
         (value[20] << 24);
-    if (type == 0x41 || type == 0x43 || type == 0x45 || type == 0x61) {
+    if (type == 0x41 ||
+    type == 0x43 ||
+    type == 0x45 ||
+    type == 0x61 ||
+    type == 0x63 ||
+    type == 0x65 ||
+    type == 0x67 ||
+    type == 0x69 ||
+    type == 0x6B) {
       final response = _readResponse;
       if (isConnected && !_disposed && seq == _readSeq && type == _readType &&
           response != null && !response.isCompleted) {
@@ -589,6 +597,136 @@ for (final s in services) {
     }
     throw StateError('Program okuma zaman aşımı.');
   }
+	Future<List<int>> _requestWifiPacket(
+  int type,
+  List<int> payload,
+) async {
+  final rx = connectedRx;
+
+  if (_disposed || !isConnected || rx == null ||
+      connecting || commandBusy || pendingAck != null) {
+    throw StateError('Cihaz hazır değil.');
+  }
+
+  _update(() => commandBusy = true);
+
+  try {
+    while (_ioResponse != null && isConnected && !_disposed) {
+      await Future<void>.delayed(
+        const Duration(milliseconds: 10),
+      );
+    }
+
+    final data = await _requestProgramPacket(
+      rx, type, payload,
+    );
+
+    if (_disposed || !isConnected || connectedRx != rx) {
+      throw StateError('BLE bağlantısı kesildi.');
+    }
+
+    return data;
+  } finally {
+    _update(() => commandBusy = false);
+  }
+}
+Future<String> readDeviceId() async {
+  final data = await _requestWifiPacket(0x62, []);
+
+  if (data.length != 6) {
+    throw const FormatException('Geçersiz cihaz kimliği.');
+  }
+
+  return data
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join()
+      .toUpperCase();
+}
+
+Future<bool> readWifiLicense() async {
+  final data = await _requestWifiPacket(0x64, []);
+
+  if (data.length != 1 || data[0] > 1) {
+    throw const FormatException('Geçersiz lisans durumu.');
+  }
+
+  return data[0] == 1;
+}
+Future<bool> activateWifiLicense(String code) async {
+  code = code.trim();
+
+  if (!RegExp(r'^[A-Za-z0-9_-]{86}$').hasMatch(code)) {
+    throw const FormatException('Geçersiz aktivasyon kodu.');
+  }
+
+  final data = await _requestWifiPacket(
+    0x66,
+    code.codeUnits,
+  );
+
+  if (data.length != 1 || data[0] > 1) {
+    throw const FormatException('Geçersiz aktivasyon cevabı.');
+  }
+
+  return data[0] == 1;
+}
+Future<bool> saveWifiConfig(
+  String ssid,
+  String password,
+) async {
+  final ssidBytes = utf8.encode(ssid);
+  final passwordBytes = utf8.encode(password);
+
+  if (ssidBytes.isEmpty || ssidBytes.length > 32) {
+    throw const FormatException(
+      'SSID 1-32 byte olmalıdır.',
+    );
+  }
+
+  if (passwordBytes.length > 63) {
+    throw const FormatException(
+      'Şifre en fazla 63 byte olabilir.',
+    );
+  }
+
+  if (ssidBytes.contains(0) ||
+      passwordBytes.contains(0)) {
+    throw const FormatException(
+      'Geçersiz karakter.',
+    );
+  }
+
+  final payload = <int>[
+    ssidBytes.length,
+    passwordBytes.length,
+    ...ssidBytes,
+    ...passwordBytes,
+  ];
+
+  final data = await _requestWifiPacket(
+    0x68,
+    payload,
+  );
+
+  if (data.length != 1 || data[0] > 1) {
+    throw const FormatException(
+      'Geçersiz Wi-Fi yapılandırma cevabı.',
+    );
+  }
+
+  return data[0] == 1;
+}
+Future<int> readWifiState() async {
+  final data = await _requestWifiPacket(0x6A, []);
+
+  if (data.length != 1 || data[0] > 6) {
+    throw const FormatException(
+      'Geçersiz Wi-Fi durumu.',
+    );
+  }
+
+  return data[0];
+}
 	Future<String> readPairingCode() async {
   final rx = connectedRx;
 

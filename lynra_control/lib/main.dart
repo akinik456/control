@@ -15,6 +15,7 @@ import 'screens/auth_page.dart';
 import 'screens/serial_terminal_page.dart';
 import 'services/lynra_ble_service.dart';
 import 'screens/ble_connection_page.dart';
+import 'screens/device_settings_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -247,6 +248,37 @@ const SizedBox(height: 20),
 									},
 									icon: const Icon(Icons.monitor_heart_outlined),
 									label: Text(isTurkish ? 'Cihazı İzle' : 'Monitor Device'),
+								),
+								const SizedBox(height: 12),
+								OutlinedButton.icon(
+									onPressed: () async {
+  final ble = LynraBleService.instance;
+
+  if (!ble.isConnected) {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const BleConnectionPage(
+  connectionOnly: true,
+  returnOnConnect: true,
+),
+      ),
+    );
+  }
+
+  if (!context.mounted || !ble.isConnected) return;
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const DeviceSettingsPage(),
+    ),
+  );
+},
+									icon: const Icon(Icons.settings_outlined),
+									label: Text(
+										isTurkish ? 'Cihaz Ayarları' : 'Device Settings',
+									),
 								),
                 if (Platform.isWindows) ...[
                   const SizedBox(height: 12),

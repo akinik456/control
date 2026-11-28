@@ -7,11 +7,13 @@ class BleConnectionPage extends StatefulWidget {
   final ControlProgram? program;
 
   final bool connectionOnly;
-
+	final bool returnOnConnect;
+	
 const BleConnectionPage({
   super.key,
   this.program,
   this.connectionOnly = false,
+	this.returnOnConnect = false,
 });
 
   @override
@@ -113,7 +115,15 @@ class _BleConnectionPageState extends State<BleConnectionPage> {
                 FilledButton(
                   onPressed: busy || (!_ble.isConnected && _ble.selectedDevice == null)
                       ? null
-                      : _ble.connectOrDisconnect,
+                      : () async {
+    await _ble.connectOrDisconnect();
+
+    if (!mounted) return;
+
+    if (widget.returnOnConnect && _ble.isConnected) {
+      Navigator.pop(context);
+    }
+  },
                   child: Text(_ble.connecting
                       ? 'Please wait...'
                       : _ble.isConnected ? 'Disconnect' : 'Connect'),
