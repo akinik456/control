@@ -10,6 +10,7 @@
 #include "device_identity.h"
 #include "device_license.h"
 #include "wifi_config_store.h"
+#include "wifi_interface.h"
 
 namespace DeviceApi
 {
@@ -94,7 +95,13 @@ namespace DeviceApi
 				if (DeviceAccess::currentLock() != DeviceAccess::Lock::None)
 						return false;
 
-				return DeviceLicense_SaveWifiCode(code);
+				if (!DeviceLicense_SaveWifiCode(code))
+    return false;
+
+if (!wifiInterfaceInit())
+    Serial.println("WIFI TASK INIT FAILED");
+
+return true;
 		}
 		bool saveWifiConfig(
     Channel channel,
@@ -117,7 +124,15 @@ namespace DeviceApi
     if (!DeviceLicense_IsWifiEnabled())
         return false;
 
-    return WifiConfig_Save(ssid, password);
+    if (!WifiConfig_Save(ssid, password))
+    return false;
+
+wifiInterfaceConfigChanged();
+
+if (!wifiInterfaceInit())
+    Serial.println("WIFI TASK INIT FAILED");
+
+return true;
 }
     bool run(Channel channel)
     {

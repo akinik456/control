@@ -6,10 +6,11 @@
 #include <mbedtls/ecdsa.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/base64.h>
+#include <atomic>
 
 namespace
 {
-    bool wifiEnabled = false;
+    std::atomic<bool> wifiEnabled{false};
 }
 
 bool DeviceLicense_Init()
@@ -177,6 +178,10 @@ bool DeviceLicense_SaveWifiCode(const char *code)
 
     if (written != 86)
         return false;
+
+    wifiEnabled = true;
+
+    Serial.println("LICENSE: WIFI ENABLED");
 
     return true;
 }

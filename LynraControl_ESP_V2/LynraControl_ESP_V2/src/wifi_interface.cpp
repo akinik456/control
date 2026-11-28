@@ -5,17 +5,22 @@
 #include "firebase_session.h"
 #include "firebase_live_publisher.h"
 #include "device_license.h"
+#include <atomic>
+#include <string.h>
 
 namespace
 {
-
+std::atomic<bool> wifiTaskStarted{false};
+std::atomic<bool> wifiConfigChanged{false};
     void wifiTask(void *parameter)
     {
-        WifiConfig config{};
+ 
+WifiConfig config{};
 
 if (!WifiConfig_Load(config))
 {
     Serial.println("[WIFI] NOT CONFIGURED");
+    wifiTaskStarted = false;
     vTaskDelete(nullptr);
     return;
 }
@@ -31,6 +36,42 @@ WiFi.begin(config.ssid, config.password);
 
         for (;;)
         {
+					if (wifiConfigChanged.exchange(false))
+{
+    WifiConfig newConfig{};
+
+    if (WifiConfig_Load(newConfig))
+    {
+        if (strcmp(config.ssid, newConfig.ssid) != 0 ||
+            strcmp(config.password, newConfig.password) != 0)
+        {
+            Serial.println("[WIFI] CONFIG CHANGED");
+
+            WiFi.setAutoReconnect(false);
+            WiFi.disconnect(false, false);
+
+            vTaskDelay(pdMS_TO_TICKS(250));
+
+            config = newConfig;
+
+            wasConnected = false;
+            lastRetry = millis();
+
+            WiFi.setAutoReconnect(true);
+            WiFi.begin(config.ssid, config.password);
+
+            Serial.println("[WIFI] Connecting...");
+
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+    }
+    else
+    {
+        Serial.println("[WIFI] CONFIG RELOAD FAILED");
+        wifiConfigChanged = true;
+    }
+}
             const bool connected =
                 WiFi.status() == WL_CONNECTED;
 
@@ -85,11 +126,38 @@ bool wifiInterfaceInit()
         return true;
     }
 
-    return xTaskCreate(
-               wifiTask,
-               "wifiTask",
-               16384,
-               nullptr,
-               1,
-               nullptr) == pdPASS;
+    if (wifiTaskStarted.load())
+        return true;
+
+    WifiConfig config{};
+
+    if (!WifiConfig_Load(config))
+    {
+        Serial.println("[WIFI] NOT CONFIGURED");
+        return true;
+    }
+
+    bool expected = false;
+
+    if (!wifiTaskStarted.compare_exchange_strong(
+            expected, true))
+        return true;
+
+    if (xTaskCreate(
+            wifiTask,
+            "wifiTask",
+            16384,
+            nullptr,
+            1,
+            nullptr) != pdPASS)
+    {
+        wifiTaskStarted = false;
+        return false;
+    }
+
+    return true;
+}
+void wifiInterfaceConfigChanged()
+{
+    wifiConfigChanged = true;
 }
