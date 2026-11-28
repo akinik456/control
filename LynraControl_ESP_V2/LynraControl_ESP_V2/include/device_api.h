@@ -19,6 +19,10 @@ bool readWifiLicense();
 bool activateWifiLicense(
     DeviceAccess::Channel channel,
     const char *code);
+bool saveWifiConfig(
+    DeviceAccess::Channel channel,
+    const char *ssid,
+    const char *password);
 struct IoSnapshot {
     uint32_t inputs;
     uint32_t outputs;

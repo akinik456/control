@@ -9,6 +9,7 @@
 #include <string.h>
 #include "device_identity.h"
 #include "device_license.h"
+#include "wifi_config_store.h"
 
 namespace DeviceApi
 {
@@ -95,6 +96,29 @@ namespace DeviceApi
 
 				return DeviceLicense_SaveWifiCode(code);
 		}
+		bool saveWifiConfig(
+    Channel channel,
+    const char *ssid,
+    const char *password)
+{
+    Guard g;
+
+    if (!g.held)
+        return false;
+
+    if (channel != Channel::Ble &&
+        channel != Channel::Serial)
+        return false;
+
+    if (DeviceAccess::currentLock() !=
+        DeviceAccess::Lock::None)
+        return false;
+
+    if (!DeviceLicense_IsWifiEnabled())
+        return false;
+
+    return WifiConfig_Save(ssid, password);
+}
     bool run(Channel channel)
     {
         Guard g;

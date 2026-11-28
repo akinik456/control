@@ -433,6 +433,52 @@ if (type == 0x66)
     unlockAccess();
     return;
 }
+// WiFi configuration
+if (type == 0x68)
+{
+    uint8_t result = 0;
+
+    if (value.size() >= 30 &&
+        value.size() <= 124 &&
+        !DeviceApi::programActive())
+    {
+        const uint8_t ssidLength = data[23];
+        const uint8_t passwordLength = data[24];
+
+        if (ssidLength >= 1 &&
+            ssidLength <= 32 &&
+            passwordLength <= 63 &&
+            value.size() ==
+                29 + ssidLength + passwordLength &&
+            !memchr(data + 25, 0,
+                    ssidLength + passwordLength))
+        {
+            char ssid[33] = {};
+            char password[64] = {};
+
+            memcpy(ssid, data + 25, ssidLength);
+
+            memcpy(password,
+                   data + 25 + ssidLength,
+                   passwordLength);
+
+            if (DeviceApi::saveWifiConfig(
+                    BLE_CHANNEL, ssid, password))
+            {
+                result = 1;
+            }
+        }
+    }
+
+    Serial.printf(
+        "WIFI CONFIG SAVE: %s\n",
+        result ? "OK" : "FAILED");
+
+    sendReadFrame(0x69, seq, &result, 1);
+
+    unlockAccess();
+    return;
+}
         if (type == 0x44)
         {
             if (!DeviceApi::programActive() && value.size() == 29)

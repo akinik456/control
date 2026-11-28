@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "wifi_interface.h"
-#include "wifi_config.h"
+#include "wifi_config_store.h"
 #include "firebase_session.h"
 #include "firebase_live_publisher.h"
 #include "device_license.h"
@@ -11,9 +11,18 @@ namespace
 
     void wifiTask(void *parameter)
     {
-        WiFi.mode(WIFI_STA);
-        WiFi.setAutoReconnect(true);
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        WifiConfig config{};
+
+if (!WifiConfig_Load(config))
+{
+    Serial.println("[WIFI] NOT CONFIGURED");
+    vTaskDelete(nullptr);
+    return;
+}
+
+WiFi.mode(WIFI_STA);
+WiFi.setAutoReconnect(true);
+WiFi.begin(config.ssid, config.password);
 
         bool wasConnected = false;
         uint32_t lastRetry = millis();

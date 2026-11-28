@@ -91,14 +91,19 @@ void _loadKeys() {
 }	
 	
 final _deviceIdController = TextEditingController();
+final _ssidController = TextEditingController();
+final _passwordController = TextEditingController();
 
+bool _savingWifiConfig = false;
 String _activationCode = '';
 
 @override
 void dispose() {
   _ble.dispose();
   _deviceIdController.dispose();
-  super.dispose();
+_ssidController.dispose();
+_passwordController.dispose();  
+super.dispose();
 }
 void _generateActivationCode() {
   if (_privateKey == null || _publicKey == null) {
@@ -304,7 +309,60 @@ ListenableBuilder(
   },
 ),
           const SizedBox(height: 24),
+const Divider(),
+const SizedBox(height: 16),
 
+const Text(
+  'Wi-Fi Yapılandırma',
+  style: TextStyle(
+    fontSize: 20,
+    fontWeight: FontWeight.bold,
+  ),
+),
+
+const SizedBox(height: 16),
+
+TextField(
+  controller: _ssidController,
+  decoration: const InputDecoration(
+    labelText: 'Wi-Fi SSID',
+    border: OutlineInputBorder(),
+  ),
+),
+
+const SizedBox(height: 12),
+
+TextField(
+  controller: _passwordController,
+  obscureText: true,
+  decoration: const InputDecoration(
+    labelText: 'Wi-Fi Şifresi',
+    border: OutlineInputBorder(),
+  ),
+),
+
+const SizedBox(height: 16),
+
+ListenableBuilder(
+  listenable: _ble,
+  builder: (context, child) {
+    return FilledButton(
+      onPressed: _ble.isConnected &&
+              !_ble.connecting &&
+              !_activating &&
+              !_savingWifiConfig
+          ? _saveWifiConfig
+          : null,
+      child: Text(
+        _savingWifiConfig
+            ? 'Kaydediliyor...'
+            : 'Wi-Fi Bilgilerini Kaydet',
+      ),
+    );
+  },
+),
+
+const SizedBox(height: 24),
           Text(_status),
         ],
       ),
@@ -390,6 +448,40 @@ Future<void> _activateWifiLicense() async {
     if (mounted) {
       setState(() {
         _activating = false;
+      });
+    }
+  }
+}
+Future<void> _saveWifiConfig() async {
+  if (_savingWifiConfig) return;
+
+  setState(() {
+    _savingWifiConfig = true;
+  });
+
+  try {
+    final result = await _ble.saveWifiConfig(
+      _ssidController.text,
+      _passwordController.text,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _status = result
+          ? 'Wi-Fi bilgileri kaydedildi.'
+          : 'Wi-Fi yapılandırması reddedildi.';
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      _status = 'Wi-Fi kayıt hatası: $e';
+    });
+  } finally {
+    if (mounted) {
+      setState(() {
+        _savingWifiConfig = false;
       });
     }
   }

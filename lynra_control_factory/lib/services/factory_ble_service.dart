@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -382,6 +382,57 @@ Future<bool> activateWifiLicense(String code) async {
 
   if (data.length != 1 || data[0] > 1) {
     throw const FormatException('Geçersiz aktivasyon cevabı.');
+  }
+
+  return data[0] == 1;
+}
+Future<bool> saveWifiConfig(
+  String ssid,
+  String password,
+) async {
+  if (!isConnected) {
+    throw StateError('Cihaz bağlı değil.');
+  }
+
+  final ssidBytes = utf8.encode(ssid);
+  final passwordBytes = utf8.encode(password);
+
+  if (ssidBytes.isEmpty || ssidBytes.length > 32) {
+    throw const FormatException(
+      'SSID 1-32 byte olmalıdır.',
+    );
+  }
+
+  if (passwordBytes.length > 63) {
+    throw const FormatException(
+      'Şifre en fazla 63 byte olabilir.',
+    );
+  }
+
+  if (ssidBytes.contains(0) ||
+      passwordBytes.contains(0)) {
+    throw const FormatException(
+      'Geçersiz karakter.',
+    );
+  }
+
+  final payload = <int>[
+    ssidBytes.length,
+    passwordBytes.length,
+    ...ssidBytes,
+    ...passwordBytes,
+  ];
+
+  final data = await request(
+    0x68,
+    0x69,
+    payload,
+  );
+
+  if (data.length != 1 || data[0] > 1) {
+    throw const FormatException(
+      'Geçersiz Wi-Fi yapılandırma cevabı.',
+    );
   }
 
   return data[0] == 1;
