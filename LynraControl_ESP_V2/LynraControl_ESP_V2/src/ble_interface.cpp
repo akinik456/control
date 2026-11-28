@@ -479,6 +479,20 @@ if (type == 0x68)
     unlockAccess();
     return;
 }
+// WiFi connection status
+if (type == 0x6A)
+{
+    if (value.size() == 27 && !DeviceApi::programActive())
+    {
+        const uint8_t status = DeviceApi::readWifiState();
+
+        sendReadFrame(0x6B, seq, &status, 1);
+    }
+
+    unlockAccess();
+    return;
+}
+
         if (type == 0x44)
         {
             if (!DeviceApi::programActive() && value.size() == 29)

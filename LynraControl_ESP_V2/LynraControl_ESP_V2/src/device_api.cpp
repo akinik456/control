@@ -42,6 +42,10 @@ namespace DeviceApi
 		{
 				return DeviceLicense_IsWifiEnabled();
 		}
+		uint8_t readWifiState()
+{
+    return static_cast<uint8_t>(wifiInterfaceGetState());
+}
     uint8_t getState()
     {
         return plcGetStatus();

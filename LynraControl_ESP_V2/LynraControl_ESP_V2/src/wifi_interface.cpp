@@ -12,6 +12,7 @@ namespace
 {
 std::atomic<bool> wifiTaskStarted{false};
 std::atomic<bool> wifiConfigChanged{false};
+std::atomic<WifiState> wifiState{WifiState::Disabled};
     void wifiTask(void *parameter)
     {
  
@@ -20,6 +21,7 @@ WifiConfig config{};
 if (!WifiConfig_Load(config))
 {
     Serial.println("[WIFI] NOT CONFIGURED");
+		wifiState = WifiState::NotConfigured;
     wifiTaskStarted = false;
     vTaskDelete(nullptr);
     return;
@@ -46,7 +48,8 @@ WiFi.begin(config.ssid, config.password);
             strcmp(config.password, newConfig.password) != 0)
         {
             Serial.println("[WIFI] CONFIG CHANGED");
-
+wifiState = WifiState::Connecting;
+FirebaseLivePublisher_ResetStatus();
             WiFi.setAutoReconnect(false);
             WiFi.disconnect(false, false);
 
@@ -106,10 +109,34 @@ WiFi.begin(config.ssid, config.password);
                 WiFi.reconnect();
             }
 						if (connected)
-						{
-								FirebaseSession_Poll();
-								FirebaseLivePublisher_Poll();
-						}
+{
+    if (FirebaseLivePublisher_IsHealthy())
+        wifiState = WifiState::CloudOnline;
+    else if (!FirebaseSession_IdToken().isEmpty())
+        wifiState = WifiState::FirebaseReady;
+    else
+        wifiState = WifiState::Connected;
+
+    FirebaseSession_Poll();
+    FirebaseLivePublisher_Poll();
+
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        FirebaseLivePublisher_ResetStatus();
+        wifiState = WifiState::Connecting;
+    }
+    else if (FirebaseLivePublisher_IsHealthy())
+        wifiState = WifiState::CloudOnline;
+    else if (!FirebaseSession_IdToken().isEmpty())
+        wifiState = WifiState::FirebaseReady;
+    else
+        wifiState = WifiState::Connected;
+}
+else
+{
+    FirebaseLivePublisher_ResetStatus();
+    wifiState = WifiState::Connecting;
+}
 
             vTaskDelay(pdMS_TO_TICKS(250));
 						
@@ -123,6 +150,7 @@ bool wifiInterfaceInit()
     if (!DeviceLicense_IsWifiEnabled())
     {
         Serial.println("[WIFI] DISABLED BY LICENSE");
+				wifiState = WifiState::Disabled;
         return true;
     }
 
@@ -134,14 +162,19 @@ bool wifiInterfaceInit()
     if (!WifiConfig_Load(config))
     {
         Serial.println("[WIFI] NOT CONFIGURED");
+				wifiState = WifiState::NotConfigured;
         return true;
     }
 
     bool expected = false;
 
     if (!wifiTaskStarted.compare_exchange_strong(
-            expected, true))
-        return true;
+        expected, true))
+{
+    return true;
+}
+
+wifiState = WifiState::Connecting;
 
     if (xTaskCreate(
             wifiTask,
@@ -152,6 +185,7 @@ bool wifiInterfaceInit()
             nullptr) != pdPASS)
     {
         wifiTaskStarted = false;
+				wifiState = WifiState::TaskError;
         return false;
     }
 
@@ -160,4 +194,8 @@ bool wifiInterfaceInit()
 void wifiInterfaceConfigChanged()
 {
     wifiConfigChanged = true;
+}
+WifiState wifiInterfaceGetState()
+{
+    return wifiState.load();
 }

@@ -16,6 +16,7 @@ struct DeviceInfo {
 bool readInfo(DeviceInfo &info);
 bool readPairingCode(char *dest, size_t capacity);
 bool readWifiLicense();
+uint8_t readWifiState();
 bool activateWifiLicense(
     DeviceAccess::Channel channel,
     const char *code);

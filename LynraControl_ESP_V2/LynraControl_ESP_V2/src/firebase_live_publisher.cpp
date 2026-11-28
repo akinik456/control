@@ -13,6 +13,8 @@ namespace
 {
     constexpr uint32_t PUBLISH_INTERVAL = 5000;
     uint32_t lastPublish = 0;
+		bool publishSuccess = false;
+uint32_t lastSuccess = 0;
 }
 
 void FirebaseLivePublisher_Poll()
@@ -61,7 +63,10 @@ void FirebaseLivePublisher_Poll()
     HTTPClient http;
 
     if (!http.begin(client, url))
-        return;
+{
+    publishSuccess = false;
+    return;
+}
 
     http.setConnectTimeout(5000);
     http.setTimeout(5000);
@@ -69,6 +74,10 @@ void FirebaseLivePublisher_Poll()
     http.addHeader("Content-Type", "application/json");
 
     const int httpCode = http.PATCH(body);
+		publishSuccess = (httpCode == 200);
+
+if (publishSuccess)
+    lastSuccess = millis();
 
     Serial.printf(
         "[LIVE CLOUD] HTTP=%d STATE=%u IN=%08lX OUT=%08lX\n",
@@ -78,4 +87,15 @@ void FirebaseLivePublisher_Poll()
         (unsigned long)snapshot.outputs);
 
     http.end();
+}
+bool FirebaseLivePublisher_IsHealthy()
+{
+    return publishSuccess &&
+           (millis() - lastSuccess < 15000UL);
+}
+
+void FirebaseLivePublisher_ResetStatus()
+{
+    publishSuccess = false;
+    lastSuccess = 0;
 }

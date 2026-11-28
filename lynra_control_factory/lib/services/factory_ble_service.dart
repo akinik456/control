@@ -14,6 +14,17 @@ class FactoryBleService extends ChangeNotifier {
   static const String notifyUuid =
       '8d21a102-64c2-4c3a-9d1e-123456789abc';
 
+  bool get busy => _pendingResponse != null;
+
+  Future<int> readWifiState() async {
+    if (!isConnected) throw StateError('Cihaz bağlı değil.');
+    final data = await request(0x6A, 0x6B, []);
+    if (data.length != 1 || data[0] > 6) {
+      throw const FormatException('Geçersiz Wi-Fi durumu.');
+    }
+    return data[0];
+  }
+
   int _nextSeq = 1;
 bool scanning = false;
 bool connecting = false;

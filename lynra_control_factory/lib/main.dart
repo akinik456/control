@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:pointycastle/export.dart'
@@ -20,6 +21,8 @@ class FactoryApp extends StatelessWidget {
       theme: ThemeData(
         colorSchemeSeed: Colors.blue,
         useMaterial3: true,
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       home: const FactoryPage(),
     );
@@ -69,6 +72,8 @@ final _ble = FactoryBleService();
 void initState() {
   super.initState();
   _loadKeys();
+  _ble.addListener(_connectionChanged);
+  _wifiTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollWifi());
 }
 
 void _loadKeys() {
@@ -99,6 +104,8 @@ String _activationCode = '';
 
 @override
 void dispose() {
+  _wifiTimer?.cancel();
+  _ble.removeListener(_connectionChanged);
   _ble.dispose();
   _deviceIdController.dispose();
 _ssidController.dispose();
@@ -139,240 +146,166 @@ void _generateActivationCode() {
     });
   }
 }
+  Timer? _wifiTimer;
+  int? _wifiState;
+  bool _polling = false;
+  bool _reading = false;
+  int _connectionGeneration = 0;
+  bool _wasConnected = false;
+
+  void _connectionChanged() {
+    if (_wasConnected != _ble.isConnected) {
+      _wasConnected = _ble.isConnected;
+      _connectionGeneration++;
+      if (mounted) setState(() => _wifiState = null);
+    }
+  }
+
+  Future<void> _pollWifi() async {
+    if (!mounted || !_ble.isConnected || _ble.connecting ||
+        _ble.busy || _polling || _reading || _activating || _savingWifiConfig) return;
+    final generation = _connectionGeneration;
+    setState(() => _polling = true);
+    try {
+      final value = await _ble.readWifiState();
+      if (mounted && generation == _connectionGeneration && _ble.isConnected) {
+        setState(() => _wifiState = value);
+      }
+    } catch (_) {
+      if (mounted && generation == _connectionGeneration) {
+        setState(() => _wifiState = null);
+      }
+    } finally {
+      if (mounted) setState(() => _polling = false);
+    }
+  }
+
+  String get _wifiLabel {
+    if (!_ble.isConnected) return 'BLE bağlı değil';
+    return switch (_wifiState) {
+      0 => 'Wi-Fi lisansı yok',
+      1 => 'Wi-Fi yapılandırılmamış',
+      2 => 'Bağlanıyor / yeniden bağlanıyor',
+      3 => 'Wi-Fi bağlı',
+      4 => 'Firebase oturum bilgisi hazır',
+      5 => 'Bulut çevrimiçi',
+      6 => 'Wi-Fi task hatası',
+      _ => 'Durum bekleniyor / okunamadı',
+    };
+  }
+
+  InputDecoration _field(String label) => InputDecoration(
+    labelText: label, isDense: true,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    border: const OutlineInputBorder(),
+  );
+
   @override
   Widget build(BuildContext context) {
     final ready = _privateKey != null && _publicKey != null;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('LynraControl Factory'),
-      ),
-      body: Center(
-  child: SingleChildScrollView(
-    padding: const EdgeInsets.all(24),
-    child: SizedBox(
-      width: 600,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-					ListenableBuilder(
-  listenable: _ble,
-  builder: (context, child) {
-    return Column(
-      children: [
-        FilledButton.icon(
-          onPressed: _ble.scanning ||
-                  _ble.connecting ||
-                  _ble.isConnected
-              ? null
-              : _ble.scan,
-          icon: const Icon(Icons.bluetooth_searching),
-          label: Text(
-            _ble.scanning
-                ? 'Taranıyor...'
-                : 'Cihazları Tara',
+      appBar: AppBar(title: const Text('LynraControl Factory'), toolbarHeight: 48),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: SizedBox(
+            width: 600,
+            child: ListenableBuilder(
+              listenable: _ble,
+              builder: (context, child) {
+                final idle = !_polling && !_reading && !_activating && !_savingWifiConfig && !_ble.busy;
+                final canRead = _ble.isConnected && !_ble.connecting && idle;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Wrap(spacing: 8, runSpacing: 4, children: [
+                      FilledButton.icon(
+                        onPressed: _ble.scanning || _ble.connecting || _ble.isConnected ? null : _ble.scan,
+                        icon: const Icon(Icons.bluetooth_searching),
+                        label: Text(_ble.scanning ? 'Taranıyor...' : 'Cihazları Tara'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _ble.scanning || _ble.connecting || _ble.selectedDevice == null || !idle
+                          ? null : _ble.isConnected ? _ble.disconnect : _ble.connect,
+                        icon: Icon(_ble.isConnected ? Icons.bluetooth_disabled : Icons.bluetooth_connected),
+                        label: Text(_ble.connecting ? 'Bekleyiniz...' : _ble.isConnected ? 'Bağlantıyı Kes' : 'Bağlan'),
+                      ),
+                    ]),
+                    if (_ble.scanning) const LinearProgressIndicator(),
+                    ..._ble.devices.map((result) {
+                      final device = result.device;
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 2),
+                        child: ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(Icons.bluetooth),
+                          title: const Text('LynraControl'),
+                          subtitle: Text(device.remoteId.toString()),
+                          trailing: Text('${result.rssi} dBm'),
+                          selected: _ble.selectedDevice?.remoteId == device.remoteId,
+                          onTap: _ble.connecting || _ble.isConnected ? null : () => _ble.selectDevice(device),
+                        ),
+                      );
+                    }),
+                    Text(_ble.status),
+                    Wrap(spacing: 8, runSpacing: 4, children: [
+                      FilledButton(onPressed: canRead ? _readDeviceId : null, child: const Text('Cihaz Kimliğini Oku')),
+                      FilledButton(onPressed: canRead ? _readWifiLicense : null, child: const Text('Wi-Fi Lisans Durumunu Oku')),
+                    ]),
+                    const Divider(height: 12),
+                    Align(alignment: Alignment.centerLeft, child: FilledButton(
+                      onPressed: ready || _activating ? null : _generateKeys,
+                      child: const Text('Anahtar Çifti Oluştur'),
+                    )),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _deviceIdController, maxLength: 12,
+                      enabled: !_activating,
+                      onChanged: (_) => setState(() => _activationCode = ''),
+                      decoration: _field('Cihaz Kimliği').copyWith(hintText: '12 karakter HEX', counterText: ''),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(spacing: 8, runSpacing: 4, children: [
+                      FilledButton(onPressed: ready && !_activating ? _generateActivationCode : null,
+                        child: const Text('Aktivasyon Kodu Üret')),
+                      FilledButton(onPressed: canRead && _activationCode.isNotEmpty ? _activateWifiLicense : null,
+                        child: Text(_activating ? 'Aktivasyon yapılıyor...' : 'Wi-Fi Lisansını Aktive Et')),
+                    ]),
+                    if (_activationCode.isNotEmpty) SelectableText(_activationCode),
+                    const Divider(height: 12),
+                    const Text('Wi-Fi Yapılandırma', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    TextField(controller: _ssidController, decoration: _field('Wi-Fi SSID')),
+                    const SizedBox(height: 6),
+                    TextField(controller: _passwordController, obscureText: true, decoration: _field('Wi-Fi Şifresi')),
+                    const SizedBox(height: 4),
+                    Align(alignment: Alignment.centerLeft, child: FilledButton(
+                      onPressed: canRead ? _saveWifiConfig : null,
+                      child: Text(_savingWifiConfig ? 'Kaydediliyor...' : 'Wi-Fi Bilgilerini Kaydet'),
+                    )),
+                    Row(children: [
+                      Icon(_wifiState == 5 ? Icons.cloud_done : Icons.cloud_off,
+                        color: _wifiState == 5 ? Colors.green : null, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_wifiLabel)),
+                    ]),
+                    const Divider(height: 12),
+                    Text(_status),
+                  ],
+                );
+              },
+            ),
           ),
         ),
-
-        const SizedBox(height: 12),
-
-        if (_ble.scanning)
-          const LinearProgressIndicator(),
-
-        ..._ble.devices.map((result) {
-          final device = result.device;
-
-          return Card(
-            child: ListTile(
-              leading: const Icon(Icons.bluetooth),
-              title: const Text('LynraControl'),
-              subtitle: Text(
-                device.remoteId.toString(),
-              ),
-              trailing: Text('${result.rssi} dBm'),
-              selected: _ble.selectedDevice?.remoteId ==
-                  device.remoteId,
-              onTap: _ble.connecting || _ble.isConnected
-    ? null
-    : () => _ble.selectDevice(device),
-            ),
-          );
-        }),
-
-        const SizedBox(height: 8),
-const SizedBox(height: 12),
-
-FilledButton.icon(
-  onPressed: _ble.scanning ||
-          _ble.connecting ||
-          _ble.selectedDevice == null
-      ? null
-      : _ble.isConnected
-          ? _ble.disconnect
-          : _ble.connect,
-
-  icon: Icon(
-    _ble.isConnected
-        ? Icons.bluetooth_disabled
-        : Icons.bluetooth_connected,
-  ),
-
-  label: Text(
-    _ble.connecting
-        ? 'Bekleyiniz...'
-        : _ble.isConnected
-            ? 'Bağlantıyı Kes'
-            : 'Bağlan',
-  ),
-),
-
-const SizedBox(height: 8),
-        Text(_ble.status),
-				const SizedBox(height: 12),
-
-FilledButton(
-  onPressed: _ble.isConnected && !_ble.connecting
-      ? _readDeviceId
-      : null,
-  child: const Text('Cihaz Kimliğini Oku'),
-),
-const SizedBox(height: 8),
-
-FilledButton(
-  onPressed: _ble.isConnected && !_ble.connecting
-      ? _readWifiLicense
-      : null,
-  child: const Text('Wi-Fi Lisans Durumunu Oku'),
-),				
-      ],
-    );
-  },
-),
-
-const SizedBox(height: 16),
-const Divider(),
-const SizedBox(height: 16),
-          FilledButton(
-            onPressed: ready ? null : _generateKeys,
-            child: const Text('Anahtar Çifti Oluştur'),
-          ),
-
-          const SizedBox(height: 24),
-
-          TextField(
-            controller: _deviceIdController,
-            maxLength: 12,
-            onChanged: (_) {
-              setState(() {
-                _activationCode = '';
-              });
-            },
-            decoration: const InputDecoration(
-              labelText: 'Cihaz Kimliği',
-              hintText: '12 karakter HEX',
-              border: OutlineInputBorder(),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          FilledButton(
-            onPressed: ready ? _generateActivationCode : null,
-            child: const Text('Wi-Fi Aktivasyon Kodu Üret'),
-          ),
-
-          const SizedBox(height: 24),
-
-          if (_activationCode.isNotEmpty)
-            SelectableText(
-              _activationCode,
-              textAlign: TextAlign.center,
-            ),
-const SizedBox(height: 16),
-
-ListenableBuilder(
-  listenable: _ble,
-  builder: (context, child) {
-    return FilledButton(
-      onPressed: _ble.isConnected &&
-              !_ble.connecting &&
-              !_activating &&
-              _activationCode.isNotEmpty
-          ? _activateWifiLicense
-          : null,
-      child: Text(
-        _activating
-            ? 'Aktivasyon yapılıyor...'
-            : 'Wi-Fi Lisansını Aktive Et',
       ),
-    );
-  },
-),
-          const SizedBox(height: 24),
-const Divider(),
-const SizedBox(height: 16),
-
-const Text(
-  'Wi-Fi Yapılandırma',
-  style: TextStyle(
-    fontSize: 20,
-    fontWeight: FontWeight.bold,
-  ),
-),
-
-const SizedBox(height: 16),
-
-TextField(
-  controller: _ssidController,
-  decoration: const InputDecoration(
-    labelText: 'Wi-Fi SSID',
-    border: OutlineInputBorder(),
-  ),
-),
-
-const SizedBox(height: 12),
-
-TextField(
-  controller: _passwordController,
-  obscureText: true,
-  decoration: const InputDecoration(
-    labelText: 'Wi-Fi Şifresi',
-    border: OutlineInputBorder(),
-  ),
-),
-
-const SizedBox(height: 16),
-
-ListenableBuilder(
-  listenable: _ble,
-  builder: (context, child) {
-    return FilledButton(
-      onPressed: _ble.isConnected &&
-              !_ble.connecting &&
-              !_activating &&
-              !_savingWifiConfig
-          ? _saveWifiConfig
-          : null,
-      child: Text(
-        _savingWifiConfig
-            ? 'Kaydediliyor...'
-            : 'Wi-Fi Bilgilerini Kaydet',
-      ),
-    );
-  },
-),
-
-const SizedBox(height: 24),
-          Text(_status),
-        ],
-      ),
-    ),
-  ),
-),
     );
   }
-	
+
 Future<void> _readDeviceId() async {
+  if (_reading || _polling || _ble.busy) return;
+  setState(() => _reading = true);
   try {
     final id = await _ble.readDeviceId();
 
@@ -389,9 +322,13 @@ Future<void> _readDeviceId() async {
     setState(() {
       _status = 'Cihaz kimliği okuma hatası: $e';
     });
+  } finally {
+    if (mounted) setState(() => _reading = false);
   }
 }	
 Future<void> _readWifiLicense() async {
+  if (_reading || _polling || _ble.busy) return;
+  setState(() => _reading = true);
   try {
     final enabled = await _ble.readWifiLicense();
 
@@ -408,6 +345,8 @@ Future<void> _readWifiLicense() async {
     setState(() {
       _status = 'Lisans okuma hatası: $e';
     });
+  } finally {
+    if (mounted) setState(() => _reading = false);
   }
 }
 bool _activating = false;
