@@ -10,6 +10,9 @@
 #include "wifi_interface.h"
 #include "device_identity.h"
 #include "device_license.h"
+#include <Preferences.h>
+
+
 //n0EwCOBq3qxRUke0hq8fiZ4vYc-E4-aGofN7Zl4p-V4eLHCD50c_nY-aSJ5DUBIKGRd30Top5s2FQ7JuHVy5Mw
 
 // Temporary heap buffer: avoid both static DRAM overflow and task stack overflow.

@@ -379,6 +379,60 @@ static void processPacket(const std::string& value)
 						unlockAccess();
 						return;
 				}
+				// Device ID
+if (type == 0x62)
+{
+    if (value.size() == 27 && !DeviceApi::programActive())
+    {
+        DeviceApi::DeviceInfo info{};
+
+        if (DeviceApi::readInfo(info))
+            sendReadFrame(0x63, seq, info.deviceId, 6);
+    }
+
+    unlockAccess();
+    return;
+}
+
+// WiFi license status
+if (type == 0x64)
+{
+    if (value.size() == 27 && !DeviceApi::programActive())
+    {
+        uint8_t status =
+            DeviceApi::readWifiLicense() ? 1 : 0;
+
+        sendReadFrame(0x65, seq, &status, 1);
+    }
+
+    unlockAccess();
+    return;
+}
+
+// WiFi license activation
+if (type == 0x66)
+{
+    uint8_t result = 0;
+
+    if (value.size() == 113 && !DeviceApi::programActive())
+    {
+        char code[87] = {};
+
+        memcpy(code, data + 23, 86);
+
+        if (DeviceApi::activateWifiLicense(BLE_CHANNEL, code))
+            result = 1;
+    }
+
+    Serial.printf(
+        "WIFI LICENSE ACTIVATION: %s\n",
+        result ? "OK" : "FAILED");
+
+    sendReadFrame(0x67, seq, &result, 1);
+
+    unlockAccess();
+    return;
+}
         if (type == 0x44)
         {
             if (!DeviceApi::programActive() && value.size() == 29)

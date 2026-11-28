@@ -15,6 +15,10 @@ struct DeviceInfo {
 };
 bool readInfo(DeviceInfo &info);
 bool readPairingCode(char *dest, size_t capacity);
+bool readWifiLicense();
+bool activateWifiLicense(
+    DeviceAccess::Channel channel,
+    const char *code);
 struct IoSnapshot {
     uint32_t inputs;
     uint32_t outputs;

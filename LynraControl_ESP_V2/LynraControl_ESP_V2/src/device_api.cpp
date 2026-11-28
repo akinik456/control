@@ -8,6 +8,7 @@
 #include <ArduinoJson.h>
 #include <string.h>
 #include "device_identity.h"
+#include "device_license.h"
 
 namespace DeviceApi
 {
@@ -34,6 +35,10 @@ namespace DeviceApi
 
 				memcpy(dest, code.c_str(), 20);
 				return true;
+		}
+		bool readWifiLicense()
+		{
+				return DeviceLicense_IsWifiEnabled();
 		}
     uint8_t getState()
     {
@@ -74,6 +79,22 @@ namespace DeviceApi
                 DeviceAccess::give();
         }
     };
+		bool activateWifiLicense(Channel channel, const char *code)
+		{
+				Guard g;
+
+				if (!g.held)
+						return false;
+
+				if (channel != Channel::Ble &&
+						channel != Channel::Serial)
+						return false;
+
+				if (DeviceAccess::currentLock() != DeviceAccess::Lock::None)
+						return false;
+
+				return DeviceLicense_SaveWifiCode(code);
+		}
     bool run(Channel channel)
     {
         Guard g;
